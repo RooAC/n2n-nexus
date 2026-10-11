@@ -4,6 +4,8 @@ Thanks for helping improve n2n-nexus.
 
 ## Development Setup
 
+Use Node.js 24, matching CI and the lint toolchain. The published runtime requires Node.js 22.14+ on the 22.x release line, or Node.js 23.6+.
+
 ```bash
 npm install
 npm run build

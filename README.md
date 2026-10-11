@@ -66,6 +66,8 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 
 ## 🚀 Quick start
 
+Requires Node.js 22.14+ on the 22.x release line, or Node.js 23.6+.
+
 ### 1. Start the daemon
 
 ```bash
@@ -203,6 +205,8 @@ What to look for in the session:
 | [Meeting Minutes](docs/MEETING_MINUTES_2025-12-29.md) | The structured output: participants, key decisions, test results, and action items |
 
 ## 🔧 Local development
+
+Use Node.js 24 for development, matching CI and the lint toolchain.
 
 ```bash
 git clone https://github.com/n2ns/n2n-nexus.git

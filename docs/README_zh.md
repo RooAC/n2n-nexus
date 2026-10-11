@@ -75,6 +75,8 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 
 ## 快速开始
 
+运行环境要求 Node.js 22.x 中的 22.14.0 或更高版本，或 Node.js 23.6.0 及以上版本。
+
 ### 1. 启动 daemon
 
 ```bash
@@ -229,6 +231,8 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | [讨论日志](./discussion_2025-12-29.md) | 可读的讨论记录 |
 
 ## 本地开发
+
+开发请使用 Node.js 24，与 CI 和 lint 工具链保持一致。
 
 ```bash
 git clone https://github.com/n2ns/n2n-nexus.git

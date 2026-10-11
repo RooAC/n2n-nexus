@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Require Node.js 22.14+ on the 22.x release line, or Node.js 23.6+ and update MCP SDK, SQLite, and test dependencies to their latest compatible stable releases.
+
 ## [0.5.0] - 2026-06-14
 
 ### 🏗️ Daemon + MCP Architecture (Breaking Refactor)
