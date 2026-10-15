@@ -60,6 +60,9 @@ export async function importLegacyDiscussion(): Promise<number> {
     return imported;
 }
 
+/** Title 0.5.0's update_global_strategy gave the doc it wrote; a user doc with another title is left alone. */
+export const LEGACY_STRATEGY_TITLE = "Global Collaboration Strategy";
+
 /**
  * 0.5.0's update_global_strategy saved the strategy as the global doc
  * "strategy"; it now lives in global/blueprint.md. Move it there unless the
@@ -67,7 +70,7 @@ export async function importLegacyDiscussion(): Promise<number> {
  */
 export async function importLegacyStrategy(): Promise<boolean> {
     const docs = await DocStorage.listDocs();
-    if (!docs.strategy) return false;
+    if (docs.strategy?.title !== LEGACY_STRATEGY_TITLE) return false;
     const legacy = await DocStorage.getDoc("strategy");
     const current = await DocStorage.getBlueprint();
     if (legacy && (!current || current === BLUEPRINT_PLACEHOLDER)) {

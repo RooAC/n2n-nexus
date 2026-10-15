@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { importLegacyDiscussion, importLegacyStrategy } from "../src/storage/migrations.js";
+import { importLegacyDiscussion, importLegacyStrategy, LEGACY_STRATEGY_TITLE } from "../src/storage/migrations.js";
 import { GlobalMessageStore } from "../src/storage/global-messages.js";
 import { DocStorage } from "../src/storage/docs.js";
 import { BLUEPRINT_PLACEHOLDER } from "../src/storage/index.js";
@@ -49,14 +49,19 @@ describe("Legacy data migrations", () => {
 
     it("moves the legacy 'strategy' global doc into blueprint.md unless a real blueprint exists", async () => {
         await DocStorage.saveBlueprint(BLUEPRINT_PLACEHOLDER);
-        await DocStorage.saveDoc("strategy", "Global Collaboration Strategy", "# Real strategy", "ide-a");
+        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Real strategy", "ide-a");
         expect(await importLegacyStrategy()).toBe(true);
         expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
         expect((await DocStorage.listDocs()).strategy).toBeUndefined();
 
-        await DocStorage.saveDoc("strategy", "Old", "# Older strategy", "ide-a");
+        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Older strategy", "ide-a");
         expect(await importLegacyStrategy()).toBe(true);
         expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
         expect((await DocStorage.listDocs()).strategy).toBeUndefined();
+
+        // A doc a user created under the same id with their own title is not a legacy artifact.
+        await DocStorage.saveDoc("strategy", "Team strategy notes", "# Mine", "ide-b");
+        expect(await importLegacyStrategy()).toBe(false);
+        expect((await DocStorage.listDocs()).strategy?.title).toBe("Team strategy notes");
     });
 });
