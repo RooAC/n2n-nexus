@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- When the daemon reported a tool as unknown (for example after an upgrade the adapter did not notice), the adapter returned `-32602` but kept offering the tool in `tools/list`. It now re-fetches the tool list and sends `list_changed` if it differs.
+
 - The adapter fetched the daemon tool list before it began reading stdin. A daemon that accepted connections but never answered held `server/discover` and `initialize` for the 5-second client timeout, long enough for probing clients to misclassify the server as legacy, and delayed exit after stdin closed. The adapter now serves immediately and fetches in the background.
 
 - On 2026-07-28 connections, a request without `io.modelcontextprotocol/clientInfo` (only a SHOULD in the spec) got an instance ID without the IDE name, so one client could appear as two instances with split unread cursors and meeting permissions. The adapter now keeps the first client name seen on the connection.

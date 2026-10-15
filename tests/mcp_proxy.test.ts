@@ -186,3 +186,36 @@ describe("MCP proxy with a daemon that accepts connections but never answers", (
         await new Promise((r) => hung.close(r));
     });
 });
+
+describe("MCP proxy when the daemon drops a tool", () => {
+    it("re-syncs its tool list and notifies the client", async () => {
+        const http = await import("node:http");
+        const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object", properties: {} } });
+        let tools = [tool("old_tool"), tool("kept_tool")];
+        const fake = http.createServer((req, res) => {
+            const send = (status: number, body: unknown) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
+            if (req.url === "/api/tools") return send(200, { tools });
+            req.resume();
+            req.on("end", () => send(404, { ok: false, error: "Unknown tool: 'old_tool'" }));
+        });
+        await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${(fake.address() as import("node:net").AddressInfo).port}`;
+        process.env.NEXUS_INSTANCE_ID = "drop-test";
+
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await new NexusServer().run({ transport: serverSide });
+        const client = new Client({ name: "ide", version: "1" });
+        let changed = 0;
+        client.setNotificationHandler("notifications/tools/list_changed", () => { changed++; });
+        await client.connect(clientSide);
+        expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["old_tool", "kept_tool"]);
+
+        tools = [tool("kept_tool")]; // daemon upgraded without the proxy noticing
+        await expect(client.callTool({ name: "old_tool", arguments: {} })).rejects.toMatchObject({ code: -32602 });
+        expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["kept_tool"]);
+        expect(changed).toBeGreaterThan(0);
+
+        await client.close();
+        await new Promise((r) => fake.close(r));
+    });
+});

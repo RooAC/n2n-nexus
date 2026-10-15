@@ -100,8 +100,11 @@ export class NexusServer {
                 };
             } catch (e) {
                 const message = e instanceof Error ? e.message : String(e);
-                // The daemon dropped the tool since the list was fetched.
-                if (e instanceof NexusToolError && e.status === 404) throw unknownTool();
+                // The daemon dropped the tool since the list was fetched: resync so tools/list stops offering it.
+                if (e instanceof NexusToolError && e.status === 404) {
+                    await this.refreshTools();
+                    throw unknownTool();
+                }
                 if (!(e instanceof NexusTransportError)) {
                     // The daemon answered; the tool itself failed. Keep the tool list.
                     return { content: [{ type: "text", text: message }], isError: true };
@@ -127,6 +130,18 @@ export class NexusServer {
     /** Delivered unsolicited on 2025-era connections and via subscriptions/listen on 2026-07-28 ones. */
     private async notifyToolsChanged(): Promise<void> {
         await this.server?.sendToolListChanged().catch(() => { });
+    }
+
+    /** Re-fetch the daemon's tool list; notify the client if it changed. */
+    private async refreshTools(): Promise<void> {
+        try {
+            const tools = await this.client.fetchTools() as unknown as Tool[];
+            const before = JSON.stringify(this.cachedTools);
+            this.cachedTools = tools;
+            if (JSON.stringify(tools) !== before) await this.notifyToolsChanged();
+        } catch {
+            // Transport trouble is handled by the next call; keep the current list.
+        }
     }
 
     private async tryConnect(): Promise<boolean> {
