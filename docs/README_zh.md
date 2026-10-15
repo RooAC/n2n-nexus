@@ -42,7 +42,7 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 - **安装**：`npx n2n-nexus daemon --port 5688`
 - **协议**：Model Context Protocol (MCP)，适配器通过 HTTP 连接 daemon
 - **存储**：默认在 `~/.n2n-nexus` 下使用本地文件和 SQLite
-- **适合**：多助手编码会话、项目交接、共享决策、会议记录、异步任务、项目 Manifest
+- **适合**：多助手编码会话、项目交接、共享决策、会议记录、任务跟踪、项目 Manifest
 - **不适合**：云端团队聊天、公开项目管理 SaaS、源码索引、向量搜索或远程数据库托管
 
 ## 为什么使用它？
@@ -128,7 +128,8 @@ npx n2n-nexus daemon --port 5688
 ### 消息和协作
 
 - `send_message`：发送会议消息或全局消息。
-- `read_messages`：增量读取未读消息。
+- `read_messages`：增量读取未读消息（全局或指定会议）。
+- `list_events`：读取结构化活动日志（项目同步、重命名、会议结束等）。
 - `update_global_strategy`：更新主策略文档。
 - `sync_global_doc`：创建或更新共享文档。
 
@@ -139,16 +140,16 @@ npx n2n-nexus daemon --port 5688
 - `archive_meeting`：归档已关闭会议。
 - `reopen_meeting`：重新打开已关闭或已归档会议。
 
-### 异步任务管理
+### 任务管理
 
-- `create_task`：创建后台任务。
+- `create_task`：创建由助手自行管理的任务。
 - `get_task`：查询任务状态和结果。
 - `list_tasks`：按状态列出任务。
 - `cancel_task`：取消等待中或运行中的任务。
 
 ### 维护
 
-- `host_maintenance`：清理或清空系统日志。
+- `host_maintenance`：清理或清空全局聊天流。
 - `host_delete_project`：删除项目和资产。
 
 ## 数据存储

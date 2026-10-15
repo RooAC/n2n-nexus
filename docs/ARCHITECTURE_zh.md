@@ -60,7 +60,6 @@ MCP-A  MCP-B  MCP-C
 ~/.n2n-nexus/
 ├── global/
 │   ├── blueprint.md        # 主战略文档
-│   ├── discussion.json     # 全局聊天（JSON 回退）
 │   ├── docs_index.json     # 全局文档索引
 │   └── docs/               # 共享 Markdown 文档
 ├── projects/
@@ -69,12 +68,16 @@ MCP-A  MCP-B  MCP-C
 │       ├── internal_blueprint.md  # 内部技术文档
 │       └── assets/                # 二进制资产（图片、PDF）
 ├── registry.json           # 全局项目索引
-└── nexus.db                # SQLite 数据库（会议、任务、游标）
+└── nexus.db                # SQLite 数据库（会议、全局聊天、事件、任务、游标）
 ```
 
-**SQLite WAL 模式**：只有 daemon 进程直接写入 SQLite。MCP 进程通过 HTTP 间接访问，天然串行，无并发冲突。
+**SQLite WAL 模式**：只有 daemon 进程打开数据库。MCP 适配器不直接访问，全部经由 HTTP。
 
-**自我修复**：核心 JSON 文件（`registry.json`、`discussion.json`）在损坏或丢失时自动重建初始状态。
+**文件存储写入**：HTTP 请求是并发处理的，因此对 `registry.json`、manifest 和文档索引的每次修改都排在一把 daemon 级写锁后面，并以原子方式写入（临时文件 + rename）。
+
+**活动日志**：经由 daemon 发生的状态变更（项目同步/重命名/删除、会议开始/结束、文档同步等）以结构化事件记录在 SQLite 中，通过 `list_events` / `GET /api/events` 读取，不混入聊天流。
+
+**自我修复**：`registry.json` 在损坏或丢失时自动重建初始状态。
 
 ---
 
@@ -164,6 +167,7 @@ GET  /api/projects/topology
 ```
 POST /api/messages/send
 GET  /api/messages/unread
+GET  /api/events
 GET  /api/global/docs
 GET  /api/global/docs/:docId
 POST /api/global/docs/:docId

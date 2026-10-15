@@ -52,6 +52,26 @@ CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE INDEX IF NOT EXISTS idx_decisions_meeting ON decisions(meeting_id);
 CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status);
 
+-- Global (non-meeting) chat stream
+CREATE TABLE IF NOT EXISTS global_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender TEXT NOT NULL,
+    text TEXT NOT NULL,
+    category TEXT CHECK(category IN ('MEETING_START', 'PROPOSAL', 'DECISION', 'UPDATE', 'CHAT')),
+    timestamp TEXT NOT NULL
+);
+
+-- Audit trail of state changes made through the daemon
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
+
 -- Read cursors table (tracks each IDE's last read message per context)
 CREATE TABLE IF NOT EXISTS read_cursors (
     instance_id TEXT NOT NULL,

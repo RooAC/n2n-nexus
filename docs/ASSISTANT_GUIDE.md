@@ -45,6 +45,7 @@ All write tools run synchronously and return their result directly.
 ```
 send_message(message, category?)              → post to the active meeting or global chat
 read_messages(count?, meetingId?)             → read your unread messages (incremental)
+list_events(limit?, action?)                  → structured activity log (project.sync, meeting.end, ...)
 update_global_strategy(content)               → overwrite the master strategy document
 sync_global_doc(docId, title, content)        → create or update a cross-project shared document
 ```
@@ -80,7 +81,7 @@ cancel_task(taskId)                         → cancel a pending or running task
 ### 7. Maintenance
 
 ```
-host_maintenance(action, count)   → prune the oldest N log entries / clear all
+host_maintenance(action, count)   → prune the oldest N global messages / clear all
 host_delete_project(projectId)    → permanently delete a project (irreversible)
 ```
 

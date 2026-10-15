@@ -4,11 +4,18 @@
 
 ## [Unreleased]
 
+### 新增
+
+- `list_events` 工具与 `GET /api/events`：结构化活动日志（actor、action、target、detail），记录经由 daemon 发生的每次状态变更。
+
 ### 移除
 
 - 会议存储的 JSON 回退（`store.ts`、`meetings.ts`）与 `/api/storage/info` 端点。SQLite 为必需依赖，daemon 不再报告“degraded”存储模式。
 
 ### 变更
+
+- 全局聊天从 `global/discussion.json` 迁入 SQLite。不带 `meetingId` 的 `read_messages` 现在真正按实例增量读取（工具描述此前就这样承诺），追加不再重写整个文件，`host_maintenance` 会返回删除条数。
+- daemon 的状态变更（注册会话、项目同步/重命名/删除、会议结束等）记录为事件，不再以 `SYSTEM` 行写入全局聊天。
 
 - `sync_project_assets`、`update_project`、`rename_project`、`host_delete_project` 改为同步执行并直接返回结果，不再返回需轮询的 `task_id`。这些操作只需毫秒级时间，后台任务封装只多了一次轮询往返，还让写入与其他请求并发竞争。
 

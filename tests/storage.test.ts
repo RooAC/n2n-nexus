@@ -48,23 +48,6 @@ describe("StorageManager", () => {
         expect(retrieved?.name).toBe("Test Project");
     });
 
-    it("should add logs to global discussion", async () => {
-        await StorageManager.addGlobalLog("AI", "Hello World");
-        const logs = JSON.parse(await fs.readFile(StorageManager.globalDiscussion, "utf-8"));
-        expect(logs).toHaveLength(1);
-        expect(logs[0].text).toBe("Hello World");
-    });
-
-    it("should prune logs", async () => {
-        await StorageManager.addGlobalLog("A", "1");
-        await StorageManager.addGlobalLog("A", "2");
-        await StorageManager.addGlobalLog("A", "3");
-        await StorageManager.pruneGlobalLogs(1);
-        const logs = JSON.parse(await fs.readFile(StorageManager.globalDiscussion, "utf-8"));
-        expect(logs).toHaveLength(2);
-        expect(logs[0].text).toBe("2");
-    });
-
     it("should save and retrieve assets", async () => {
         const content = Buffer.from("fake-image-data");
         const relPath = await StorageManager.saveAsset("test-p", "logo.png", content);

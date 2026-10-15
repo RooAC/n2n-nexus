@@ -30,15 +30,15 @@ The daemon + MCP refactor is complete (v0.5.0). See `REFACTOR_PLAN.md` for the f
 `src/index.ts` routes to `runDaemon()` (`src/daemon/`) or `NexusServer().run()` (`src/server/nexus.ts`) based on the first CLI argument (`daemon` or default).
 
 ### Daemon (`src/daemon/`)
-`server.ts` — plain `http.Server` with all REST endpoints. Contains `TOOL_DEFINITIONS` (20 tools with JSON Schema), per-instance session map (`Map<instanceId, {currentProject}>`), and individual tool handler functions. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/maintenance endpoints.
+`server.ts` — plain `http.Server` with all REST endpoints. Contains `TOOL_DEFINITIONS` (22 tools with JSON Schema), per-instance session map (`Map<instanceId, {currentProject}>`), and individual tool handler functions. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/maintenance endpoints.
 
 ### MCP Server (`src/server/nexus.ts`)
 Pure stateless proxy. On startup: connects stdio transport, then tries `GET /api/tools`; if daemon unreachable, schedules 3-second retry loop. On connect: calls `server.sendToolListChanged()`. `CallTool` → `POST /api/tools/call`. No hardcoded tool names.
 
 ### Storage layer (`src/storage/`) — unchanged
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
-- `sqlite.ts` + `sqlite-meeting.ts` — SQLite with WAL mode for meetings, tasks, read cursors (SQLite is required; there is no JSON fallback)
-- `registry.ts` / `projects.ts` / `logs.ts` / `docs.ts` — JSON file-based storage for projects, global docs, logs
+- `sqlite.ts` + `sqlite-meeting.ts` / `global-messages.ts` / `events.ts` / `tasks.ts` — SQLite with WAL mode for meetings, global chat, the activity event log, tasks, read cursors (SQLite is required; there is no JSON fallback)
+- `registry.ts` / `projects.ts` / `docs.ts` — file-based storage for projects and global docs; all writes go through `fs-utils.ts` (daemon-wide write lock + atomic temp-file-and-rename)
 - `paths.ts` — all file paths derived from `getRootPath()` which reads `NEXUS_ROOT` env or `~/.n2n-nexus`
 
 Only the daemon process accesses SQLite directly. MCP processes go through HTTP.

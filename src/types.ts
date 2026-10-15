@@ -18,11 +18,24 @@ export interface ProjectManifest {
     feature_tier?: "standard" | "advanced" | "team"; // Capability level declaration for integration interoperability
 }
 
+export const MESSAGE_CATEGORIES = ["MEETING_START", "PROPOSAL", "DECISION", "UPDATE", "CHAT"] as const;
+export type MessageCategory = typeof MESSAGE_CATEGORIES[number];
+
 export interface DiscussionMessage {
     timestamp: string;
     from: string;
     text: string;
-    category?: "MEETING_START" | "PROPOSAL" | "DECISION" | "UPDATE" | "CHAT" | "message" | "SYSTEM";
+    category?: MessageCategory;
+}
+
+/** Structured record of a state change performed through the daemon. */
+export interface NexusEvent {
+    id: number;
+    timestamp: string;
+    actor: string;
+    action: string;        // dotted name, e.g. "project.sync", "meeting.end"
+    target?: string;       // project id, meeting id, doc id, ...
+    detail?: Record<string, unknown>;
 }
 
 // Meeting Architecture Types (Phase 1)

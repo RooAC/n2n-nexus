@@ -1,11 +1,10 @@
 import { promises as fs } from "fs";
-import { DiscussionMessage, ProjectManifest } from "../types.js";
+import { ProjectManifest } from "../types.js";
 import { FILE_ENCODING } from "../constants.js";
 
 import { NexusPaths } from "./paths.js";
 import { RegistryStorage } from "./registry.js";
 import { ProjectStorage } from "./projects.js";
-import { LogStorage } from "./logs.js";
 import { DocStorage } from "./docs.js";
 import { fileWriteLock, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
@@ -15,7 +14,6 @@ export class StorageManager {
     // --- Path Proxies (Backward Compatibility) ---
     static get globalDir() { return NexusPaths.globalDir; }
     static get globalBlueprint() { return NexusPaths.globalBlueprint; }
-    static get globalDiscussion() { return NexusPaths.globalDiscussion; }
     static get projectsRoot() { return NexusPaths.projectsRoot; }
     static get registryFile() { return NexusPaths.registryFile; }
     static get archivesDir() { return NexusPaths.archivesDir; }
@@ -30,7 +28,6 @@ export class StorageManager {
 
         // Self-healing initialization for critical files
         await this.loadJsonSafe(this.registryFile, { projects: {} });
-        await this.loadJsonSafe(this.globalDiscussion, []);
 
         if (!await this.exists(this.globalBlueprint)) {
             await writeFileAtomic(this.globalBlueprint, "# Global Coordination Blueprint\n\nShared meeting space.");
@@ -102,12 +99,6 @@ export class StorageManager {
             }
         });
     }
-
-    // --- Log Methods ---
-    static addGlobalLog(from: string, text: string, category?: DiscussionMessage["category"]) { return this.write(() => LogStorage.addLog(from, text, category)); }
-    static getRecentLogs(count: number = 10) { return LogStorage.getLogs(count); }
-    static pruneGlobalLogs(count: number) { return this.write(() => LogStorage.pruneLogs(count)); }
-    static clearGlobalLogs() { return this.write(() => LogStorage.clearLogs()); }
 
     // --- Doc Methods ---
     static listGlobalDocs() { return DocStorage.listDocs(); }

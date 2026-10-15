@@ -47,6 +47,7 @@ upload_project_asset(fileName, base64Content) → 上传二进制文件到项目
 ```
 send_message(message, category?)              → 发消息到活跃会议或全局聊天
 read_messages(count?, meetingId?)             → 读取你的未读消息（增量）
+list_events(limit?, action?)                  → 结构化活动日志（project.sync、meeting.end 等）
 update_global_strategy(content)               → 覆盖写入主战略文档
 sync_global_doc(docId, title, content)        → 创建/更新跨项目共享文档
 ```
@@ -81,7 +82,7 @@ cancel_task(taskId)                         → 取消任务
 ### 7. 维护工具
 
 ```
-host_maintenance(action, count)   → prune 最旧 N 条日志 / clear 全部
+host_maintenance(action, count)   → prune 最旧 N 条全局消息 / clear 全部
 host_delete_project(projectId)    → 永久删除项目（不可逆）
 ```
 

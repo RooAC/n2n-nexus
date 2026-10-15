@@ -60,7 +60,6 @@ All data lives under the daemon's storage root (default `~/.n2n-nexus`):
 ~/.n2n-nexus/
 ├── global/
 │   ├── blueprint.md        # Master strategy document
-│   ├── discussion.json     # Global chat (JSON fallback)
 │   ├── docs_index.json     # Global docs index
 │   └── docs/               # Shared markdown documents
 ├── projects/
@@ -69,12 +68,16 @@ All data lives under the daemon's storage root (default `~/.n2n-nexus`):
 │       ├── internal_blueprint.md  # Internal technical docs
 │       └── assets/                # Binary assets (images, PDFs)
 ├── registry.json           # Global project index
-└── nexus.db                # SQLite database (meetings, tasks, cursors)
+└── nexus.db                # SQLite database (meetings, global chat, events, tasks, cursors)
 ```
 
-**SQLite WAL mode**: Only the daemon process writes to SQLite directly. MCP processes never touch the DB — they go through HTTP, which serializes all writes naturally.
+**SQLite WAL mode**: Only the daemon process opens the database. MCP adapters never touch it — they go through HTTP.
 
-**Self-healing**: Core JSON files (`registry.json`, `discussion.json`) are auto-repaired if corrupted or missing.
+**File-store writes**: HTTP requests are handled concurrently, so every mutation of `registry.json`, manifests and the docs index is queued behind one daemon-wide lock and written atomically (temp file + rename).
+
+**Activity log**: state changes made through the daemon (project sync/rename/delete, meeting start/end, doc sync, ...) are recorded as structured events in SQLite and read with `list_events` / `GET /api/events`; they are not mixed into chat streams.
+
+**Self-healing**: `registry.json` is auto-repaired if corrupted or missing.
 
 ---
 
@@ -164,6 +167,7 @@ GET  /api/projects/topology
 ```
 POST /api/messages/send
 GET  /api/messages/unread
+GET  /api/events
 GET  /api/global/docs
 GET  /api/global/docs/:docId
 POST /api/global/docs/:docId

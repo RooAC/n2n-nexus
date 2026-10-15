@@ -4,11 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `list_events` tool and `GET /api/events`: a structured activity log (actor, action, target, detail) of every state change made through the daemon.
+
 ### Removed
 
 - JSON meeting-store fallback (`store.ts`, `meetings.ts`) and the `/api/storage/info` endpoint. SQLite is required; the daemon no longer reports a "degraded" storage mode.
 
 ### Changed
+
+- Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed.
+- Daemon state changes (session register, project sync/rename/delete, meeting end, ...) are recorded as events instead of `SYSTEM` lines in the global chat.
 
 - `sync_project_assets`, `update_project`, `rename_project`, and `host_delete_project` now run synchronously and return their result directly instead of a `task_id` to poll. The operations take milliseconds; the background-task wrapper only added a polling round-trip and let the work race with other requests.
 

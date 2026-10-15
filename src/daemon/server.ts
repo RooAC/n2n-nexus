@@ -3,11 +3,13 @@ import { URL } from "node:url";
 
 import { StorageManager } from "../storage/index.js";
 import { SqliteMeetingStore } from "../storage/sqlite-meeting.js";
+import { GlobalMessageStore } from "../storage/global-messages.js";
+import { EventStore } from "../storage/events.js";
 import {
     createTask, updateTask, getTask, listTasks, cancelTask,
     initTasksTable, TaskStatus, TaskUpdate
 } from "../storage/tasks.js";
-import { ProjectManifest, DiscussionMessage } from "../types.js";
+import { ProjectManifest, DiscussionMessage, MessageCategory, MESSAGE_CATEGORIES } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Storage bootstrap
@@ -135,19 +137,30 @@ const TOOL_DEFINITIONS = [
             type: "object",
             properties: {
                 message: { type: "string" },
-                category: { type: "string", enum: ["MEETING_START", "PROPOSAL", "DECISION", "UPDATE", "CHAT"] }
+                category: { type: "string", enum: [...MESSAGE_CATEGORIES] }
             },
             required: ["message"]
         }
     },
     {
         name: "read_messages",
-        description: "Read unread messages (auto-incremental per instance).",
+        description: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
         inputSchema: {
             type: "object",
             properties: {
                 count: { type: "integer", default: 10 },
                 meetingId: { type: "string" }
+            }
+        }
+    },
+    {
+        name: "list_events",
+        description: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                limit: { type: "integer", default: 20 },
+                action: { type: "string", description: "Exact action or prefix such as 'project' or 'meeting'" }
             }
         }
     },
@@ -260,7 +273,7 @@ const TOOL_DEFINITIONS = [
     // Maintenance
     {
         name: "host_maintenance",
-        description: "Manage logs: 'prune' oldest N or 'clear' all.",
+        description: "Manage the global chat stream: 'prune' the oldest N messages or 'clear' all.",
         inputSchema: {
             type: "object",
             properties: {
@@ -292,7 +305,7 @@ async function toolRegisterSessionContext(args: { projectId: string }, instanceI
         return { ok: false, message: `Project '${args.projectId}' not found in registry.` };
     }
     getSession(instanceId).currentProject = args.projectId;
-    await StorageManager.addGlobalLog("SYSTEM", `Session Context set to Project: ${args.projectId} (instance: ${instanceId})`);
+    EventStore.record(instanceId, "session.register", args.projectId);
     return { ok: true, message: `Session context registered for project: ${args.projectId}.` };
 }
 
@@ -302,7 +315,7 @@ async function toolSyncProjectAssets(args: { manifest: ProjectManifest; internal
 
     await StorageManager.saveProjectManifest(m);
     await StorageManager.saveProjectDocs(m.id, args.internalDocs);
-    await StorageManager.addGlobalLog("SYSTEM", `[${instanceId}@${m.id}] Asset Sync completed.`);
+    EventStore.record(instanceId, "project.sync", m.id);
     return { ok: true, projectId: m.id, message: `Project '${m.id}' manifest and docs synced.` };
 }
 
@@ -313,24 +326,26 @@ async function toolUploadAsset(args: { fileName: string; base64Content: string }
     const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const buf = Buffer.from(args.base64Content, "base64");
     await StorageManager.saveAsset(session.currentProject, sanitized, buf);
+    EventStore.record(instanceId, "project.asset", session.currentProject, { fileName: sanitized, bytes: buf.length });
     return { ok: true, message: `Asset '${sanitized}' saved to project '${session.currentProject}'.` };
 }
 
-async function toolUpdateProject(args: { projectId: string; patch: Partial<ProjectManifest> }) {
+async function toolUpdateProject(args: { projectId: string; patch: Partial<ProjectManifest> }, instanceId: string) {
     if (!args.projectId || !args.patch) throw new Error("projectId and patch are required.");
     if ((args.patch as Record<string, unknown>).id) throw new Error("Cannot change 'id' via patch. Use rename_project instead.");
 
     await StorageManager.patchProjectManifest(args.projectId, args.patch);
+    EventStore.record(instanceId, "project.update", args.projectId, { fields: Object.keys(args.patch) });
     return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' updated.` };
 }
 
-async function toolRenameProject(args: { oldId: string; newId: string }) {
+async function toolRenameProject(args: { oldId: string; newId: string }, instanceId: string) {
     if (!args.oldId || !args.newId) throw new Error("oldId and newId are required.");
     const exists = await StorageManager.getProjectManifest(args.oldId);
     if (!exists) throw new Error(`Project '${args.oldId}' not found.`);
 
-    const count = await StorageManager.renameProject(args.oldId, args.newId);
-    await StorageManager.addGlobalLog("SYSTEM", `Project renamed '${args.oldId}' → '${args.newId}' (${count} cascading updates).`);
+    await StorageManager.renameProject(args.oldId, args.newId);
+    EventStore.record(instanceId, "project.rename", args.newId, { oldId: args.oldId });
     return { ok: true, oldId: args.oldId, newId: args.newId, message: `Project renamed '${args.oldId}' → '${args.newId}'.` };
 }
 
@@ -374,8 +389,8 @@ async function toolSendMessage(args: { message: string; category?: DiscussionMes
         return { ok: true, sentTo: "meeting", meetingId, message: `Message sent to meeting ${meetingId}.` };
     }
 
-    await StorageManager.addGlobalLog(instanceId, args.message, args.category);
-    return { ok: true, sentTo: "global", message: "Message sent to global chat." };
+    const saved = GlobalMessageStore.addMessage(instanceId, args.message, args.category);
+    return { ok: true, sentTo: "global", messageId: saved.id, message: "Message sent to global chat." };
 }
 
 async function toolReadMessages(args: { count?: number; meetingId?: string }, instanceId: string) {
@@ -388,25 +403,28 @@ async function toolReadMessages(args: { count?: number; meetingId?: string }, in
         return { source: "meeting", meetingId: args.meetingId, messages, count: messages.length };
     }
 
-    const logs = await StorageManager.getRecentLogs(count);
-    return { source: "global", messages: logs, count: logs.length };
+    const messages = GlobalMessageStore.readUnread(instanceId, count);
+    return { source: "global", messages, count: messages.length };
 }
 
 async function toolUpdateGlobalStrategy(args: { content: string }, instanceId: string) {
     if (!args.content) throw new Error("content is required.");
     await StorageManager.saveGlobalDoc("strategy", "Global Collaboration Strategy", args.content, instanceId);
+    EventStore.record(instanceId, "strategy.update");
     return { ok: true, message: "Global strategy updated." };
 }
 
 async function toolSyncGlobalDoc(args: { docId: string; title: string; content: string }, instanceId: string) {
     if (!args.docId || !args.title || !args.content) throw new Error("docId, title, and content are required.");
     await StorageManager.saveGlobalDoc(args.docId, args.title, args.content, instanceId);
+    EventStore.record(instanceId, "doc.sync", args.docId, { title: args.title });
     return { ok: true, message: `Global document '${args.title}' (${args.docId}) synchronized.` };
 }
 
 async function toolStartMeeting(args: { topic: string }, instanceId: string) {
     if (!args.topic) throw new Error("topic is required.");
     const meeting = SqliteMeetingStore.startMeeting(args.topic, instanceId);
+    EventStore.record(instanceId, "meeting.start", meeting.id, { topic: meeting.topic });
     return { ok: true, meetingId: meeting.id, topic: meeting.topic, status: meeting.status };
 }
 
@@ -419,9 +437,7 @@ async function toolEndMeeting(args: { meetingId?: string; summary?: string }, in
     if (!id) throw new Error("No active meeting found to end.");
 
     const result = SqliteMeetingStore.endMeeting(id, args.summary, instanceId);
-    if (args.summary) {
-        await StorageManager.addGlobalLog("SYSTEM", `Meeting ended: ${result.meeting.topic}. Summary: ${args.summary}`);
-    }
+    EventStore.record(instanceId, "meeting.end", id, { topic: result.meeting.topic, summary: args.summary });
     return { ok: true, meetingId: id, status: "closed", summary: result.meeting.summary };
 }
 
@@ -429,6 +445,7 @@ async function toolArchiveMeeting(args: { meetingId: string }, instanceId: strin
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.archiveMeeting(args.meetingId, instanceId);
+    EventStore.record(instanceId, "meeting.archive", args.meetingId);
     return { ok: true, meetingId: args.meetingId, status: "archived" };
 }
 
@@ -436,6 +453,7 @@ async function toolReopenMeeting(args: { meetingId: string }, instanceId: string
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.reopenMeeting(args.meetingId, instanceId);
+    EventStore.record(instanceId, "meeting.reopen", args.meetingId);
     return { ok: true, meetingId: args.meetingId, status: "active" };
 }
 
@@ -461,13 +479,17 @@ async function toolCancelTask(args: { taskId: string }) {
     return { ok: true, taskId: args.taskId, message: "Task cancelled." };
 }
 
-async function toolHostMaintenance(args: { action: "prune" | "clear"; count: number }) {
-    if (args.action === "clear") {
-        await StorageManager.clearGlobalLogs();
-        return { ok: true, message: "All logs cleared." };
-    }
-    await StorageManager.pruneGlobalLogs(args.count);
-    return { ok: true, message: `Pruned oldest ${args.count} log entries.` };
+async function toolHostMaintenance(args: { action: "prune" | "clear"; count: number }, instanceId: string) {
+    const removed = args.action === "clear"
+        ? GlobalMessageStore.clear()
+        : GlobalMessageStore.pruneOldest(args.count);
+    EventStore.record(instanceId, `maintenance.${args.action}`, undefined, { removed });
+    return { ok: true, removed, remaining: GlobalMessageStore.count(), message: `Removed ${removed} global messages.` };
+}
+
+async function toolListEvents(args: { limit?: number; action?: string }) {
+    const events = EventStore.list(args.limit || 20, args.action);
+    return { count: events.length, events };
 }
 
 async function toolHostDeleteProject(args: { projectId: string }, instanceId: string) {
@@ -475,7 +497,7 @@ async function toolHostDeleteProject(args: { projectId: string }, instanceId: st
     if (!exists) throw new Error(`Project '${args.projectId}' not found.`);
 
     await StorageManager.deleteProject(args.projectId);
-    await StorageManager.addGlobalLog("SYSTEM", `Project deleted: '${args.projectId}' by ${instanceId}.`);
+    EventStore.record(instanceId, "project.delete", args.projectId);
     return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' deleted.` };
 }
 
@@ -489,8 +511,8 @@ async function dispatchTool(name: string, args: Record<string, unknown>, instanc
         case "register_session_context":  return toolRegisterSessionContext(u as { projectId: string }, instanceId);
         case "sync_project_assets":       return toolSyncProjectAssets(u as { manifest: ProjectManifest; internalDocs: string }, instanceId);
         case "upload_project_asset":      return toolUploadAsset(u as { fileName: string; base64Content: string }, instanceId);
-        case "update_project":            return toolUpdateProject(u as { projectId: string; patch: Partial<ProjectManifest> });
-        case "rename_project":            return toolRenameProject(u as { oldId: string; newId: string });
+        case "update_project":            return toolUpdateProject(u as { projectId: string; patch: Partial<ProjectManifest> }, instanceId);
+        case "rename_project":            return toolRenameProject(u as { oldId: string; newId: string }, instanceId);
         case "search_projects":           return toolSearchProjects(u as { query: string; limit?: number });
         case "get_global_topology":       return toolGetGlobalTopology(u as { projectId?: string });
         case "send_message":              return toolSendMessage(u as { message: string; category?: DiscussionMessage["category"] }, instanceId);
@@ -505,7 +527,8 @@ async function dispatchTool(name: string, args: Record<string, unknown>, instanc
         case "get_task":                  return toolGetTask(u as { taskId: string });
         case "list_tasks":                return toolListTasks(u as { status?: TaskStatus; limit?: number });
         case "cancel_task":               return toolCancelTask(u as { taskId: string });
-        case "host_maintenance":          return toolHostMaintenance(u as { action: "prune" | "clear"; count: number });
+        case "host_maintenance":          return toolHostMaintenance(u as { action: "prune" | "clear"; count: number }, instanceId);
+        case "list_events":               return toolListEvents(u as { limit?: number; action?: string });
         case "host_delete_project":       return toolHostDeleteProject(u as { projectId: string }, instanceId);
         default:
             throw new Error(`Unknown tool: '${name}'`);
@@ -590,7 +613,7 @@ export async function createDaemonServer(options: {
                     }
                     const msg: DiscussionMessage = {
                         from: instanceId, text: body.message as string,
-                        category: (body.category as DiscussionMessage["category"]) || "CHAT",
+                        category: (body.category as MessageCategory) || "CHAT",
                         timestamp: new Date().toISOString()
                     };
                     SqliteMeetingStore.addMessage(targetMeetingId, msg);
@@ -627,7 +650,8 @@ export async function createDaemonServer(options: {
                 const body = await parseBody(req);
                 if (!body.projectId || !body.patch) return jsonResponse(res, 400, { ok: false, error: "projectId and patch are required" });
                 const result = await toolUpdateProject(
-                    { projectId: body.projectId as string, patch: body.patch as Partial<ProjectManifest> }
+                    { projectId: body.projectId as string, patch: body.patch as Partial<ProjectManifest> },
+                    (body.instanceId as string) || "unknown"
                 );
                 return jsonResponse(res, 200, result);
             }
@@ -636,7 +660,8 @@ export async function createDaemonServer(options: {
                 const body = await parseBody(req);
                 if (!body.oldId || !body.newId) return jsonResponse(res, 400, { ok: false, error: "oldId and newId are required" });
                 const result = await toolRenameProject(
-                    { oldId: body.oldId as string, newId: body.newId as string }
+                    { oldId: body.oldId as string, newId: body.newId as string },
+                    (body.instanceId as string) || "unknown"
                 );
                 return jsonResponse(res, 200, result);
             }
@@ -786,8 +811,18 @@ export async function createDaemonServer(options: {
             if (method === "POST" && path === "/api/maintenance/logs") {
                 const body = await parseBody(req);
                 if (!body.action) return jsonResponse(res, 400, { ok: false, error: "action is required" });
-                const result = await toolHostMaintenance({ action: body.action as "prune" | "clear", count: (body.count as number) || 0 });
+                const result = await toolHostMaintenance(
+                    { action: body.action as "prune" | "clear", count: (body.count as number) || 0 },
+                    (body.instanceId as string) || "unknown"
+                );
                 return jsonResponse(res, 200, result);
+            }
+
+            // Events
+            if (method === "GET" && path === "/api/events") {
+                const limit = Number(url.searchParams.get("limit")) || 20;
+                const action = url.searchParams.get("action") || undefined;
+                return jsonResponse(res, 200, await toolListEvents({ limit, action }));
             }
 
             jsonResponse(res, 404, { ok: false, error: "Not found" });

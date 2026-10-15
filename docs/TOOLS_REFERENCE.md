@@ -152,8 +152,21 @@ Read recent or unread messages.
 
 Behavior:
 
-- Meeting reads are incremental per adapter instance.
-- Global reads return recent global logs.
+- Both global and meeting reads are incremental per adapter instance: each call returns only messages not yet returned to that instance, oldest first, and advances the cursor.
+
+### `list_events`
+
+Read the structured activity log.
+
+| Parameter | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `limit` | integer | no | `20` | Maximum number of events, newest first. |
+| `action` | string | no |  | Exact action (`meeting.end`) or prefix (`project`, `meeting`). |
+
+Behavior:
+
+- Every state change made through the daemon is recorded: `session.register`, `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
+- Each event carries `timestamp`, `actor` (instance ID), `action`, optional `target` and `detail`.
 
 ### `update_global_strategy`
 
@@ -253,12 +266,16 @@ Cancel a pending or running task.
 
 ### `host_maintenance`
 
-Prune or clear global logs.
+Prune or clear the global chat stream.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `action` | string | yes | `prune` or `clear`. |
-| `count` | integer | yes | Required by the MCP schema. Used by `prune`; ignored by `clear`. |
+| `count` | integer | yes | Number of oldest messages to remove for `prune`; ignored by `clear`. |
+
+Behavior:
+
+- Returns `{ ok, removed, remaining }`.
 
 ### `host_delete_project`
 

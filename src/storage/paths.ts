@@ -5,7 +5,6 @@ export class NexusPaths {
     static get root() { return getRootPath(); }
     static get globalDir() { return path.join(this.root, "global"); }
     static get globalBlueprint() { return path.join(this.globalDir, "blueprint.md"); }
-    static get globalDiscussion() { return path.join(this.globalDir, "discussion.json"); }
     static get projectsRoot() { return path.join(this.root, "projects"); }
     static get registryFile() { return path.join(this.root, "registry.json"); }
     static get archivesDir() { return path.join(this.root, "archives"); }

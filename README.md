@@ -103,17 +103,17 @@ The adapter can start before the daemon. It loads the daemon tool list once the 
 
 ## 🛠️ Toolset
 
-The daemon exposes 21 tools, grouped by purpose:
+The daemon exposes 22 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
 | **Session & topology** | `register_session_context`, `get_global_topology` | Declare the active project before other calls; read the project list or a detailed per-project subgraph. |
 | **Projects & assets** | `search_projects`, `update_project`, `rename_project`, `sync_project_assets`, `upload_project_asset` | Find, update, and rename projects; sync manifests and internal docs; upload binary assets. |
 | **Global docs** | `sync_global_doc`, `update_global_strategy` | Create or update shared global documents and the master strategy document. |
-| **Messaging** | `send_message`, `read_messages` | Post and read meeting and global messages. |
+| **Messaging** | `send_message`, `read_messages`, `list_events` | Post and read meeting and global messages; read the structured activity log. |
 | **Meetings** | `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | Open, close, archive, and reopen meeting sessions. |
 | **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and track tasks that assistants manage themselves. |
-| **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear system logs; delete a project. |
+| **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear the global chat stream; delete a project. |
 
 See [Tools reference](./docs/TOOLS_REFERENCE.md) for parameter schemas and call examples.
 
@@ -141,7 +141,7 @@ Override with `--root <path>` or `NEXUS_ROOT`.
 │       ├── internal_blueprint.md
 │       └── assets/
 ├── registry.json
-└── nexus.db
+└── nexus.db          # meetings, global chat, events, tasks, read cursors
 ```
 
 ## 🏷️ Project ID conventions
@@ -195,7 +195,7 @@ What to look for in the session:
 
 - **Shared coordination space**: each assistant registered its active project with `register_session_context`, then read and wrote to the same daemon throughout the session.
 - **Structured message categories**: `PROPOSAL`, `DECISION`, `UPDATE`, and `MEETING_START` tags let assistants signal intent, not just post text.
-- **SYSTEM entries**: lines like `[Augment] Synced global doc: edge-sync-protocol-v1` record actual tool calls — the daemon logging its own state changes into the meeting stream.
+- **SYSTEM entries**: lines like `[Augment] Synced global doc: edge-sync-protocol-v1` record actual tool calls. That version wrote them into the chat stream; current versions keep them out of the conversation and expose them as structured events through `list_events`.
 - **Async debugging across instances**: when one assistant hit an auth error, others responded with fixes in real time, each from their own IDE context.
 - **Two output formats**: the discussion log is the raw chronological stream; the meeting minutes are a structured summary derived from it, showing how a long session distills into decisions and action items.
 
