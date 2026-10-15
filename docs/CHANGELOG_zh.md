@@ -32,6 +32,8 @@
 
 ### 修复
 
+- 旧版本（其 `update_project` 未经校验就写盘）写入的 manifest 中，relations、endpoints、apiSpec 等嵌套项可能缺字段或带多余字段，导致 `get_project` 与 `get_global_topology` 在 2026-07-28 客户端上通不过 outputSchema 校验。现在读取时规范化：丢弃无效项，缺失的字符串补为空，未知关系类型按 `related` 处理；不改写磁盘文件。
+
 - 结果契约此前只靠 TypeScript 约束，而 TypeScript 不检查返回变量里的多余字段，存储数据新增字段就可能以违反已发布 `outputSchema` 的 structuredContent 到达客户端。现在每个结果出守护进程前都经过 zod 契约：剥掉未声明字段，无法满足契约的结果变为服务端错误。
 
 - 一次重连尝试刚连上、还在通知客户端时，若有工具调用再次失去守护进程连接，这次尝试结束后仍会停掉重连循环，而适配器已经断开；之后每次调用都只返回 "Daemon is not ready yet"，直到重启 IDE。现在只有连接仍然在线时才停止重连。

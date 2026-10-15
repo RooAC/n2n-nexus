@@ -61,6 +61,56 @@ async function readProjectManifest(id: string): Promise<Partial<ProjectManifest>
     }
 }
 
+// ---------------------------------------------------------------------------
+// Read-side normalization of stored manifests. Before 0.6, update_project
+// wrote patches to disk unvalidated, so nested entries can lack fields or
+// carry extra ones. Readers get well-formed values; the file is not rewritten.
+// ---------------------------------------------------------------------------
+
+type Relation = ProjectManifest["relations"][number];
+const RELATION_TYPES: Relation["type"][] = ["dependency", "parent", "child", "related"];
+const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
+const objects = (v: unknown): Record<string, unknown>[] =>
+    Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x)) : [];
+const stringRecord = (v: unknown): Record<string, string> | undefined => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+    return Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "string")) as Record<string, string>;
+};
+
+/** Relations with a string targetId; an unknown or missing type reads as "related". */
+export function normalizeRelations(v: unknown): Relation[] {
+    return objects(v)
+        .filter((r) => typeof r.targetId === "string" && r.targetId)
+        .map((r) => ({
+            targetId: r.targetId as string,
+            type: RELATION_TYPES.includes(r.type as Relation["type"]) ? r.type as Relation["type"] : "related"
+        }));
+}
+
+function normalizeManifestFields(raw: Partial<ProjectManifest> | null) {
+    const m = (raw ?? {}) as Record<string, unknown>;
+    const billing = m.billing && typeof m.billing === "object"
+        ? { plain: str((m.billing as Record<string, unknown>).plain), price: str((m.billing as Record<string, unknown>).price) }
+        : undefined;
+    const tiers = ["standard", "advanced", "team"];
+    return {
+        name: typeof m.name === "string" ? m.name : undefined,
+        description: typeof m.description === "string" ? m.description : undefined,
+        techStack: Array.isArray(m.techStack) ? m.techStack.filter((t): t is string => typeof t === "string") : [],
+        relations: normalizeRelations(m.relations),
+        lastUpdated: typeof m.lastUpdated === "string" && m.lastUpdated ? m.lastUpdated : undefined,
+        repositoryUrl: str(m.repositoryUrl),
+        localPath: typeof m.localPath === "string" && m.localPath ? m.localPath : undefined,
+        endpoints: objects(m.endpoints).map((e) => ({ name: str(e.name), url: str(e.url), description: str(e.description) })),
+        apiSpec: objects(m.apiSpec).map((e) => ({ method: str(e.method), path: str(e.path), summary: str(e.summary) })),
+        billing,
+        apiDependencies: stringRecord(m.apiDependencies),
+        gatewayCompatibility: typeof m.gatewayCompatibility === "string" ? m.gatewayCompatibility : undefined,
+        api_versions: stringRecord(m.api_versions),
+        feature_tier: tiers.includes(m.feature_tier as string) ? m.feature_tier as ProjectManifest["feature_tier"] : undefined
+    };
+}
+
 export class RegistryStorage {
     static async listRegistry(): Promise<RegistryData> {
         return readRegistry();
@@ -86,23 +136,23 @@ export class RegistryStorage {
         const entry = registry.projects[id];
         if (!entry) return null;
 
-        const rawManifest = await readProjectManifest(id);
+        const m = normalizeManifestFields(await readProjectManifest(id));
         return {
             id,
-            name: entry.name || rawManifest?.name || id,
-            description: entry.summary || rawManifest?.description || "",
-            techStack: rawManifest?.techStack || [],
-            relations: rawManifest?.relations || [],
-            lastUpdated: rawManifest?.lastUpdated || entry.lastActive,
-            repositoryUrl: rawManifest?.repositoryUrl || "",
-            localPath: rawManifest?.localPath || NexusPaths.projectDir(id),
-            endpoints: rawManifest?.endpoints || [],
-            apiSpec: rawManifest?.apiSpec || [],
-            billing: rawManifest?.billing,
-            apiDependencies: rawManifest?.apiDependencies,
-            gatewayCompatibility: rawManifest?.gatewayCompatibility,
-            api_versions: rawManifest?.api_versions,
-            feature_tier: rawManifest?.feature_tier
+            name: entry.name || m.name || id,
+            description: entry.summary || m.description || "",
+            techStack: m.techStack,
+            relations: m.relations,
+            lastUpdated: m.lastUpdated || entry.lastActive,
+            repositoryUrl: m.repositoryUrl,
+            localPath: m.localPath || NexusPaths.projectDir(id),
+            endpoints: m.endpoints,
+            apiSpec: m.apiSpec,
+            billing: m.billing,
+            apiDependencies: m.apiDependencies,
+            gatewayCompatibility: m.gatewayCompatibility,
+            api_versions: m.api_versions,
+            feature_tier: m.feature_tier
         };
     }
 
@@ -150,7 +200,7 @@ export class RegistryStorage {
                     name: manifest?.name || project.name || id,
                     summary: project.summary,
                     lastActive: project.lastActive,
-                    relations: manifest?.relations || []
+                    relations: normalizeRelations(manifest?.relations)
                 };
             })
         );

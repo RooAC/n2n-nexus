@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Manifests written by earlier releases (whose `update_project` stored patches unvalidated) could hold nested relations, endpoints or API specs with missing or extra fields, which made `get_project` and `get_global_topology` fail outputSchema validation on 2026-07-28 clients. Reads now normalize stored manifests: invalid entries are dropped, missing strings become empty, an unknown relation type reads as `related`. The files are not rewritten.
+
 - Result contracts were only enforced by TypeScript, which ignores extra fields on returned variables, so a new field in stored data could reach clients as structuredContent that violates the published `outputSchema`. Every result now passes through its zod contract on the way out: undeclared fields are stripped, and a result that cannot meet the contract becomes a server error.
 
 - If a tool call lost the daemon while a reconnect attempt that had just succeeded was still notifying the client, the attempt then stopped the retry loop although the adapter was disconnected again; every later call answered "Daemon is not ready yet" until the IDE restarted. The loop now stops only if the connection is still up.

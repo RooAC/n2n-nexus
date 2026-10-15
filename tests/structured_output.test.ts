@@ -111,3 +111,65 @@ describe("Result contracts at runtime", () => {
         expect(res.payload.error).toContain("does not match its contract");
     });
 });
+
+describe("Manifests written by earlier releases", () => {
+    let daemon: DaemonHarness;
+    beforeEach(async () => { daemon = await startTestDaemon("legacy-manifests"); });
+    afterEach(async () => { await daemon.close(); });
+
+    it("are read back in a shape that satisfies the published outputSchema", async () => {
+        const fsp = await import("node:fs/promises");
+        const path = await import("node:path");
+        await daemon.callTool("sync_project_assets", { manifest: manifest("web_target"), internalDocs: "" });
+        // Constructed sample, not captured from a real install: before 0.6, update_project
+        // wrote patches unvalidated, so nested entries could carry extra fields or miss some.
+        const dir = path.join(daemon.root, "projects", "web_legacy");
+        await fsp.mkdir(dir, { recursive: true });
+        await fsp.writeFile(path.join(dir, "manifest.json"), JSON.stringify({
+            id: "web_legacy", name: "Legacy", description: "old",
+            techStack: ["node", 42],
+            relations: [
+                { targetId: "web_target", type: "dependency", note: "extra field" },
+                { targetId: "web_target" },
+                { type: "child" },
+                "garbage"
+            ],
+            endpoints: [{ name: "api", url: "http://x", extra: true }, { name: "partial" }],
+            apiSpec: [{ method: "GET" }],
+            feature_tier: "platinum",
+            lastUpdated: "2026-01-01T00:00:00.000Z", repositoryUrl: "", localPath: "/tmp/x"
+        }));
+        const registryFile = path.join(daemon.root, "registry.json");
+        const registry = JSON.parse(await fsp.readFile(registryFile, "utf8"));
+        registry.projects.web_legacy = { name: "Legacy", summary: "old", lastActive: "2026-01-01T00:00:00.000Z" };
+        await fsp.writeFile(registryFile, JSON.stringify(registry));
+
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
+        process.env.NEXUS_INSTANCE_ID = "legacy";
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await new NexusServer().run({ transport: serverSide });
+        // The 2026-07-28 client validates structuredContent against outputSchema.
+        const client = new Client({ name: "ide", version: "1" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+        await client.connect(clientSide);
+        await client.listTools();
+
+        const project = await client.callTool({ name: "get_project", arguments: { projectId: "web_legacy" } });
+        expect(project.isError).toBeFalsy();
+        const m = (project.structuredContent as { manifest: Record<string, unknown> }).manifest;
+        expect(m.relations).toEqual([
+            { targetId: "web_target", type: "dependency" },
+            { targetId: "web_target", type: "related" }
+        ]);
+        expect(m.endpoints).toEqual([
+            { name: "api", url: "http://x", description: "" },
+            { name: "partial", url: "", description: "" }
+        ]);
+        expect(m.techStack).toEqual(["node"]);
+        expect(m).not.toHaveProperty("feature_tier");
+
+        const topo = await client.callTool({ name: "get_global_topology", arguments: { projectId: "web_legacy" } });
+        expect(topo.isError).toBeFalsy();
+        expect((topo.structuredContent as { edges: unknown[] }).edges).toContainEqual({ from: "web_legacy", to: "web_target", type: "related" });
+        await client.close();
+    });
+});
