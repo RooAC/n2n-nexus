@@ -178,6 +178,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_ROOT` | Storage root for daemon | `~/.n2n-nexus` |
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | Daemon port (overridden by `--port`) | `5688` |
+| `NEXUS_ALLOWED_HOSTS` | Extra DNS names accepted in the `Host` header (IP literals, `localhost`, `host.docker.internal` are always accepted) | empty |
 | `NEXUS_INSTANCE_ID` | Override MCP instance ID (read cursors, session context and meeting permissions are keyed on it) | `mcp-<hostname>-<hash of working directory>` |
 
 ## 🔐 Security and governance notes

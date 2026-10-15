@@ -28,7 +28,7 @@
 
 - MCP 适配器每次启动随机生成实例 ID，IDE 重启后未读游标归零，会议也没人能再结束或归档（只有发起者可以）。默认值改为 `mcp-<主机名>-<工作目录哈希>`，同一机器同一工作区保持不变。`reopen_meeting` 与 `end_meeting`、`archive_meeting` 一样只允许发起者操作。
 
-- daemon 此前接受任何 HTTP 请求，用户浏览器中打开的网页可以用跨站 `text/plain` POST 调用本地 daemon 的 `host_delete_project`。现在拒绝带浏览器 `Origin` 或跨站 `Sec-Fetch-Site` 头的请求（403），POST 必须是 `Content-Type: application/json`（415），请求体上限 16 MB（413），不再无限缓冲。
+- daemon 此前接受任何 HTTP 请求，用户浏览器中打开的网页可以用跨站 `text/plain` POST 调用本地 daemon 的 `host_delete_project`。现在拒绝带浏览器 `Origin` 或跨站 `Sec-Fetch-Site` 头的请求（403），POST 必须是 `Content-Type: application/json`（415），请求体上限 16 MB（413），不再无限缓冲。`Host` 头必须是 IP、`localhost`、`host.docker.internal` 或 `NEXUS_ALLOWED_HOSTS` 中的域名，以阻断以同源 GET 形式到达 daemon 的 DNS rebinding 页面。
 
 - MCP 适配器此前把任何失败的工具调用（任务不存在、会议已关闭、权限不足等）都当成 daemon 掉线：清空工具列表、通知 IDE 并进入重连循环。现在传输失败与工具失败区分开（`NexusTransportError` 与 `NexusToolError`），只有前者触发重连，工具失败以 `isError` 结果返回。`POST /api/tools/call` 对未知工具返回 404，对工具拒绝的调用返回 400。
 

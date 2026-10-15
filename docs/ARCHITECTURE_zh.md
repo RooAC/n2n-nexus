@@ -202,7 +202,7 @@ POST /api/maintenance/logs
 
 ### 请求防护
 
-daemon 拒绝来自浏览器的请求（带 `Origin` 头或跨站 `Sec-Fetch-Site`：403）、非 JSON 的 POST 请求体（415）以及超过 16 MB 的请求体（413）。详见 `SECURITY.md`。
+daemon 拒绝来自浏览器的请求（带 `Origin` 头或跨站 `Sec-Fetch-Site`：403）、既非 IP 也不在本地/允许列表中的 `Host`（403，防 DNS rebinding）、非 JSON 的 POST 请求体（415）以及超过 16 MB 的请求体（413）。详见 `SECURITY.md`。
 
 ## 边界说明
 

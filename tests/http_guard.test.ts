@@ -21,7 +21,7 @@ describe("Daemon HTTP guards", () => {
         await fs.mkdir(TEST_ROOT, { recursive: true });
         process.env.NEXUS_ROOT = TEST_ROOT;
         StorageManager.resetInit();
-        const { server } = await createDaemonServer({ port: 0, version: "test", maxBodyBytes: MAX_BODY });
+        const { server } = await createDaemonServer({ port: 0, version: "test", maxBodyBytes: MAX_BODY, allowedHosts: ["localhost", "host.docker.internal", "nexus.lan"] });
         await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
         port = (server.address() as AddressInfo).port;
         close = () => new Promise((resolve) => server.close(() => resolve()));
@@ -35,6 +35,17 @@ describe("Daemon HTTP guards", () => {
         expect(res.status).toBe(403);
         const get = await requestJson(port, "GET", "/api/tools", undefined, { "Sec-Fetch-Site": "cross-site" });
         expect(get.status).toBe(403);
+    });
+
+    it("rejects DNS-rebinding style Host names but accepts IPs, localhost and configured names", async () => {
+        const rebind = await requestJson<{ error: string }>(port, "GET", "/api/tools", undefined, { Host: "evil.example:5688", "Sec-Fetch-Site": "same-origin" });
+        expect(rebind.status).toBe(403);
+        expect(rebind.payload.error).toContain("NEXUS_ALLOWED_HOSTS");
+
+        for (const host of ["127.0.0.1:1", "localhost:5688", "[::1]:5688", "192.168.1.20:5688", "host.docker.internal:5688", "nexus.lan:5688"]) {
+            const ok = await requestJson(port, "GET", "/api/tools", undefined, { Host: host });
+            expect(ok.status, host).toBe(200);
+        }
     });
 
     it("rejects POST bodies that are not application/json", async () => {

@@ -1,4 +1,5 @@
 import http from "node:http";
+import net from "node:net";
 import { URL } from "node:url";
 
 import { StorageManager } from "../storage/index.js";
@@ -324,14 +325,37 @@ async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Pr
     });
 }
 
+/** Host names (without port) that may address the daemon besides IP literals. */
+const DEFAULT_ALLOWED_HOSTS = ["localhost", "host.docker.internal"];
+
+export function allowedHostsFromEnv(env: NodeJS.ProcessEnv = process.env): string[] {
+    const extra = (env.NEXUS_ALLOWED_HOSTS || "").split(",").map(h => h.trim().toLowerCase()).filter(Boolean);
+    return [...DEFAULT_ALLOWED_HOSTS, ...extra];
+}
+
+/** Hostname part of a Host header: strips the port and IPv6 brackets. */
+function hostName(header: string): string {
+    const m = header.match(/^\[([^\]]+)\](?::\d+)?$/);
+    if (m) return m[1].toLowerCase();
+    return header.replace(/:\d+$/, "").toLowerCase();
+}
+
 /**
  * The daemon has no authentication, so it must not be callable from a web
  * page the user happens to have open. Browsers attach Origin / Sec-Fetch-*
  * headers to cross-site requests and only send JSON bodies after a CORS
  * preflight, which the daemon never grants; MCP adapters and scripts send
- * neither header and use application/json.
+ * neither header and use application/json. A DNS-rebinding page reaches the
+ * daemon as a same-origin request under its own host name, so the Host
+ * header must be an IP literal or a known local name.
  */
-function rejectBrowserRequest(req: http.IncomingMessage): HttpError | null {
+function rejectBrowserRequest(req: http.IncomingMessage, allowedHosts: string[]): HttpError | null {
+    const host = req.headers.host;
+    if (!host) return new HttpError(400, "Host header is required");
+    const name = hostName(host);
+    if (!net.isIP(name) && !allowedHosts.includes(name)) {
+        return new HttpError(403, `Host '${name}' is not allowed; use an IP address or add it to NEXUS_ALLOWED_HOSTS`);
+    }
     if (req.headers.origin !== undefined) {
         return new HttpError(403, "Requests from browser origins are not allowed");
     }
@@ -357,9 +381,11 @@ export async function createDaemonServer(options: {
     host?: string;
     version: string;
     maxBodyBytes?: number;
+    allowedHosts?: string[];
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
     const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
+    const allowedHosts = options.allowedHosts ?? allowedHostsFromEnv();
 
     const server = http.createServer(async (req, res) => {
         const method = req.method || "GET";
@@ -368,7 +394,7 @@ export async function createDaemonServer(options: {
         const parseBody = (r: http.IncomingMessage) => parseRequestBody(r, maxBodyBytes);
 
         try {
-            const guard = rejectBrowserRequest(req);
+            const guard = rejectBrowserRequest(req, allowedHosts);
             if (guard) {
                 req.resume();
                 return jsonResponse(res, guard.status, { ok: false, error: guard.message });
