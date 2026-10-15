@@ -10,6 +10,8 @@
 
 ### 变更
 
+- `sync_project_assets`、`update_project`、`rename_project`、`host_delete_project` 改为同步执行并直接返回结果，不再返回需轮询的 `task_id`。这些操作只需毫秒级时间，后台任务封装只多了一次轮询往返，还让写入与其他请求并发竞争。
+
 - 要求 Node.js 22.14+（22.x 系列）或 23.6+，并将 MCP SDK、SQLite 与测试依赖更新到最新兼容稳定版。
 
 ## [0.5.0] - 2026-06-14

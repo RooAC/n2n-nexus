@@ -112,7 +112,7 @@ The daemon exposes 21 tools, grouped by purpose:
 | **Global docs** | `sync_global_doc`, `update_global_strategy` | Create or update shared global documents and the master strategy document. |
 | **Messaging** | `send_message`, `read_messages` | Post and read meeting and global messages. |
 | **Meetings** | `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | Open, close, archive, and reopen meeting sessions. |
-| **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and poll async background tasks. |
+| **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and track tasks that assistants manage themselves. |
 | **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear system logs; delete a project. |
 
 See [Tools reference](./docs/TOOLS_REFERENCE.md) for parameter schemas and call examples.

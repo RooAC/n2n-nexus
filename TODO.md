@@ -21,7 +21,6 @@
 ## Backlog
 
 ### Near-term
-- [ ] `upload_project_asset` — migrate to async task pattern (consistent with other write ops)
 - [ ] Task cleanup job — scheduled purge of expired/completed tasks
 - [ ] Daemon process management — systemd / launchd / PM2 integration guide
 

@@ -7,7 +7,6 @@ import path from "path";
 import { createDaemonServer } from "../src/daemon/server.js";
 import { closeDatabase } from "../src/storage/sqlite.js";
 import { StorageManager } from "../src/storage/index.js";
-import { getTask, listTasks } from "../src/storage/tasks.js";
 import { NexusPaths } from "../src/storage/paths.js";
 import { ProjectManifest } from "../src/types.js";
 
@@ -54,27 +53,6 @@ function requestJson<T>(base: string, method: string, route: string, body?: unkn
         }
         req.end();
     });
-}
-
-async function waitForTask(taskId: string, timeoutMs = 3000): Promise<void> {
-    const started = Date.now();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    while (Date.now() - started < timeoutMs) {
-        const task = getTask(taskId);
-        if (Date.now() - started > 500) {
-            const all = listTasks();
-            console.log("[DAEMON TEST] All tasks:", all.map((t) => `${t.id}:${t.status}`));
-            console.log("[DAEMON TEST] Waiting task:", taskId, "status", task?.status, "since", Date.now() - started);
-        }
-        if (task && (task.status === "completed" || task.status === "failed")) {
-            if (task.status === "failed") {
-                throw new Error(`Task failed: ${task.error_message}`);
-            }
-            return;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    throw new Error(`Task ${taskId} did not finish in time`);
 }
 
 async function startDaemon(): Promise<DaemonHarness> {
@@ -133,7 +111,7 @@ describe("Daemon project write API", () => {
         };
         await fs.mkdir(manifestA.localPath, { recursive: true });
 
-        const sync = await requestJson<{ ok: boolean; task_id: string; status: string }>(daemon!.port.toString(), "POST", "/api/projects/sync", {
+        const sync = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/sync", {
             manifest: manifestA,
             internalDocs: "# Internal Notes",
             projectId: manifestA.id,
@@ -141,41 +119,41 @@ describe("Daemon project write API", () => {
         });
         expect(sync.status).toBe(200);
         expect(sync.payload.ok).toBe(true);
-        await waitForTask(sync.payload.task_id);
+        expect(sync.payload.projectId).toBe("proj-demo");
 
         const syncedManifest = await StorageManager.getProjectManifest("proj-demo");
         expect(syncedManifest?.id).toBe("proj-demo");
         const syncedDocs = await StorageManager.getProjectDocs("proj-demo");
         expect(syncedDocs).toContain("Internal Notes");
 
-        const update = await requestJson<{ ok: boolean; task_id: string; status: string }>(daemon!.port.toString(), "POST", "/api/projects/update", {
+        const update = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/update", {
             projectId: "proj-demo",
             patch: { description: "Updated" },
             instanceId: "ide-a"
         });
         expect(update.status).toBe(200);
-        await waitForTask(update.payload.task_id);
+        expect(update.payload.ok).toBe(true);
         const updated = await StorageManager.getProjectManifest("proj-demo");
         expect(updated?.description).toBe("Updated");
 
-        const rename = await requestJson<{ ok: boolean; task_id: string; status: string }>(daemon!.port.toString(), "POST", "/api/projects/rename", {
+        const rename = await requestJson<{ ok: boolean; newId: string }>(daemon!.port.toString(), "POST", "/api/projects/rename", {
             oldId: "proj-demo",
             newId: "proj-demo-renamed",
             instanceId: "ide-a"
         });
         expect(rename.status).toBe(200);
-        await waitForTask(rename.payload.task_id);
+        expect(rename.payload.newId).toBe("proj-demo-renamed");
         expect(await StorageManager.getProjectManifest("proj-demo")).toBeNull();
         expect(await StorageManager.getProjectManifest("proj-demo-renamed")).not.toBeNull();
         const expectedDocPath = path.join(NexusPaths.projectDocPath("proj-demo-renamed"));
         expect(await StorageManager.exists(expectedDocPath)).toBe(true);
 
-        const remove = await requestJson<{ ok: boolean; task_id: string; status: string }>(daemon!.port.toString(), "POST", "/api/projects/delete", {
+        const remove = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/delete", {
             projectId: "proj-demo-renamed",
             instanceId: "ide-a"
         });
         expect(remove.status).toBe(200);
-        await waitForTask(remove.payload.task_id);
+        expect(remove.payload.ok).toBe(true);
         expect(await StorageManager.getProjectManifest("proj-demo-renamed")).toBeNull();
         expect(await StorageManager.exists(path.join(StorageManager.projectsRoot, "proj-demo-renamed"))).toBe(false);
     });

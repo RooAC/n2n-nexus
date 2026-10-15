@@ -50,7 +50,7 @@ const TOOL_DEFINITIONS = [
     // Project assets
     {
         name: "sync_project_assets",
-        description: "[ASYNC] Sync full project manifest + internal docs. Returns taskId.",
+        description: "Sync full project manifest + internal docs.",
         inputSchema: {
             type: "object",
             properties: {
@@ -99,7 +99,7 @@ const TOOL_DEFINITIONS = [
     },
     {
         name: "rename_project",
-        description: "[ASYNC] Rename project ID with cascading relation updates. Returns taskId.",
+        description: "Rename project ID with cascading relation updates.",
         inputSchema: {
             type: "object",
             properties: { oldId: { type: "string" }, newId: { type: "string" } },
@@ -217,7 +217,7 @@ const TOOL_DEFINITIONS = [
     // Task management
     {
         name: "create_task",
-        description: "[ASYNC] Create background task. Returns taskId for polling.",
+        description: "Create a task you track yourself. Returns taskId; update it via get_task/cancel_task.",
         inputSchema: {
             type: "object",
             properties: {
@@ -272,7 +272,7 @@ const TOOL_DEFINITIONS = [
     },
     {
         name: "host_delete_project",
-        description: "[ASYNC] Delete project. Irreversible. Returns taskId.",
+        description: "Delete project. Irreversible.",
         inputSchema: {
             type: "object",
             properties: { projectId: { type: "string" } },
@@ -300,25 +300,10 @@ async function toolSyncProjectAssets(args: { manifest: ProjectManifest; internal
     const m = args.manifest;
     if (!m?.id) throw new Error("manifest.id is required.");
 
-    const task = createTask({
-        metadata: { operation: "sync_project_assets", projectId: m.id, initiator: instanceId }
-    });
-
-    setImmediate(async () => {
-        try {
-            updateTask(task.id, { status: "running", progress: 0.1 });
-            await StorageManager.saveProjectManifest(m);
-            updateTask(task.id, { progress: 0.5 });
-            await StorageManager.saveProjectDocs(m.id, args.internalDocs);
-            updateTask(task.id, { progress: 0.9 });
-            await StorageManager.addGlobalLog("SYSTEM", `[${instanceId}@${m.id}] Asset Sync completed.`);
-            updateTask(task.id, { status: "completed", progress: 1.0, result_uri: `nexus://projects/${m.id}/manifest` });
-        } catch (e) {
-            updateTask(task.id, { status: "failed", error_message: String(e) });
-        }
-    });
-
-    return { task_id: task.id, status: "pending", message: "Sync task created. Use get_task to poll for completion." };
+    await StorageManager.saveProjectManifest(m);
+    await StorageManager.saveProjectDocs(m.id, args.internalDocs);
+    await StorageManager.addGlobalLog("SYSTEM", `[${instanceId}@${m.id}] Asset Sync completed.`);
+    return { ok: true, projectId: m.id, message: `Project '${m.id}' manifest and docs synced.` };
 }
 
 async function toolUploadAsset(args: { fileName: string; base64Content: string }, instanceId: string) {
@@ -331,48 +316,22 @@ async function toolUploadAsset(args: { fileName: string; base64Content: string }
     return { ok: true, message: `Asset '${sanitized}' saved to project '${session.currentProject}'.` };
 }
 
-async function toolUpdateProject(args: { projectId: string; patch: Partial<ProjectManifest> }, instanceId: string) {
+async function toolUpdateProject(args: { projectId: string; patch: Partial<ProjectManifest> }) {
     if (!args.projectId || !args.patch) throw new Error("projectId and patch are required.");
     if ((args.patch as Record<string, unknown>).id) throw new Error("Cannot change 'id' via patch. Use rename_project instead.");
 
-    const task = createTask({
-        metadata: { operation: "update_project", projectId: args.projectId, initiator: instanceId }
-    });
-
-    setImmediate(async () => {
-        try {
-            updateTask(task.id, { status: "running", progress: 0.2 });
-            await StorageManager.patchProjectManifest(args.projectId, args.patch);
-            updateTask(task.id, { status: "completed", progress: 1.0, result_uri: `nexus://projects/${args.projectId}/manifest` });
-        } catch (e) {
-            updateTask(task.id, { status: "failed", error_message: String(e) });
-        }
-    });
-
-    return { task_id: task.id, status: "pending", message: "Update task created." };
+    await StorageManager.patchProjectManifest(args.projectId, args.patch);
+    return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' updated.` };
 }
 
-async function toolRenameProject(args: { oldId: string; newId: string }, instanceId: string) {
+async function toolRenameProject(args: { oldId: string; newId: string }) {
     if (!args.oldId || !args.newId) throw new Error("oldId and newId are required.");
     const exists = await StorageManager.getProjectManifest(args.oldId);
     if (!exists) throw new Error(`Project '${args.oldId}' not found.`);
 
-    const task = createTask({
-        metadata: { operation: "rename_project", oldId: args.oldId, newId: args.newId, initiator: instanceId }
-    });
-
-    setImmediate(async () => {
-        try {
-            updateTask(task.id, { status: "running", progress: 0.2 });
-            const count = await StorageManager.renameProject(args.oldId, args.newId);
-            await StorageManager.addGlobalLog("SYSTEM", `Project renamed '${args.oldId}' → '${args.newId}' (${count} cascading updates).`);
-            updateTask(task.id, { status: "completed", progress: 1.0, result_uri: `nexus://projects/${args.newId}/manifest` });
-        } catch (e) {
-            updateTask(task.id, { status: "failed", error_message: String(e) });
-        }
-    });
-
-    return { task_id: task.id, status: "pending", message: "Rename task created." };
+    const count = await StorageManager.renameProject(args.oldId, args.newId);
+    await StorageManager.addGlobalLog("SYSTEM", `Project renamed '${args.oldId}' → '${args.newId}' (${count} cascading updates).`);
+    return { ok: true, oldId: args.oldId, newId: args.newId, message: `Project renamed '${args.oldId}' → '${args.newId}'.` };
 }
 
 async function toolSearchProjects(args: { query: string; limit?: number }) {
@@ -515,22 +474,9 @@ async function toolHostDeleteProject(args: { projectId: string }, instanceId: st
     const exists = await StorageManager.getProjectManifest(args.projectId);
     if (!exists) throw new Error(`Project '${args.projectId}' not found.`);
 
-    const task = createTask({
-        metadata: { operation: "delete_project", projectId: args.projectId, initiator: instanceId }
-    });
-
-    setImmediate(async () => {
-        try {
-            updateTask(task.id, { status: "running", progress: 0.3 });
-            await StorageManager.deleteProject(args.projectId);
-            await StorageManager.addGlobalLog("SYSTEM", `Project deleted: '${args.projectId}' by ${instanceId}.`);
-            updateTask(task.id, { status: "completed", progress: 1.0 });
-        } catch (e) {
-            updateTask(task.id, { status: "failed", error_message: String(e) });
-        }
-    });
-
-    return { task_id: task.id, status: "pending", message: "Delete task created." };
+    await StorageManager.deleteProject(args.projectId);
+    await StorageManager.addGlobalLog("SYSTEM", `Project deleted: '${args.projectId}' by ${instanceId}.`);
+    return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' deleted.` };
 }
 
 // ---------------------------------------------------------------------------
@@ -543,8 +489,8 @@ async function dispatchTool(name: string, args: Record<string, unknown>, instanc
         case "register_session_context":  return toolRegisterSessionContext(u as { projectId: string }, instanceId);
         case "sync_project_assets":       return toolSyncProjectAssets(u as { manifest: ProjectManifest; internalDocs: string }, instanceId);
         case "upload_project_asset":      return toolUploadAsset(u as { fileName: string; base64Content: string }, instanceId);
-        case "update_project":            return toolUpdateProject(u as { projectId: string; patch: Partial<ProjectManifest> }, instanceId);
-        case "rename_project":            return toolRenameProject(u as { oldId: string; newId: string }, instanceId);
+        case "update_project":            return toolUpdateProject(u as { projectId: string; patch: Partial<ProjectManifest> });
+        case "rename_project":            return toolRenameProject(u as { oldId: string; newId: string });
         case "search_projects":           return toolSearchProjects(u as { query: string; limit?: number });
         case "get_global_topology":       return toolGetGlobalTopology(u as { projectId?: string });
         case "send_message":              return toolSendMessage(u as { message: string; category?: DiscussionMessage["category"] }, instanceId);
@@ -674,27 +620,25 @@ export async function createDaemonServer(options: {
                     { manifest: body.manifest as ProjectManifest, internalDocs: (body.internalDocs as string) || "" },
                     (body.instanceId as string) || "unknown"
                 );
-                return jsonResponse(res, 200, { ok: true, ...result });
+                return jsonResponse(res, 200, result);
             }
 
             if (method === "POST" && path === "/api/projects/update") {
                 const body = await parseBody(req);
                 if (!body.projectId || !body.patch) return jsonResponse(res, 400, { ok: false, error: "projectId and patch are required" });
                 const result = await toolUpdateProject(
-                    { projectId: body.projectId as string, patch: body.patch as Partial<ProjectManifest> },
-                    (body.instanceId as string) || "unknown"
+                    { projectId: body.projectId as string, patch: body.patch as Partial<ProjectManifest> }
                 );
-                return jsonResponse(res, 200, { ok: true, ...result });
+                return jsonResponse(res, 200, result);
             }
 
             if (method === "POST" && path === "/api/projects/rename") {
                 const body = await parseBody(req);
                 if (!body.oldId || !body.newId) return jsonResponse(res, 400, { ok: false, error: "oldId and newId are required" });
                 const result = await toolRenameProject(
-                    { oldId: body.oldId as string, newId: body.newId as string },
-                    (body.instanceId as string) || "unknown"
+                    { oldId: body.oldId as string, newId: body.newId as string }
                 );
-                return jsonResponse(res, 200, { ok: true, ...result });
+                return jsonResponse(res, 200, result);
             }
 
             if (method === "POST" && path === "/api/projects/delete") {
@@ -704,7 +648,7 @@ export async function createDaemonServer(options: {
                     { projectId: body.projectId as string },
                     (body.instanceId as string) || "unknown"
                 );
-                return jsonResponse(res, 200, { ok: true, ...result });
+                return jsonResponse(res, 200, result);
             }
 
             if (method === "GET" && path === "/api/projects/search") {

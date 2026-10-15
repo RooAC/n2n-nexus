@@ -32,13 +32,13 @@ Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `a
 ### 3. Write project data
 
 ```
-sync_project_assets(manifest, internalDocs)   → [ASYNC] sync full project data, returns taskId
+sync_project_assets(manifest, internalDocs)   → sync full project data
 update_project(projectId, patch)              → partial update of manifest fields
-rename_project(oldId, newId)                  → [ASYNC] rename and cascade-update all references
+rename_project(oldId, newId)                  → rename and cascade-update all references
 upload_project_asset(fileName, base64Content) → upload a binary file to the project store
 ```
 
-Async operations return a `taskId`. Poll progress with `get_task(taskId)` (`progress` goes from 0.0 to 1.0).
+All write tools run synchronously and return their result directly.
 
 ### 4. Messages and collaboration
 
@@ -68,10 +68,10 @@ archive_meeting(meetingId)        → move to archive (read-only)
 reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 ```
 
-### 6. Background task management
+### 6. Task tracking
 
 ```
-create_task(source_meeting_id?, metadata?)  → create a task, returns taskId
+create_task(source_meeting_id?, metadata?)  → create a task you manage yourself, returns taskId
 get_task(taskId)                            → query status and progress
 list_tasks(status?)                         → list all tasks
 cancel_task(taskId)                         → cancel a pending or running task
@@ -81,7 +81,7 @@ cancel_task(taskId)                         → cancel a pending or running task
 
 ```
 host_maintenance(action, count)   → prune the oldest N log entries / clear all
-host_delete_project(projectId)    → [ASYNC] permanently delete a project (irreversible)
+host_delete_project(projectId)    → permanently delete a project (irreversible)
 ```
 
 ---
@@ -100,8 +100,7 @@ host_delete_project(projectId)    → [ASYNC] permanently delete a project (irre
 
 ```
 1. register_session_context(projectId)
-2. sync_project_assets(manifest, internalDocs)  ← returns taskId
-3. get_task(taskId)                             ← poll until completed
+2. sync_project_assets(manifest, internalDocs)  ← returns { ok, projectId }
 ```
 
 ### Start a collaborative discussion
@@ -119,6 +118,6 @@ host_delete_project(projectId)    → [ASYNC] permanently delete a project (irre
 ## Notes
 
 - `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is managed automatically by the daemon — do not pass `afterId`.
-- Async operations (`sync_project_assets`, `rename_project`, `host_delete_project`) return immediately with a `taskId` and do not block. Poll `get_task` if you need to wait for completion.
+- Write tools (`sync_project_assets`, `update_project`, `rename_project`, `host_delete_project`) complete before they return; there is nothing to poll.
 - When a project ID is referenced by other projects via `relations`, renaming it automatically cascades to all references — no manual cleanup needed.
 - After a daemon restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.

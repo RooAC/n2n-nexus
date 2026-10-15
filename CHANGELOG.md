@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `sync_project_assets`, `update_project`, `rename_project`, and `host_delete_project` now run synchronously and return their result directly instead of a `task_id` to poll. The operations take milliseconds; the background-task wrapper only added a polling round-trip and let the work race with other requests.
+
 - Require Node.js 22.14+ on the 22.x release line, or Node.js 23.6+ and update MCP SDK, SQLite, and test dependencies to their latest compatible stable releases.
 
 ## [0.5.0] - 2026-06-14

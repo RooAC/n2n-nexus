@@ -34,13 +34,13 @@ register_session_context(projectId)   → 绑定当前会话到指定项目
 ### 3. 项目数据写入
 
 ```
-sync_project_assets(manifest, internalDocs)   → [ASYNC] 同步项目全量数据，返回 taskId
+sync_project_assets(manifest, internalDocs)   → 同步项目全量数据
 update_project(projectId, patch)              → 部分更新 Manifest 字段
-rename_project(oldId, newId)                  → [ASYNC] 重命名并级联更新所有引用
+rename_project(oldId, newId)                  → 重命名并级联更新所有引用
 upload_project_asset(fileName, base64Content) → 上传二进制文件到项目库
 ```
 
-异步操作返回 `taskId`，通过 `get_task(taskId)` 轮询进度（`progress` 0.0→1.0）。
+所有写入工具都同步执行并直接返回结果。
 
 ### 4. 消息与协作
 
@@ -69,10 +69,10 @@ archive_meeting(meetingId)        → 存档（只读）
 reopen_meeting(meetingId)         → 重新开启
 ```
 
-### 6. 后台任务管理
+### 6. 任务跟踪
 
 ```
-create_task(source_meeting_id?, metadata?)  → 创建任务，返回 taskId
+create_task(source_meeting_id?, metadata?)  → 创建由你自己管理的任务，返回 taskId
 get_task(taskId)                            → 查询状态和进度
 list_tasks(status?)                         → 列出所有任务
 cancel_task(taskId)                         → 取消任务
@@ -82,7 +82,7 @@ cancel_task(taskId)                         → 取消任务
 
 ```
 host_maintenance(action, count)   → prune 最旧 N 条日志 / clear 全部
-host_delete_project(projectId)    → [ASYNC] 永久删除项目（不可逆）
+host_delete_project(projectId)    → 永久删除项目（不可逆）
 ```
 
 ---
@@ -99,8 +99,7 @@ host_delete_project(projectId)    → [ASYNC] 永久删除项目（不可逆）
 ### 同步项目数据
 ```
 1. register_session_context(projectId)
-2. sync_project_assets(manifest, internalDocs)  ← 返回 taskId
-3. get_task(taskId)                             ← 轮询直到 completed
+2. sync_project_assets(manifest, internalDocs)  ← 返回 { ok, projectId }
 ```
 
 ### 发起协作讨论
@@ -117,6 +116,6 @@ host_delete_project(projectId)    → [ASYNC] 永久删除项目（不可逆）
 ## ⚠️ 注意事项
 
 - `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 daemon 自动管理，不需要传 `afterId`。
-- 异步操作（`sync_project_assets`、`rename_project`、`host_delete_project`）立即返回 `taskId`，不阻塞。如需等待完成，轮询 `get_task`。
+- 写入工具（`sync_project_assets`、`update_project`、`rename_project`、`host_delete_project`）在返回前已执行完成，无需轮询。
 - 项目 ID 一旦被其他项目引用（`relations`），重命名会自动级联更新所有引用，不需要手动处理。
 - daemon 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。

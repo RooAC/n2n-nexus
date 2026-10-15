@@ -7,7 +7,7 @@ Parameter tables below are derived from `src/daemon/server.ts` (`TOOL_DEFINITION
 ## Conventions
 
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
-- Tools marked **async** return a `task_id` immediately. Use `get_task` to poll status and progress.
+- All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.
 - `upload_project_asset` requires an active session project. Call `register_session_context` first.
 - `host_delete_project` is destructive and irreversible.
 
@@ -52,7 +52,7 @@ Behavior:
 
 ## Project asset management
 
-### `sync_project_assets` async
+### `sync_project_assets`
 
 Sync a full project manifest and internal docs.
 
@@ -64,8 +64,7 @@ Sync a full project manifest and internal docs.
 Behavior:
 
 - Saves the manifest and project docs.
-- Returns `{ task_id, status: "pending" }`.
-- Poll with `get_task`.
+- Returns `{ ok: true, projectId }`.
 
 ### `upload_project_asset`
 
@@ -81,7 +80,7 @@ Behavior:
 - Requires `register_session_context` first.
 - Saves to the current project's assets directory.
 
-### `update_project` async
+### `update_project`
 
 Patch fields on an existing project manifest.
 
@@ -92,11 +91,10 @@ Patch fields on an existing project manifest.
 
 Behavior:
 
-- Returns `{ task_id, status: "pending" }`.
-- Poll with `get_task`.
+- Returns `{ ok: true, projectId }`.
 - To change a project ID, use `rename_project`.
 
-### `rename_project` async
+### `rename_project`
 
 Rename a project ID and cascade relation updates.
 
@@ -108,8 +106,7 @@ Rename a project ID and cascade relation updates.
 Behavior:
 
 - Fails if `oldId` does not exist.
-- Returns `{ task_id, status: "pending" }`.
-- Poll with `get_task`.
+- Returns `{ ok: true, oldId, newId }`.
 
 ### `search_projects`
 
@@ -211,9 +208,9 @@ Reactivate a closed or archived meeting.
 | --- | --- | --- | --- |
 | `meetingId` | string | yes | Meeting to reopen. |
 
-## Async task management
+## Task management
 
-### `create_task` async
+### `create_task`
 
 Create a background task.
 
@@ -233,7 +230,7 @@ Read task status and result.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `taskId` | string | yes | Task ID returned by an async operation. |
+| `taskId` | string | yes | Task ID returned by `create_task`. |
 
 ### `list_tasks`
 
@@ -263,7 +260,7 @@ Prune or clear global logs.
 | `action` | string | yes | `prune` or `clear`. |
 | `count` | integer | yes | Required by the MCP schema. Used by `prune`; ignored by `clear`. |
 
-### `host_delete_project` async
+### `host_delete_project`
 
 Permanently delete a project and its assets.
 
@@ -274,6 +271,5 @@ Permanently delete a project and its assets.
 Behavior:
 
 - Fails if the project does not exist.
-- Returns `{ task_id, status: "pending" }`.
-- Poll with `get_task`.
+- Returns `{ ok: true, projectId }`.
 - This operation is irreversible.
