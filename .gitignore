@@ -12,3 +12,6 @@ test-storage/
 Nexus_Storage/
 tests/tmp/
 /storage/
+
+# Per-developer Claude Code permissions; never commit a blanket allow-list
+.claude/settings.json
