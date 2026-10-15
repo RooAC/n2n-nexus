@@ -117,3 +117,38 @@ describe("MCP proxy lifecycle", () => {
         expect((proxy as unknown as { retryTimer: unknown }).retryTimer).toBeNull();
     });
 });
+
+describe("MCP proxy instance id on 2026-07-28 connections", () => {
+    let daemon: DaemonHarness;
+    beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy-raw"); });
+    afterEach(async () => { await daemon.close(); });
+
+    it("keeps one instance id when later requests omit clientInfo", async () => {
+        delete process.env.NEXUS_INSTANCE_ID;
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await new NexusServer().run({ transport: serverSide });
+
+        const responses = new Map<number, unknown>();
+        clientSide.onmessage = (m) => { const msg = m as { id?: number }; if (msg.id !== undefined) responses.set(msg.id, msg); };
+        await clientSide.start();
+        const meta = (withInfo: boolean) => ({
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+            ...(withInfo ? { "io.modelcontextprotocol/clientInfo": { name: "Fancy IDE", version: "1" } } : {})
+        });
+        const call = async (id: number, text: string, withInfo: boolean) => {
+            await clientSide.send({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "send_message", arguments: { message: text }, _meta: meta(withInfo) } });
+            for (let i = 0; i < 100 && !responses.has(id); i++) await new Promise((r) => setTimeout(r, 10));
+        };
+        await call(1, "with info", true);
+        await call(2, "without info", false);
+
+        const read = await daemon.callTool<{ messages: { from: string }[] }>("read_messages", { count: 5 }, "observer");
+        const senders = new Set(read.payload.result?.messages.map((m) => m.from));
+        expect(read.payload.result?.messages).toHaveLength(2);
+        expect([...senders]).toHaveLength(1);
+        expect([...senders][0]).toMatch(/-fancy-ide$/);
+        await clientSide.close();
+    });
+});

@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- On 2026-07-28 connections, a request without `io.modelcontextprotocol/clientInfo` (only a SHOULD in the spec) got an instance ID without the IDE name, so one client could appear as two instances with split unread cursors and meeting permissions. The adapter now keeps the first client name seen on the connection.
+
 - Calling a tool the adapter does not know returned a tool result with `isError: true`. The MCP specification classifies an unknown tool as a protocol error; the adapter now answers with JSON-RPC error `-32602` (Invalid Params), also when the daemon reports the tool as unknown.
 
 - The MCP adapter did not exit when the IDE closed its stdin: while the daemon was unreachable the 3-second reconnect timer kept the process alive indefinitely, leaving orphaned adapters. The adapter now shuts down and exits when stdin ends, as the stdio transport specification requires.

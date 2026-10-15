@@ -41,6 +41,12 @@ export class NexusServer {
     private retryTimer: NodeJS.Timeout | null = null;
     private connected = false;
     private stopped = false;
+    /**
+     * First client name seen on this stdio connection. clientInfo is only a
+     * SHOULD per request under 2026-07-28, so a request without it must not
+     * fall back to a different instance id than its siblings.
+     */
+    private clientName: string | undefined;
 
     constructor() {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
@@ -70,9 +76,9 @@ export class NexusServer {
 
             // 2026-07-28 clients identify themselves per request; 2025-era clients did so in initialize.
             const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
-            const clientName = (envelope?.[CLIENT_INFO_META_KEY] as ClientInfo | undefined)?.name
+            this.clientName ??= (envelope?.[CLIENT_INFO_META_KEY] as ClientInfo | undefined)?.name
                 ?? server.getClientVersion()?.name;
-            const instanceId = resolveInstanceId(process.env, process.argv, process.cwd(), clientName);
+            const instanceId = resolveInstanceId(process.env, process.argv, process.cwd(), this.clientName);
 
             try {
                 const result = await this.client.callTool(request.params.name, request.params.arguments, instanceId);
