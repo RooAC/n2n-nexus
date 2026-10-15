@@ -153,7 +153,7 @@ POST /api/tools/call         执行工具调用 { tool, args, instanceId }
 GET  /health                 健康状态 + 版本信息
 ```
 
-### 会话与项目
+### 项目
 ```
 POST /api/projects/sync
 POST /api/projects/update

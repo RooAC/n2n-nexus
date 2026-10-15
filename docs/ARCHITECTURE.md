@@ -153,7 +153,7 @@ POST /api/tools/call         Execute tool call { tool, args, instanceId }
 GET  /health                 Health status + version
 ```
 
-### Session & Projects
+### Projects
 ```
 POST /api/projects/sync
 POST /api/projects/update
