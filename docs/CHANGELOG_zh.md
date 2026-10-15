@@ -22,6 +22,8 @@
 
 ### 修复
 
+- IDE 关闭 stdin 后 MCP 适配器不退出：守护进程不可达时，3 秒一次的重连定时器让进程一直存活，留下孤儿适配器。现在 stdin 结束时适配器会关闭并退出，符合 stdio 传输规范。
+
 - 与 `Object.prototype` 键同名的项目和文档 ID 处理错误：`register_session_context({ projectId: "constructor" })` 对不存在的项目返回成功，名为 `__proto__` 的项目或文档写入后丢失（赋值改写了对象原型）。注册表与文档索引改为无原型的映射。
 
 - `sync_project_assets` 分两次加锁分别写 manifest 和内部文档，并发的 `host_delete_project` 可以插在两步之间，留下注册表不认识的项目目录。现在两步在同一临界区内完成。

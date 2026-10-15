@@ -11,6 +11,15 @@ import { pkg } from "../config/index.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
+
+export type RunOptions = {
+    /** MCP transport; defaults to stdio. */
+    transport?: Transport;
+    /** Stream whose end means the client is gone; defaults to process.stdin when using stdio. */
+    input?: NodeJS.ReadableStream;
+    /** Called after shutdown triggered by `input` ending; defaults to process.exit(0). */
+    onExit?: () => void;
+};
 const SERVICE_NAME = "n2n-nexus";
 
 export class NexusServer {
@@ -20,6 +29,7 @@ export class NexusServer {
     private cachedTools: ToolDefinition[] = [];
     private retryTimer: NodeJS.Timeout | null = null;
     private connected = false;
+    private stopped = false;
 
     constructor() {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
@@ -100,8 +110,23 @@ export class NexusServer {
         }
     }
 
+    private stopRetry() {
+        if (this.retryTimer) {
+            clearInterval(this.retryTimer);
+            this.retryTimer = null;
+        }
+    }
+
+    /** Stop reconnecting and close the MCP connection. Safe to call more than once. */
+    async shutdown(): Promise<void> {
+        if (this.stopped) return;
+        this.stopped = true;
+        this.stopRetry();
+        await this.server.close().catch(() => { });
+    }
+
     private scheduleRetry() {
-        if (this.retryTimer) return;
+        if (this.retryTimer || this.stopped) return;
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
         this.retryTimer = setInterval(async () => {
             console.error(`[n2n-nexus] Waiting for daemon at ${endpoint}...`);
@@ -113,8 +138,24 @@ export class NexusServer {
         }, RETRY_INTERVAL_MS);
     }
 
-    /** Connect the MCP server; `transport` defaults to stdio and is injectable for tests. */
-    async run(transport: Transport = new StdioServerTransport()) {
+    /**
+     * Connect the MCP server. Per the stdio transport spec the server should
+     * exit when its input closes; without this the reconnect timer kept the
+     * adapter alive after the IDE went away.
+     */
+    async run(options: RunOptions = {}) {
+        const stdio = !options.transport;
+        const transport = options.transport ?? new StdioServerTransport();
+        const input: NodeJS.ReadableStream | undefined = options.input ?? (stdio ? process.stdin : undefined);
+        const onExit = options.onExit ?? (() => process.exit(0));
+
+        this.server.onclose = () => this.stopRetry();
+        if (input) {
+            const exit = () => { void this.shutdown().then(onExit); };
+            input.once("end", exit);
+            input.once("close", exit);
+        }
+
         await this.server.connect(transport);
 
         // Try to connect immediately; if not ready, start retry loop

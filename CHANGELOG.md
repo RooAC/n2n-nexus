@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The MCP adapter did not exit when the IDE closed its stdin: while the daemon was unreachable the 3-second reconnect timer kept the process alive indefinitely, leaving orphaned adapters. The adapter now shuts down and exits when stdin ends, as the stdio transport specification requires.
+
 - Project and document ids that match `Object.prototype` keys were mishandled: `register_session_context({ projectId: "constructor" })` reported success for a project that did not exist, and a project or doc named `__proto__` was silently lost because assigning it rewrote the map's prototype. The registry and docs index are now prototype-free maps.
 
 - `sync_project_assets` wrote the manifest and the internal docs as two separately locked steps, so a concurrent `host_delete_project` could run between them and leave a project directory on disk that the registry no longer knew about. Both writes now happen in one critical section.

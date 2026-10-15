@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { PassThrough } from "node:stream";
 
 import { NexusServer } from "../src/server/nexus.js";
 import { NexusClient, NexusToolError, NexusTransportError } from "../src/client/nexus-client.js";
@@ -36,7 +37,7 @@ describe("MCP proxy", () => {
         process.env.NEXUS_INSTANCE_ID = "proxy-test";
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
         const proxy = new NexusServer();
-        await proxy.run(serverSide);
+        await proxy.run({ transport: serverSide });
         const client = new Client({ name: "test-ide", version: "0.0.0" });
         await client.connect(clientSide);
         return { proxy, client };
@@ -69,12 +70,31 @@ describe("MCP proxy", () => {
         delete process.env.NEXUS_INSTANCE_ID;
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-        await new NexusServer().run(serverSide);
+        await new NexusServer().run({ transport: serverSide });
         const client = new Client({ name: "Fancy IDE", version: "1.0" });
         await client.connect(clientSide);
         await client.callTool({ name: "send_message", arguments: { message: "from ide" } });
         const recent = await daemon.callTool<{ messages: { from: string }[] }>("read_messages", { count: 5 }, "observer");
         expect(recent.payload.result?.messages[0].from).toMatch(/^mcp-.+-[0-9a-f]{8}-fancy-ide$/);
         await client.close();
+    });
+});
+
+describe("MCP proxy lifecycle", () => {
+    it("shuts down and exits when its input ends, even while waiting for the daemon", async () => {
+        process.env.NEXUS_ENDPOINT = "http://127.0.0.1:1"; // nothing listens here
+        process.env.NEXUS_INSTANCE_ID = "lifecycle-test";
+        const [, serverSide] = InMemoryTransport.createLinkedPair();
+        const input = new PassThrough();
+        let exited = false;
+        const proxy = new NexusServer();
+        await proxy.run({ transport: serverSide, input, onExit: () => { exited = true; } });
+        expect((proxy as unknown as { retryTimer: unknown }).retryTimer).not.toBeNull();
+
+        input.resume(); // the stdio transport keeps stdin flowing; mimic that so "end" fires
+        input.end();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(exited).toBe(true);
+        expect((proxy as unknown as { retryTimer: unknown }).retryTimer).toBeNull();
     });
 });
