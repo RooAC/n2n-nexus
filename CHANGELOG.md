@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The adapter's reconnect loop used a 3-second `setInterval` while each attempt could take up to the 5-second request timeout, so a hung daemon accumulated overlapping requests. Each attempt is now scheduled only after the previous one finishes.
+
 - `rename_project`, `cancel_task`, `end_meeting`, `archive_meeting` and `reopen_meeting` were annotated `destructiveHint: false`, which MCP reserves for purely additive tools; clients could run them without asking the user. They are now marked destructive.
 
 - When the daemon reported a tool as unknown (for example after an upgrade the adapter did not notice), the adapter returned `-32602` but kept offering the tool in `tools/list`. It now re-fetches the tool list and sends `list_changed` if it differs.

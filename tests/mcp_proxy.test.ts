@@ -219,3 +219,36 @@ describe("MCP proxy when the daemon drops a tool", () => {
         await new Promise((r) => fake.close(r));
     });
 });
+
+describe("MCP proxy reconnect loop", () => {
+    it("never has more than one daemon request in flight while the daemon hangs", async () => {
+        const net = await import("node:net");
+        const open = new Set<import("node:net").Socket>();
+        let maxConcurrent = 0;
+        let total = 0;
+        const hung = net.createServer((sock) => {
+            sock.resume(); // read the request so the client's FIN is seen and "close" fires
+            open.add(sock); total++;
+            maxConcurrent = Math.max(maxConcurrent, open.size);
+            sock.on("close", () => open.delete(sock));
+        });
+        await new Promise<void>((r) => hung.listen(0, "127.0.0.1", () => r()));
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${(hung.address() as import("node:net").AddressInfo).port}`;
+        process.env.NEXUS_INSTANCE_ID = "retry-test";
+
+        // Attempt (200 ms timeout) outlasts the interval (50 ms): setInterval would stack attempts.
+        const proxy = new NexusServer({ retryIntervalMs: 50, requestTimeoutMs: 200 });
+        const [, serverSide] = InMemoryTransport.createLinkedPair();
+        const input = new PassThrough();
+        void proxy.run({ transport: serverSide, input, onExit: () => { } });
+        await new Promise((r) => setTimeout(r, 1200));
+
+        expect(total).toBeGreaterThanOrEqual(3);
+        expect(maxConcurrent).toBe(1);
+
+        input.resume(); input.end();
+        await new Promise((r) => setTimeout(r, 50));
+        open.forEach((s) => s.destroy());
+        await new Promise((r) => hung.close(r));
+    });
+});

@@ -27,6 +27,13 @@ export type RunOptions = {
 
 type ClientInfo = { name?: string };
 
+export type NexusServerOptions = {
+    /** Pause between reconnect attempts, measured from the end of the previous attempt. */
+    retryIntervalMs?: number;
+    /** Per-request timeout towards the daemon. */
+    requestTimeoutMs?: number;
+};
+
 /**
  * Stateless MCP adapter in front of the daemon.
  *
@@ -41,6 +48,9 @@ export class NexusServer {
     private client: NexusClient;
     private cachedTools: Tool[] = [];
     private retryTimer: NodeJS.Timeout | null = null;
+    /** True while a reconnect loop is active (waiting or attempting). */
+    private retrying = false;
+    private readonly retryIntervalMs: number;
     private connected = false;
     private stopped = false;
     /**
@@ -52,9 +62,10 @@ export class NexusServer {
     /** The first daemon fetch, started once serving has begun. */
     private initialFetch: Promise<boolean> | null = null;
 
-    constructor() {
+    constructor(options: NexusServerOptions = {}) {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-        this.client = new NexusClient({ endpoint, timeoutMs: 5000 });
+        this.retryIntervalMs = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
+        this.client = new NexusClient({ endpoint, timeoutMs: options.requestTimeoutMs ?? 5000 });
     }
 
     /** Builds the MCP server instance serveStdio pins for the connection. */
@@ -159,8 +170,9 @@ export class NexusServer {
     }
 
     private stopRetry() {
+        this.retrying = false;
         if (this.retryTimer) {
-            clearInterval(this.retryTimer);
+            clearTimeout(this.retryTimer);
             this.retryTimer = null;
         }
     }
@@ -173,17 +185,25 @@ export class NexusServer {
         await this.handle?.close().catch(() => { });
     }
 
+    /**
+     * Reconnect loop. Each attempt is scheduled only after the previous one
+     * finished, so a daemon that hangs (attempt longer than the interval)
+     * never accumulates concurrent requests.
+     */
     private scheduleRetry() {
-        if (this.retryTimer || this.stopped) return;
+        if (this.retrying || this.stopped) return;
+        this.retrying = true;
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-        this.retryTimer = setInterval(async () => {
-            console.error(`[n2n-nexus] Waiting for daemon at ${endpoint}...`);
-            const ok = await this.tryConnect();
-            if (ok && this.retryTimer) {
-                clearInterval(this.retryTimer);
-                this.retryTimer = null;
-            }
-        }, RETRY_INTERVAL_MS);
+        const next = () => {
+            this.retryTimer = setTimeout(async () => {
+                console.error(`[n2n-nexus] Waiting for daemon at ${endpoint}...`);
+                const ok = await this.tryConnect();
+                if (!this.retrying) return;           // stopped while the attempt was in flight
+                if (ok) this.stopRetry();
+                else next();
+            }, this.retryIntervalMs);
+        };
+        next();
     }
 
     /**
@@ -214,7 +234,7 @@ export class NexusServer {
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
             const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-            console.error(`[n2n-nexus] Daemon not available at ${endpoint}. Will retry every ${RETRY_INTERVAL_MS / 1000}s...`);
+            console.error(`[n2n-nexus] Daemon not available at ${endpoint}. Will retry every ${this.retryIntervalMs / 1000}s...`);
             this.scheduleRetry();
         }
     }
