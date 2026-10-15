@@ -55,8 +55,9 @@ describe("Daemon rate limiting", () => {
         await fs.mkdir(TEST_ROOT, { recursive: true });
         process.env.NEXUS_ROOT = TEST_ROOT;
         StorageManager.resetInit();
-        // 1 call/s, burst 3 per instance; the per-address limit is 5x (burst 15).
-        const { server } = await createDaemonServer({ port: 0, version: "test", rateLimit: { perSecond: 1, burst: 3 } });
+        // Burst 3 per instance, 15 per address (5x). The refill rate is so low that no
+        // token comes back during a test, so the counts do not depend on machine speed.
+        const { server } = await createDaemonServer({ port: 0, version: "test", rateLimit: { perSecond: 0.001, burst: 3 } });
         await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
         port = (server.address() as AddressInfo).port;
         close = () => new Promise((r) => server.close(() => r()));
