@@ -103,9 +103,10 @@ export class NexusServer {
 
             try {
                 const result = await this.client.callTool(request.params.name, request.params.arguments, instanceId);
-                // Every daemon tool declares an outputSchema with an object root, so the
-                // result goes out as structuredContent; the JSON text keeps clients that
-                // only read content working (the spec's backwards-compatibility advice).
+                // Every daemon result is a JSON object, so it goes out as structuredContent
+                // (data tools also publish an outputSchema for it; write tools do not). The
+                // JSON text keeps clients that only read content working (the spec's
+                // backwards-compatibility advice).
                 return {
                     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
                     structuredContent: result as Record<string, unknown>
