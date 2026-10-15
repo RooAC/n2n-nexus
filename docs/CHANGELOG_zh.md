@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 结构化工具结果：每次成功调用在 JSON 文本之外同时返回 `structuredContent`，11 个返回数据的工具发布 `outputSchema`。结果结构是 `src/daemon/tool-outputs.ts` 中的 zod 契约，并用于给处理函数定类型；有测试经适配器在新旧两代协议下调用全部工具，逐个按契约校验结果。若写入类工具也发布 schema，`tools/list` 会从约 14 KB 涨到 27 KB，而它们只返回一行确认，因此未发布（只发布读取类时为 22 KB）。
+
 - 每个工具新增显示用的 `title`（例如 "Delete Project"），MCP 客户端会用它代替原始工具名展示。
 
 - 所有工具加上 MCP 工具注解（`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`），客户端可以区分只读工具和会覆盖或删除数据的工具，并在调用后者前请用户确认。

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { MESSAGE_CATEGORIES } from "../types.js";
+import { TASK_STATUSES } from "../storage/tasks.js";
+import { TOOL_OUTPUT_SCHEMAS } from "./tool-outputs.js";
 
 /**
  * Tool contracts. Each zod schema is the single source of truth: it is
@@ -42,7 +44,6 @@ export const manifestPatchSchema = manifestSchema.omit({ id: true, lastUpdated: 
 /** Tools without parameters: the spec recommends a schema that accepts only `{}`. */
 const noParams = z.strictObject({});
 
-export const TASK_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
 
 export const TOOL_SCHEMAS = {
     // Projects
@@ -244,9 +245,16 @@ export type ToolDefinition = {
     name: ToolName;
     title: string;
     description: string;
+    outputSchema?: Record<string, unknown>;
     inputSchema: { type: "object"; properties: Record<string, unknown>; required?: string[] };
     annotations: ToolAnnotations;
 };
+
+function toOutputSchema(schema: z.ZodType): Record<string, unknown> {
+    const json = z.toJSONSchema(schema, { io: "output" }) as Record<string, unknown>;
+    delete json.$schema;
+    return json;
+}
 
 function toInputSchema(schema: z.ZodType): ToolDefinition["inputSchema"] {
     const json = z.toJSONSchema(schema, { io: "input" }) as Record<string, unknown>;
@@ -254,12 +262,32 @@ function toInputSchema(schema: z.ZodType): ToolDefinition["inputSchema"] {
     return json as ToolDefinition["inputSchema"];
 }
 
+// Compile-time check: every tool has a result contract and no contract lacks a tool.
+const _outputsCover: Record<ToolName, z.ZodType> = TOOL_OUTPUT_SCHEMAS;
+const _outputsMatch: Record<keyof typeof TOOL_OUTPUT_SCHEMAS, unknown> = TOOL_SCHEMAS;
+void _outputsCover; void _outputsMatch;
+
 export const TOOL_NAMES = Object.keys(TOOL_SCHEMAS) as ToolName[];
+
+/**
+ * Tools whose outputSchema is published in tools/list. Every tool has a result
+ * contract (and every result is sent as structuredContent), but the schemas of
+ * write tools only describe a short acknowledgement and nearly doubled the
+ * tools/list payload that sits in every model context, so only tools that
+ * return data publish theirs.
+ */
+const PUBLISHED_OUTPUT_SCHEMAS = new Set<ToolName>([
+    "search_projects", "get_global_topology", "get_project",
+    "read_messages", "list_events",
+    "get_global_strategy", "list_global_docs", "get_global_doc",
+    "list_meetings", "get_task", "list_tasks"
+]);
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = TOOL_NAMES.map((name) => ({
     name,
     title: TOOL_TITLES[name],
     description: TOOL_DESCRIPTIONS[name],
+    ...(PUBLISHED_OUTPUT_SCHEMAS.has(name) ? { outputSchema: toOutputSchema(TOOL_OUTPUT_SCHEMAS[name]) } : {}),
     inputSchema: toInputSchema(TOOL_SCHEMAS[name]),
     annotations: TOOL_ANNOTATIONS[name]
 }));

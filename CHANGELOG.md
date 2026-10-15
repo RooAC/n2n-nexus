@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Structured tool results: every successful call returns `structuredContent` alongside the JSON text, and the eleven data-returning tools publish an `outputSchema`. Result shapes are zod contracts in `src/daemon/tool-outputs.ts` that type the handlers; a test calls all tools through the adapter for both protocol eras and checks each result against its contract. Publishing schemas for write tools as well would have grown `tools/list` from about 14 KB to 27 KB for a one-line acknowledgement, so they are left out (22 KB with the read schemas).
+
 - A display `title` on every tool (for example "Delete Project"), which MCP clients show instead of the raw tool name.
 
 - MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) on every tool, so clients can tell read-only tools from ones that overwrite or delete data and ask the user before the latter.

@@ -10,6 +10,7 @@ import { runMigrations } from "../storage/migrations.js";
 import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
 import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
+import { ToolResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, ToolValidationError } from "./tools.js";
 import { z } from "zod";
 
@@ -27,7 +28,7 @@ async function initializeStorage(): Promise<void> {
 // Tool handlers
 // ---------------------------------------------------------------------------
 
-async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, instanceId: string) {
+async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, instanceId: string): Promise<ToolResult<"sync_project_assets">> {
     const m = { ...args.manifest, lastUpdated: args.manifest.lastUpdated ?? new Date().toISOString() };
 
     await StorageManager.saveProject(m, args.internalDocs);
@@ -35,7 +36,7 @@ async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, inst
     return { ok: true, projectId: m.id, message: `Project '${m.id}' manifest and docs synced.` };
 }
 
-async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceId: string) {
+async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceId: string): Promise<ToolResult<"upload_project_asset">> {
     if (!await StorageManager.getProjectManifest(args.projectId)) throw new Error(`Project '${args.projectId}' not found.`);
     const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const buf = Buffer.from(args.base64Content, "base64");
@@ -44,14 +45,14 @@ async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceI
     return { ok: true, projectId: args.projectId, fileName: sanitized, message: `Asset '${sanitized}' saved to project '${args.projectId}'.` };
 }
 
-async function toolUpdateProject(args: ToolArgs<"update_project">, instanceId: string) {
+async function toolUpdateProject(args: ToolArgs<"update_project">, instanceId: string): Promise<ToolResult<"update_project">> {
 
     await StorageManager.patchProjectManifest(args.projectId, args.patch);
     EventStore.record(instanceId, "project.update", args.projectId, { fields: Object.keys(args.patch) });
     return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' updated.` };
 }
 
-async function toolRenameProject(args: ToolArgs<"rename_project">, instanceId: string) {
+async function toolRenameProject(args: ToolArgs<"rename_project">, instanceId: string): Promise<ToolResult<"rename_project">> {
     if (args.oldId === args.newId) throw new Error("oldId and newId are identical.");
     const exists = await StorageManager.getProjectManifest(args.oldId);
     if (!exists) throw new Error(`Project '${args.oldId}' not found.`);
@@ -61,7 +62,7 @@ async function toolRenameProject(args: ToolArgs<"rename_project">, instanceId: s
     return { ok: true, oldId: args.oldId, newId: args.newId, message: `Project renamed '${args.oldId}' → '${args.newId}'.` };
 }
 
-async function toolSearchProjects(args: ToolArgs<"search_projects">) {
+async function toolSearchProjects(args: ToolArgs<"search_projects">): Promise<ToolResult<"search_projects">> {
     const registry = await StorageManager.listRegistry();
     const projects = registry.projects as Record<string, { name?: string; summary?: string }>;
     const q = args.query.toLowerCase();
@@ -79,11 +80,11 @@ async function toolSearchProjects(args: ToolArgs<"search_projects">) {
     return { query: args.query, count: results.length, results };
 }
 
-async function toolGetGlobalTopology(args: ToolArgs<"get_global_topology">) {
+async function toolGetGlobalTopology(args: ToolArgs<"get_global_topology">): Promise<ToolResult<"get_global_topology">> {
     return StorageManager.calculateTopology(args.projectId);
 }
 
-async function toolGetProject(args: ToolArgs<"get_project">) {
+async function toolGetProject(args: ToolArgs<"get_project">): Promise<ToolResult<"get_project">> {
     const manifest = await StorageManager.getProjectManifest(args.projectId);
     if (!manifest) throw new Error(`Project '${args.projectId}' not found.`);
     return args.includeDocs
@@ -91,7 +92,7 @@ async function toolGetProject(args: ToolArgs<"get_project">) {
         : { manifest };
 }
 
-async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string) {
+async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string): Promise<ToolResult<"send_message">> {
     const meetingId = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
 
     if (meetingId) {
@@ -109,7 +110,7 @@ async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: strin
     return { ok: true, sentTo: "global", messageId: saved.id, message: "Message sent to global chat." };
 }
 
-async function toolReadMessages(args: ToolArgs<"read_messages">, instanceId: string) {
+async function toolReadMessages(args: ToolArgs<"read_messages">, instanceId: string): Promise<ToolResult<"read_messages">> {
     const count = args.count;
 
     if (args.meetingId) {
@@ -123,17 +124,17 @@ async function toolReadMessages(args: ToolArgs<"read_messages">, instanceId: str
     return { source: "global", messages, count: messages.length };
 }
 
-async function toolUpdateGlobalStrategy(args: ToolArgs<"update_global_strategy">, instanceId: string) {
+async function toolUpdateGlobalStrategy(args: ToolArgs<"update_global_strategy">, instanceId: string): Promise<ToolResult<"update_global_strategy">> {
     await StorageManager.saveGlobalBlueprint(args.content);
     EventStore.record(instanceId, "strategy.update");
     return { ok: true, message: "Global strategy updated." };
 }
 
-async function toolGetGlobalStrategy() {
+async function toolGetGlobalStrategy(): Promise<ToolResult<"get_global_strategy">> {
     return { content: await StorageManager.getGlobalBlueprint() };
 }
 
-async function toolListGlobalDocs() {
+async function toolListGlobalDocs(): Promise<ToolResult<"list_global_docs">> {
     const index = await StorageManager.listGlobalDocs();
     const docs = Object.entries(index)
         .map(([docId, entry]) => ({ docId, ...entry }))
@@ -141,30 +142,30 @@ async function toolListGlobalDocs() {
     return { count: docs.length, docs };
 }
 
-async function toolGetGlobalDoc(args: ToolArgs<"get_global_doc">) {
+async function toolGetGlobalDoc(args: ToolArgs<"get_global_doc">): Promise<ToolResult<"get_global_doc">> {
     const entry = (await StorageManager.listGlobalDocs())[args.docId];
     if (!entry) throw new Error(`Document '${args.docId}' not found.`);
     return { docId: args.docId, ...entry, content: await StorageManager.getGlobalDoc(args.docId) };
 }
 
-async function toolSyncGlobalDoc(args: ToolArgs<"sync_global_doc">, instanceId: string) {
+async function toolSyncGlobalDoc(args: ToolArgs<"sync_global_doc">, instanceId: string): Promise<ToolResult<"sync_global_doc">> {
     await StorageManager.saveGlobalDoc(args.docId, args.title, args.content, instanceId);
     EventStore.record(instanceId, "doc.sync", args.docId, { title: args.title });
     return { ok: true, message: `Global document '${args.title}' (${args.docId}) synchronized.` };
 }
 
-async function toolListMeetings(args: ToolArgs<"list_meetings">) {
+async function toolListMeetings(args: ToolArgs<"list_meetings">): Promise<ToolResult<"list_meetings">> {
     const meetings = SqliteMeetingStore.listMeetings(args.status, args.limit);
     return { count: meetings.length, activeMeetingId: SqliteMeetingStore.getActiveMeetingId(), meetings };
 }
 
-async function toolStartMeeting(args: ToolArgs<"start_meeting">, instanceId: string) {
+async function toolStartMeeting(args: ToolArgs<"start_meeting">, instanceId: string): Promise<ToolResult<"start_meeting">> {
     const meeting = SqliteMeetingStore.startMeeting(args.topic, instanceId);
     EventStore.record(instanceId, "meeting.start", meeting.id, { topic: meeting.topic });
     return { ok: true, meetingId: meeting.id, topic: meeting.topic, status: meeting.status };
 }
 
-async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string) {
+async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string): Promise<ToolResult<"end_meeting">> {
     const id = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
     if (!id) throw new Error("No active meeting found to end.");
 
@@ -173,7 +174,7 @@ async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string)
     return { ok: true, meetingId: id, status: "closed", summary: meeting.summary };
 }
 
-async function toolArchiveMeeting(args: ToolArgs<"archive_meeting">, instanceId: string) {
+async function toolArchiveMeeting(args: ToolArgs<"archive_meeting">, instanceId: string): Promise<ToolResult<"archive_meeting">> {
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.archiveMeeting(args.meetingId, instanceId);
@@ -181,7 +182,7 @@ async function toolArchiveMeeting(args: ToolArgs<"archive_meeting">, instanceId:
     return { ok: true, meetingId: args.meetingId, status: "archived" };
 }
 
-async function toolReopenMeeting(args: ToolArgs<"reopen_meeting">, instanceId: string) {
+async function toolReopenMeeting(args: ToolArgs<"reopen_meeting">, instanceId: string): Promise<ToolResult<"reopen_meeting">> {
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.reopenMeeting(args.meetingId, instanceId);
@@ -189,7 +190,7 @@ async function toolReopenMeeting(args: ToolArgs<"reopen_meeting">, instanceId: s
     return { ok: true, meetingId: args.meetingId, status: "active" };
 }
 
-async function toolCreateTask(args: ToolArgs<"create_task">) {
+async function toolCreateTask(args: ToolArgs<"create_task">): Promise<ToolResult<"create_task">> {
     if (args.source_meeting_id && !SqliteMeetingStore.getMeeting(args.source_meeting_id)) {
         throw new Error(`Meeting '${args.source_meeting_id}' not found.`);
     }
@@ -197,24 +198,24 @@ async function toolCreateTask(args: ToolArgs<"create_task">) {
     return { task_id: task.id, status: task.status, message: "Task created.", task };
 }
 
-async function toolGetTask(args: ToolArgs<"get_task">) {
+async function toolGetTask(args: ToolArgs<"get_task">): Promise<ToolResult<"get_task">> {
     const task = getTask(args.taskId);
     if (!task) throw new Error(`Task '${args.taskId}' not found.`);
     return task;
 }
 
-async function toolListTasks(args: ToolArgs<"list_tasks">) {
+async function toolListTasks(args: ToolArgs<"list_tasks">): Promise<ToolResult<"list_tasks">> {
     const tasks = listTasks(args.status, args.limit);
     return { count: tasks.length, tasks };
 }
 
-async function toolCancelTask(args: ToolArgs<"cancel_task">) {
+async function toolCancelTask(args: ToolArgs<"cancel_task">): Promise<ToolResult<"cancel_task">> {
     const ok = cancelTask(args.taskId);
     if (!ok) throw new Error(`Task '${args.taskId}' not found or cannot be cancelled.`);
     return { ok: true, taskId: args.taskId, message: "Task cancelled." };
 }
 
-async function toolHostMaintenance(args: ToolArgs<"host_maintenance">, instanceId: string) {
+async function toolHostMaintenance(args: ToolArgs<"host_maintenance">, instanceId: string): Promise<ToolResult<"host_maintenance">> {
     const removed = args.action === "clear"
         ? GlobalMessageStore.clear()
         : GlobalMessageStore.pruneOldest(args.count);
@@ -222,12 +223,12 @@ async function toolHostMaintenance(args: ToolArgs<"host_maintenance">, instanceI
     return { ok: true, removed, remaining: GlobalMessageStore.count(), message: `Removed ${removed} global messages.` };
 }
 
-async function toolListEvents(args: ToolArgs<"list_events">) {
+async function toolListEvents(args: ToolArgs<"list_events">): Promise<ToolResult<"list_events">> {
     const events = EventStore.list(args.limit, args.action);
     return { count: events.length, events };
 }
 
-async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, instanceId: string) {
+async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, instanceId: string): Promise<ToolResult<"host_delete_project">> {
     const exists = await StorageManager.getProjectManifest(args.projectId);
     if (!exists) throw new Error(`Project '${args.projectId}' not found.`);
 

@@ -7,7 +7,8 @@
 import { getDatabase } from "./sqlite.js";
 import { TASK_CLEANUP_MAX_AGE_MS } from "../constants.js";
 
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+export const TASK_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
+export type TaskStatus = typeof TASK_STATUSES[number];
 
 export interface Task {
     id: string;
