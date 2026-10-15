@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { NexusPaths } from "./paths.js";
 import { FILE_ENCODING } from "../constants.js";
+import { writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
 export class ProjectStorage {
     private static projectFilePath(projectId: string) {
@@ -24,16 +25,14 @@ export class ProjectStorage {
 
     static async saveProjectDocs(projectId: string, content: string): Promise<void> {
         const paths = this.projectFilePath(projectId);
-        await fs.mkdir(paths.projectDir, { recursive: true });
-        await fs.writeFile(paths.docsPath, content, FILE_ENCODING);
+        await writeFileAtomic(paths.docsPath, content);
     }
 
     static async saveAsset(projectId: string, fileName: string, content: string | Buffer): Promise<string> {
         const safeName = this.sanitizeFileName(fileName);
         const paths = this.projectFilePath(projectId);
-        await fs.mkdir(paths.assetsDir, { recursive: true });
         const assetPath = path.join(paths.assetsDir, safeName);
-        await fs.writeFile(assetPath, content, FILE_ENCODING);
+        await writeFileAtomic(assetPath, content);
         return path.relative(NexusPaths.root, assetPath);
     }
 
@@ -65,7 +64,7 @@ export class ProjectStorage {
             const manifestRaw = await fs.readFile(newPath.manifestPath, FILE_ENCODING);
             const manifest = JSON.parse(manifestRaw) as { id: string };
             manifest.id = newId;
-            await fs.writeFile(newPath.manifestPath, JSON.stringify(manifest, null, 2), FILE_ENCODING);
+            await writeJsonAtomic(newPath.manifestPath, manifest);
         } catch {
             // Manifest is optional for some flows.
         }

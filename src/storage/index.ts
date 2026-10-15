@@ -7,6 +7,7 @@ import { RegistryStorage } from "./registry.js";
 import { ProjectStorage } from "./projects.js";
 import { LogStorage } from "./logs.js";
 import { DocStorage } from "./docs.js";
+import { fileWriteLock, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
 export class StorageManager {
     private static initialized = false;
@@ -32,7 +33,7 @@ export class StorageManager {
         await this.loadJsonSafe(this.globalDiscussion, []);
 
         if (!await this.exists(this.globalBlueprint)) {
-            await fs.writeFile(this.globalBlueprint, "# Global Coordination Blueprint\n\nShared meeting space.");
+            await writeFileAtomic(this.globalBlueprint, "# Global Coordination Blueprint\n\nShared meeting space.");
         }
 
         await DocStorage.init();
@@ -47,14 +48,14 @@ export class StorageManager {
     private static async loadJsonSafe<T>(filePath: string, defaultValue: T): Promise<T> {
         try {
             if (!await this.exists(filePath)) {
-                await fs.writeFile(filePath, JSON.stringify(defaultValue, null, 2), FILE_ENCODING);
+                await writeJsonAtomic(filePath, defaultValue);
                 return defaultValue;
             }
             const content = await fs.readFile(filePath, FILE_ENCODING);
             return JSON.parse(content.replace(/^\uFEFF/, '').trim());
         } catch {
             console.warn(`[Nexus Storage] Repairing corrupted file: ${filePath}`);
-            await fs.writeFile(filePath, JSON.stringify(defaultValue, null, 2), FILE_ENCODING);
+            await writeJsonAtomic(filePath, defaultValue);
             return defaultValue;
         }
     }
@@ -63,44 +64,54 @@ export class StorageManager {
         try { await fs.access(p); return true; } catch { return false; }
     }
 
+    // Every mutation of the file store goes through this lock; reads are
+    // lock-free because writes are atomic (temp file + rename).
+    private static write<T>(fn: () => Promise<T>): Promise<T> {
+        return fileWriteLock.withLock(fn);
+    }
+
     // --- Registry Methods ---
     static listRegistry() { return RegistryStorage.listRegistry(); }
     static getProjectManifest(id: string) { return RegistryStorage.getProjectManifest(id); }
-    static saveProjectManifest(manifest: ProjectManifest) { return RegistryStorage.saveProjectManifest(manifest); }
-    static patchProjectManifest(id: string, patch: Partial<ProjectManifest>) { return RegistryStorage.patchProjectManifest(id, patch); }
+    static saveProjectManifest(manifest: ProjectManifest) { return this.write(() => RegistryStorage.saveProjectManifest(manifest)); }
+    static patchProjectManifest(id: string, patch: Partial<ProjectManifest>) { return this.write(() => RegistryStorage.patchProjectManifest(id, patch)); }
     static calculateTopology(projectId?: string) { return RegistryStorage.calculateTopology(projectId); }
 
     // --- Project Methods ---
     static getProjectDocs(id: string) { return ProjectStorage.getProjectDocs(id); }
-    static saveProjectDocs(id: string, content: string) { return ProjectStorage.saveProjectDocs(id, content); }
-    static saveAsset(id: string, fileName: string, content: string | Buffer) { return ProjectStorage.saveAsset(id, fileName, content); }
-    static async deleteProject(id: string) {
-        await ProjectStorage.deleteProject(id);
-        await RegistryStorage.deleteProject(id);
+    static saveProjectDocs(id: string, content: string) { return this.write(() => ProjectStorage.saveProjectDocs(id, content)); }
+    static saveAsset(id: string, fileName: string, content: string | Buffer) { return this.write(() => ProjectStorage.saveAsset(id, fileName, content)); }
+    static deleteProject(id: string) {
+        return this.write(async () => {
+            await ProjectStorage.deleteProject(id);
+            await RegistryStorage.deleteProject(id);
+        });
     }
-    static async renameProject(oldId: string, newId: string) {
-        await RegistryStorage.renameProject(oldId, newId);
-        try {
-            const result = await ProjectStorage.renameProject(oldId, newId);
-            if (result === 0) {
-                await RegistryStorage.renameProject(newId, oldId);
+    static renameProject(oldId: string, newId: string) {
+        return this.write(async () => {
+            await RegistryStorage.renameProject(oldId, newId);
+            try {
+                const result = await ProjectStorage.renameProject(oldId, newId);
+                if (result === 0) {
+                    await RegistryStorage.renameProject(newId, oldId);
+                }
+                return result;
+            } catch (error) {
+                await RegistryStorage.renameProject(newId, oldId).catch(() => { });
+                throw error;
             }
-            return result;
-        } catch (error) {
-            await RegistryStorage.renameProject(newId, oldId).catch(() => { });
-            throw error;
-        }
+        });
     }
 
     // --- Log Methods ---
-    static addGlobalLog(from: string, text: string, category?: DiscussionMessage["category"]) { return LogStorage.addLog(from, text, category); }
+    static addGlobalLog(from: string, text: string, category?: DiscussionMessage["category"]) { return this.write(() => LogStorage.addLog(from, text, category)); }
     static getRecentLogs(count: number = 10) { return LogStorage.getLogs(count); }
-    static pruneGlobalLogs(count: number) { return LogStorage.pruneLogs(count); }
-    static clearGlobalLogs() { return LogStorage.clearLogs(); }
+    static pruneGlobalLogs(count: number) { return this.write(() => LogStorage.pruneLogs(count)); }
+    static clearGlobalLogs() { return this.write(() => LogStorage.clearLogs()); }
 
     // --- Doc Methods ---
     static listGlobalDocs() { return DocStorage.listDocs(); }
     static getGlobalDoc(docId: string) { return DocStorage.getDoc(docId); }
-    static saveGlobalDoc(docId: string, title: string, content: string, updatedBy: string) { return DocStorage.saveDoc(docId, title, content, updatedBy); }
-    static deleteGlobalDoc(docId: string) { return DocStorage.deleteDoc(docId); }
+    static saveGlobalDoc(docId: string, title: string, content: string, updatedBy: string) { return this.write(() => DocStorage.saveDoc(docId, title, content, updatedBy)); }
+    static deleteGlobalDoc(docId: string) { return this.write(() => DocStorage.deleteDoc(docId)); }
 }

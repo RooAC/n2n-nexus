@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
+import { writeJsonAtomic } from "./fs-utils.js";
 import { ProjectManifest } from "../types.js";
 
 export type RegistryData = {
@@ -48,8 +49,7 @@ function sanitizeRegistry(data: unknown): RegistryData {
 }
 
 async function writeRegistry(data: RegistryData): Promise<void> {
-    await fs.mkdir(NexusPaths.root, { recursive: true });
-    await fs.writeFile(NexusPaths.registryFile, JSON.stringify(data, null, 2), "utf-8");
+    await writeJsonAtomic(NexusPaths.registryFile, data);
 }
 
 async function readProjectManifest(id: string): Promise<Partial<ProjectManifest> | null> {
@@ -78,11 +78,7 @@ export class RegistryStorage {
         await writeRegistry(registry);
 
         await fs.mkdir(projectDir, { recursive: true });
-        await fs.writeFile(
-            manifestPath,
-            JSON.stringify({ ...manifest, lastUpdated: manifest.lastUpdated || new Date().toISOString() }, null, 2),
-            "utf-8"
-        );
+        await writeJsonAtomic(manifestPath, { ...manifest, lastUpdated: manifest.lastUpdated || new Date().toISOString() });
     }
 
     static async getProjectManifest(id: string): Promise<ProjectManifest | null> {
@@ -139,11 +135,7 @@ export class RegistryStorage {
             api_versions: patch.api_versions ?? manifest.api_versions,
             feature_tier: patch.feature_tier ?? manifest.feature_tier
         };
-        await fs.writeFile(
-            NexusPaths.projectManifestPath(id),
-            JSON.stringify(patchedManifest, null, 2),
-            "utf-8"
-        );
+        await writeJsonAtomic(NexusPaths.projectManifestPath(id), patchedManifest);
     }
 
     static async calculateTopology(projectId?: string) {
@@ -261,11 +253,7 @@ export class RegistryStorage {
             }
 
             if (changed) {
-                await fs.writeFile(
-                    NexusPaths.projectManifestPath(manifestId),
-                    JSON.stringify(manifest, null, 2),
-                    "utf-8"
-                );
+                await writeJsonAtomic(NexusPaths.projectManifestPath(manifestId), manifest);
             }
         }
 

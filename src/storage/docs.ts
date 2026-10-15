@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
 import { FILE_ENCODING } from "../constants.js";
+import { writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { GlobalDocIndex } from "../types.js";
 
 export class DocStorage {
@@ -9,7 +10,7 @@ export class DocStorage {
         try {
             await fs.access(NexusPaths.docsIndexFile);
         } catch {
-            await fs.writeFile(NexusPaths.docsIndexFile, JSON.stringify({}, null, 2), FILE_ENCODING);
+            await writeJsonAtomic(NexusPaths.docsIndexFile, {});
         }
     }
 
@@ -27,7 +28,7 @@ export class DocStorage {
 
     private static async writeIndex(index: GlobalDocIndex): Promise<void> {
         await this.ensureDirectory();
-        await fs.writeFile(NexusPaths.docsIndexFile, JSON.stringify(index, null, 2), FILE_ENCODING);
+        await writeJsonAtomic(NexusPaths.docsIndexFile, index);
     }
 
     static async init(): Promise<void> {
@@ -35,11 +36,7 @@ export class DocStorage {
         try {
             await fs.access(NexusPaths.globalBlueprint);
         } catch {
-            await fs.writeFile(
-                NexusPaths.globalBlueprint,
-                "# Global Collaboration Blueprint\n\nShared meeting space.",
-                FILE_ENCODING
-            );
+            await writeFileAtomic(NexusPaths.globalBlueprint, "# Global Collaboration Blueprint\n\nShared meeting space.");
         }
     }
 
@@ -62,7 +59,7 @@ export class DocStorage {
         await this.ensureDirectory();
         const index = await this.readIndex();
         const filePath = NexusPaths.docFile(docId);
-        await fs.writeFile(filePath, content, FILE_ENCODING);
+        await writeFileAtomic(filePath, content);
         index[docId] = {
             title,
             lastUpdated: new Date().toISOString(),

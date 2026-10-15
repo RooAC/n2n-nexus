@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
+import { writeJsonAtomic } from "./fs-utils.js";
 import { DiscussionMessage } from "../types.js";
 
 interface LogFileEntry {
@@ -14,13 +15,13 @@ export class LogStorage {
         try {
             await fs.access(NexusPaths.globalDiscussion);
         } catch {
-            await fs.writeFile(NexusPaths.globalDiscussion, "[]", "utf-8");
+            await writeJsonAtomic(NexusPaths.globalDiscussion, []);
         }
     }
 
     static async addLog(from: string, text: string, category?: string): Promise<void> {
         await this.ensureLogFile();
-        const logs = await this.getLogs();
+        const logs = await this.readRawLogs();
         const payload: LogFileEntry = {
             timestamp: new Date().toISOString(),
             from,
@@ -28,7 +29,7 @@ export class LogStorage {
             category: this.normalizeCategory(category)
         };
         logs.push(payload);
-        await fs.writeFile(NexusPaths.globalDiscussion, JSON.stringify(logs, null, 2), "utf-8");
+        await writeJsonAtomic(NexusPaths.globalDiscussion, logs);
     }
 
     private static normalizeCategory(category?: string): DiscussionMessage["category"] | undefined {
@@ -49,11 +50,11 @@ export class LogStorage {
         if (count <= 0) return;
         if (current.length <= count) return;
         const remaining = current.slice(count);
-        await fs.writeFile(NexusPaths.globalDiscussion, JSON.stringify(remaining, null, 2), "utf-8");
+        await writeJsonAtomic(NexusPaths.globalDiscussion, remaining);
     }
 
     static async clearLogs(): Promise<void> {
-        await fs.writeFile(NexusPaths.globalDiscussion, "[]", "utf-8");
+        await writeJsonAtomic(NexusPaths.globalDiscussion, []);
     }
 
     private static async readRawLogs(): Promise<DiscussionMessage[]> {
