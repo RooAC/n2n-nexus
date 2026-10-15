@@ -199,6 +199,10 @@ POST /api/maintenance/logs
 
 ---
 
+### Request guards
+
+The daemon rejects browser-originated requests (`Origin` header or cross-site `Sec-Fetch-Site`: 403), non-JSON POST bodies (415) and bodies above 16 MB (413). See `SECURITY.md`.
+
 ## Scope Boundaries
 
 - No cloud bridge by default.

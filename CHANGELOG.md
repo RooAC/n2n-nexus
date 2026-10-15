@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The daemon accepted any HTTP request, so a web page open in the user's browser could call `host_delete_project` on the local daemon with a cross-site `text/plain` POST. Requests carrying a browser `Origin` or cross-site `Sec-Fetch-Site` header are refused (403), POST requires `Content-Type: application/json` (415), and request bodies are capped at 16 MB (413) instead of being buffered without limit.
+
 - The MCP adapter treated every failed tool call (unknown task, closed meeting, permission denied, ...) as the daemon going away: it cleared the tool list, notified the IDE and entered the reconnect loop. Transport failures and tool failures are now distinct (`NexusTransportError` vs `NexusToolError`); only the former triggers reconnection, and tool failures are returned as `isError` results. `POST /api/tools/call` answers 404 for an unknown tool and 400 when the tool rejects the call.
 
 ### Changed

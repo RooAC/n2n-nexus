@@ -10,6 +10,7 @@ import {
     TaskStatus, TaskUpdate
 } from "../storage/tasks.js";
 import { ProjectManifest, DiscussionMessage, MessageCategory, MESSAGE_CATEGORIES } from "../types.js";
+import { MAX_BODY_BYTES } from "../constants.js";
 
 // ---------------------------------------------------------------------------
 // Storage bootstrap
@@ -544,16 +545,58 @@ function jsonResponse(res: http.ServerResponse, status: number, body: unknown) {
     res.end(payload);
 }
 
-async function parseBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+class HttpError extends Error {
+    constructor(public readonly status: number, message: string) {
+        super(message);
+    }
+}
+
+async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
+    const declared = Number(req.headers["content-length"]);
+    if (declared > maxBytes) throw new HttpError(413, `Request body exceeds ${maxBytes} bytes`);
+
     return new Promise((resolve, reject) => {
-        let data = "";
-        req.on("data", chunk => { data += chunk; });
+        const chunks: Buffer[] = [];
+        let received = 0;
+        req.on("data", (chunk: Buffer) => {
+            received += chunk.length;
+            if (received > maxBytes) {
+                reject(new HttpError(413, `Request body exceeds ${maxBytes} bytes`));
+                req.destroy();
+                return;
+            }
+            chunks.push(chunk);
+        });
         req.on("end", () => {
-            if (!data) return resolve({});
-            try { resolve(JSON.parse(data)); } catch { reject(new Error("Invalid JSON")); }
+            if (received === 0) return resolve({});
+            try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { reject(new HttpError(400, "Invalid JSON")); }
         });
         req.on("error", reject);
     });
+}
+
+/**
+ * The daemon has no authentication, so it must not be callable from a web
+ * page the user happens to have open. Browsers attach Origin / Sec-Fetch-*
+ * headers to cross-site requests and only send JSON bodies after a CORS
+ * preflight, which the daemon never grants; MCP adapters and scripts send
+ * neither header and use application/json.
+ */
+function rejectBrowserRequest(req: http.IncomingMessage): HttpError | null {
+    if (req.headers.origin !== undefined) {
+        return new HttpError(403, "Requests from browser origins are not allowed");
+    }
+    const site = req.headers["sec-fetch-site"];
+    if (typeof site === "string" && site !== "none" && site !== "same-origin") {
+        return new HttpError(403, "Cross-site browser requests are not allowed");
+    }
+    if (req.method === "POST") {
+        const type = String(req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+        if (type !== "application/json") {
+            return new HttpError(415, "Content-Type must be application/json");
+        }
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -564,15 +607,24 @@ export async function createDaemonServer(options: {
     port: number;
     host?: string;
     version: string;
+    maxBodyBytes?: number;
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
+    const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
 
     const server = http.createServer(async (req, res) => {
         const method = req.method || "GET";
         const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
         const path = url.pathname;
+        const parseBody = (r: http.IncomingMessage) => parseRequestBody(r, maxBodyBytes);
 
         try {
+            const guard = rejectBrowserRequest(req);
+            if (guard) {
+                req.resume();
+                return jsonResponse(res, guard.status, { ok: false, error: guard.message });
+            }
+
             // Health
             if (method === "GET" && path === "/health") {
                 return jsonResponse(res, 200, { ok: true, version: options.version });
@@ -836,6 +888,9 @@ export async function createDaemonServer(options: {
             jsonResponse(res, 404, { ok: false, error: "Not found" });
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
+            if (e instanceof HttpError) {
+                return jsonResponse(res, e.status, { ok: false, error: message });
+            }
             console.error("[n2n-nexus daemon] Error:", message);
             jsonResponse(res, 500, { ok: false, error: message });
         }

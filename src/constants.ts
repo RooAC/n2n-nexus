@@ -20,6 +20,9 @@ export const PORT_RANGE_END = 5800;
 export const HANDSHAKE_TIMEOUT = 200;
 export const HEARTBEAT_INTERVAL = 30000;
 
+// HTTP request body limit for the daemon (base64 asset uploads are the largest payload)
+export const MAX_BODY_BYTES = 16 * 1024 * 1024;
+
 // Task cleanup
 export const TASK_CLEANUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
