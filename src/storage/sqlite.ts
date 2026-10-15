@@ -182,18 +182,3 @@ export function isSqliteAvailable(): boolean {
         return false;
     }
 }
-
-// Cleanup on process exit
-process.on("exit", () => {
-    closeDatabase();
-});
-
-process.on("SIGINT", () => {
-    closeDatabase();
-    process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-    closeDatabase();
-    process.exit(0);
-});

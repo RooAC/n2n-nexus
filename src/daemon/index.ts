@@ -1,4 +1,5 @@
 import { createDaemonServer } from "./server.js";
+import { closeDatabase } from "../storage/sqlite.js";
 import { pkg, getRootPath } from "../config/index.js";
 import { NEXUS_HOST } from "../constants.js";
 
@@ -40,8 +41,19 @@ export async function runDaemon(): Promise<void> {
         });
     });
 
-    process.once("SIGINT", () => { console.error("[n2n-nexus] Shutting down."); server.close(() => process.exit(0)); });
-    process.once("SIGTERM", () => { server.close(() => process.exit(0)); });
+    // Graceful shutdown: stop accepting connections, let in-flight requests
+    // finish, then close SQLite. A second signal exits immediately.
+    const shutdown = (signal: string) => {
+        console.error(`[n2n-nexus] ${signal} received, shutting down.`);
+        server.close(() => {
+            closeDatabase();
+            process.exit(0);
+        });
+        process.once(signal, () => process.exit(1));
+    };
+    process.once("SIGINT", () => shutdown("SIGINT"));
+    process.once("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("exit", () => closeDatabase());
 
     console.error("[n2n-nexus] Ready. Press Ctrl+C to stop.");
 }
