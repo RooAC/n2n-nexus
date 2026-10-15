@@ -36,7 +36,7 @@ All notable changes to this project will be documented in this file.
 
 - `send_message` routing no longer depends on `register_session_context`: a message goes to `meetingId` when given, else to the active meeting, else to global chat. `POST /api/messages/send` uses the same rule (its `source` parameter is gone) instead of a separate code path with different defaults.
 
-- Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed.
+- Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed. On first start the daemon imports an existing `discussion.json` (categories outside the five known values become unset) and renames it to `discussion.json.migrated`.
 - Daemon state changes (session register, project sync/rename/delete, meeting end, ...) are recorded as events instead of `SYSTEM` lines in the global chat.
 
 - `sync_project_assets`, `update_project`, `rename_project`, and `host_delete_project` now run synchronously and return their result directly instead of a `task_id` to poll. The operations take milliseconds; the background-task wrapper only added a polling round-trip and let the work race with other requests.

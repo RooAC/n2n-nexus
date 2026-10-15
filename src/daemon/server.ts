@@ -6,6 +6,7 @@ import { StorageManager } from "../storage/index.js";
 import { SqliteMeetingStore } from "../storage/sqlite-meeting.js";
 import { GlobalMessageStore } from "../storage/global-messages.js";
 import { EventStore } from "../storage/events.js";
+import { runMigrations } from "../storage/migrations.js";
 import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
 import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
@@ -19,6 +20,7 @@ import { z } from "zod";
 async function initializeStorage(): Promise<void> {
     await StorageManager.init();
     SqliteMeetingStore.init();
+    await runMigrations();
 }
 
 // ---------------------------------------------------------------------------
