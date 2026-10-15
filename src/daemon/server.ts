@@ -5,12 +5,11 @@ import { StorageManager } from "../storage/index.js";
 import { SqliteMeetingStore } from "../storage/sqlite-meeting.js";
 import { GlobalMessageStore } from "../storage/global-messages.js";
 import { EventStore } from "../storage/events.js";
-import {
-    createTask, updateTask, getTask, listTasks, cancelTask,
-    TaskStatus, TaskUpdate
-} from "../storage/tasks.js";
-import { ProjectManifest, DiscussionMessage, MessageCategory, MESSAGE_CATEGORIES } from "../types.js";
+import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
+import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
+import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, ToolValidationError } from "./tools.js";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // Storage bootstrap
@@ -34,272 +33,10 @@ function getSession(instanceId: string): SessionCtx {
 }
 
 // ---------------------------------------------------------------------------
-// Tool definitions  (served via GET /api/tools)
-// ---------------------------------------------------------------------------
-
-const TOOL_DEFINITIONS = [
-    // Session
-    {
-        name: "register_session_context",
-        description: "Declare active project. Format: [prefix]_[name] (e.g. 'web_example.com', 'mcp_nexus').",
-        inputSchema: {
-            type: "object",
-            properties: { projectId: { type: "string", description: "Project ID with prefix" } },
-            required: ["projectId"]
-        }
-    },
-
-    // Project assets
-    {
-        name: "sync_project_assets",
-        description: "Sync full project manifest + internal docs.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                manifest: {
-                    type: "object",
-                    description: "Project metadata",
-                    properties: {
-                        id: { type: "string" }, name: { type: "string" },
-                        description: { type: "string" },
-                        techStack: { type: "array", items: { type: "string" } },
-                        relations: { type: "array", items: { type: "object" } },
-                        repositoryUrl: { type: "string" }, localPath: { type: "string" },
-                        endpoints: { type: "array", items: { type: "object" } },
-                        apiSpec: { type: "array", items: { type: "object" } }
-                    },
-                    required: ["id", "name", "description", "techStack", "relations", "repositoryUrl", "localPath", "endpoints", "apiSpec"]
-                },
-                internalDocs: { type: "string", description: "Markdown implementation guide" }
-            },
-            required: ["manifest", "internalDocs"]
-        }
-    },
-    {
-        name: "upload_project_asset",
-        description: "Upload binary file (base64) to active project's asset folder.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                fileName: { type: "string", description: "Safe filename (no path traversal)" },
-                base64Content: { type: "string" }
-            },
-            required: ["fileName", "base64Content"]
-        }
-    },
-    {
-        name: "update_project",
-        description: "Patch project manifest fields (partial update).",
-        inputSchema: {
-            type: "object",
-            properties: {
-                projectId: { type: "string" },
-                patch: { type: "object", description: "Fields to update" }
-            },
-            required: ["projectId", "patch"]
-        }
-    },
-    {
-        name: "rename_project",
-        description: "Rename project ID with cascading relation updates.",
-        inputSchema: {
-            type: "object",
-            properties: { oldId: { type: "string" }, newId: { type: "string" } },
-            required: ["oldId", "newId"]
-        }
-    },
-
-    // Global collaboration
-    {
-        name: "search_projects",
-        description: "Search project registry by name or description.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                query: { type: "string" },
-                limit: { type: "integer", default: 10 }
-            },
-            required: ["query"]
-        }
-    },
-    {
-        name: "get_global_topology",
-        description: "Default: project list + stats. With projectId: detailed subgraph.",
-        inputSchema: {
-            type: "object",
-            properties: { projectId: { type: "string", description: "Focus on specific project (optional)" } }
-        }
-    },
-    {
-        name: "send_message",
-        description: "Post message to active meeting or global chat.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                message: { type: "string" },
-                category: { type: "string", enum: [...MESSAGE_CATEGORIES] }
-            },
-            required: ["message"]
-        }
-    },
-    {
-        name: "read_messages",
-        description: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                count: { type: "integer", default: 10 },
-                meetingId: { type: "string" }
-            }
-        }
-    },
-    {
-        name: "list_events",
-        description: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                limit: { type: "integer", default: 20 },
-                action: { type: "string", description: "Exact action or prefix such as 'project' or 'meeting'" }
-            }
-        }
-    },
-    {
-        name: "update_global_strategy",
-        description: "Overwrite master strategy document.",
-        inputSchema: {
-            type: "object",
-            properties: { content: { type: "string" } },
-            required: ["content"]
-        }
-    },
-    {
-        name: "sync_global_doc",
-        description: "Create/update a global shared document.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                docId: { type: "string" },
-                title: { type: "string" },
-                content: { type: "string" }
-            },
-            required: ["docId", "title", "content"]
-        }
-    },
-
-    // Meeting management
-    {
-        name: "start_meeting",
-        description: "Start new meeting session. Returns meeting ID.",
-        inputSchema: {
-            type: "object",
-            properties: { topic: { type: "string" } },
-            required: ["topic"]
-        }
-    },
-    {
-        name: "end_meeting",
-        description: "End active meeting. Locks history.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                meetingId: { type: "string" },
-                summary: { type: "string" }
-            }
-        }
-    },
-    {
-        name: "archive_meeting",
-        description: "Archive closed meeting. Read-only after.",
-        inputSchema: {
-            type: "object",
-            properties: { meetingId: { type: "string" } },
-            required: ["meetingId"]
-        }
-    },
-    {
-        name: "reopen_meeting",
-        description: "Reopen closed/archived meeting.",
-        inputSchema: {
-            type: "object",
-            properties: { meetingId: { type: "string" } },
-            required: ["meetingId"]
-        }
-    },
-
-    // Task management
-    {
-        name: "create_task",
-        description: "Create a task you track yourself. Returns taskId; update it via get_task/cancel_task.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                source_meeting_id: { type: "string", description: "Link to meeting for traceability" },
-                metadata: { type: "object" },
-                ttl: { type: "integer", description: "TTL in milliseconds" }
-            }
-        }
-    },
-    {
-        name: "get_task",
-        description: "Get task status and progress by ID.",
-        inputSchema: {
-            type: "object",
-            properties: { taskId: { type: "string" } },
-            required: ["taskId"]
-        }
-    },
-    {
-        name: "list_tasks",
-        description: "List tasks with optional status filter.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                status: { type: "string", enum: ["pending", "running", "completed", "failed", "cancelled"] },
-                limit: { type: "integer", default: 50 }
-            }
-        }
-    },
-    {
-        name: "cancel_task",
-        description: "Cancel pending/running task.",
-        inputSchema: {
-            type: "object",
-            properties: { taskId: { type: "string" } },
-            required: ["taskId"]
-        }
-    },
-
-    // Maintenance
-    {
-        name: "host_maintenance",
-        description: "Manage the global chat stream: 'prune' the oldest N messages or 'clear' all.",
-        inputSchema: {
-            type: "object",
-            properties: {
-                action: { type: "string", enum: ["prune", "clear"] },
-                count: { type: "integer", minimum: 0 }
-            },
-            required: ["action", "count"]
-        }
-    },
-    {
-        name: "host_delete_project",
-        description: "Delete project. Irreversible.",
-        inputSchema: {
-            type: "object",
-            properties: { projectId: { type: "string" } },
-            required: ["projectId"]
-        }
-    }
-];
-
-// ---------------------------------------------------------------------------
 // Tool handlers
 // ---------------------------------------------------------------------------
 
-async function toolRegisterSessionContext(args: { projectId: string }, instanceId: string) {
-    if (!args.projectId) throw new Error("projectId is required.");
+async function toolRegisterSessionContext(args: ToolArgs<"register_session_context">, instanceId: string) {
     const manifest = await StorageManager.getProjectManifest(args.projectId);
     if (!manifest) {
         return { ok: false, message: `Project '${args.projectId}' not found in registry.` };
@@ -309,9 +46,8 @@ async function toolRegisterSessionContext(args: { projectId: string }, instanceI
     return { ok: true, message: `Session context registered for project: ${args.projectId}.` };
 }
 
-async function toolSyncProjectAssets(args: { manifest: ProjectManifest; internalDocs: string }, instanceId: string) {
-    const m = args.manifest;
-    if (!m?.id) throw new Error("manifest.id is required.");
+async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, instanceId: string) {
+    const m = { ...args.manifest, lastUpdated: args.manifest.lastUpdated ?? new Date().toISOString() };
 
     await StorageManager.saveProjectManifest(m);
     await StorageManager.saveProjectDocs(m.id, args.internalDocs);
@@ -319,10 +55,9 @@ async function toolSyncProjectAssets(args: { manifest: ProjectManifest; internal
     return { ok: true, projectId: m.id, message: `Project '${m.id}' manifest and docs synced.` };
 }
 
-async function toolUploadAsset(args: { fileName: string; base64Content: string }, instanceId: string) {
+async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceId: string) {
     const session = getSession(instanceId);
     if (!session.currentProject) throw new Error("No active project. Call register_session_context first.");
-    if (!args.fileName || !args.base64Content) throw new Error("fileName and base64Content are required.");
     const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const buf = Buffer.from(args.base64Content, "base64");
     await StorageManager.saveAsset(session.currentProject, sanitized, buf);
@@ -330,17 +65,15 @@ async function toolUploadAsset(args: { fileName: string; base64Content: string }
     return { ok: true, message: `Asset '${sanitized}' saved to project '${session.currentProject}'.` };
 }
 
-async function toolUpdateProject(args: { projectId: string; patch: Partial<ProjectManifest> }, instanceId: string) {
-    if (!args.projectId || !args.patch) throw new Error("projectId and patch are required.");
-    if ((args.patch as Record<string, unknown>).id) throw new Error("Cannot change 'id' via patch. Use rename_project instead.");
+async function toolUpdateProject(args: ToolArgs<"update_project">, instanceId: string) {
 
     await StorageManager.patchProjectManifest(args.projectId, args.patch);
     EventStore.record(instanceId, "project.update", args.projectId, { fields: Object.keys(args.patch) });
     return { ok: true, projectId: args.projectId, message: `Project '${args.projectId}' updated.` };
 }
 
-async function toolRenameProject(args: { oldId: string; newId: string }, instanceId: string) {
-    if (!args.oldId || !args.newId) throw new Error("oldId and newId are required.");
+async function toolRenameProject(args: ToolArgs<"rename_project">, instanceId: string) {
+    if (args.oldId === args.newId) throw new Error("oldId and newId are identical.");
     const exists = await StorageManager.getProjectManifest(args.oldId);
     if (!exists) throw new Error(`Project '${args.oldId}' not found.`);
 
@@ -349,12 +82,11 @@ async function toolRenameProject(args: { oldId: string; newId: string }, instanc
     return { ok: true, oldId: args.oldId, newId: args.newId, message: `Project renamed '${args.oldId}' → '${args.newId}'.` };
 }
 
-async function toolSearchProjects(args: { query: string; limit?: number }) {
-    if (!args.query) throw new Error("query is required.");
+async function toolSearchProjects(args: ToolArgs<"search_projects">) {
     const registry = await StorageManager.listRegistry();
     const projects = registry.projects as Record<string, { name?: string; summary?: string }>;
     const q = args.query.toLowerCase();
-    const limit = args.limit || 10;
+    const limit = args.limit;
 
     const results = Object.entries(projects)
         .filter(([id, p]) =>
@@ -368,12 +100,11 @@ async function toolSearchProjects(args: { query: string; limit?: number }) {
     return { query: args.query, count: results.length, results };
 }
 
-async function toolGetGlobalTopology(args: { projectId?: string }) {
+async function toolGetGlobalTopology(args: ToolArgs<"get_global_topology">) {
     return StorageManager.calculateTopology(args.projectId);
 }
 
-async function toolSendMessage(args: { message: string; category?: DiscussionMessage["category"] }, instanceId: string) {
-    if (!args.message) throw new Error("message is required.");
+async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string) {
     const session = getSession(instanceId);
     const activeMeeting = SqliteMeetingStore.getActiveMeeting();
     const meetingId = (activeMeeting && session.currentProject) ? activeMeeting.id : null;
@@ -393,8 +124,8 @@ async function toolSendMessage(args: { message: string; category?: DiscussionMes
     return { ok: true, sentTo: "global", messageId: saved.id, message: "Message sent to global chat." };
 }
 
-async function toolReadMessages(args: { count?: number; meetingId?: string }, instanceId: string) {
-    const count = args.count || 10;
+async function toolReadMessages(args: ToolArgs<"read_messages">, instanceId: string) {
+    const count = args.count;
 
     if (args.meetingId) {
         const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
@@ -407,28 +138,25 @@ async function toolReadMessages(args: { count?: number; meetingId?: string }, in
     return { source: "global", messages, count: messages.length };
 }
 
-async function toolUpdateGlobalStrategy(args: { content: string }, instanceId: string) {
-    if (!args.content) throw new Error("content is required.");
+async function toolUpdateGlobalStrategy(args: ToolArgs<"update_global_strategy">, instanceId: string) {
     await StorageManager.saveGlobalDoc("strategy", "Global Collaboration Strategy", args.content, instanceId);
     EventStore.record(instanceId, "strategy.update");
     return { ok: true, message: "Global strategy updated." };
 }
 
-async function toolSyncGlobalDoc(args: { docId: string; title: string; content: string }, instanceId: string) {
-    if (!args.docId || !args.title || !args.content) throw new Error("docId, title, and content are required.");
+async function toolSyncGlobalDoc(args: ToolArgs<"sync_global_doc">, instanceId: string) {
     await StorageManager.saveGlobalDoc(args.docId, args.title, args.content, instanceId);
     EventStore.record(instanceId, "doc.sync", args.docId, { title: args.title });
     return { ok: true, message: `Global document '${args.title}' (${args.docId}) synchronized.` };
 }
 
-async function toolStartMeeting(args: { topic: string }, instanceId: string) {
-    if (!args.topic) throw new Error("topic is required.");
+async function toolStartMeeting(args: ToolArgs<"start_meeting">, instanceId: string) {
     const meeting = SqliteMeetingStore.startMeeting(args.topic, instanceId);
     EventStore.record(instanceId, "meeting.start", meeting.id, { topic: meeting.topic });
     return { ok: true, meetingId: meeting.id, topic: meeting.topic, status: meeting.status };
 }
 
-async function toolEndMeeting(args: { meetingId?: string; summary?: string }, instanceId: string) {
+async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string) {
     let id = args.meetingId;
     if (!id) {
         const active = SqliteMeetingStore.getActiveMeeting();
@@ -441,7 +169,7 @@ async function toolEndMeeting(args: { meetingId?: string; summary?: string }, in
     return { ok: true, meetingId: id, status: "closed", summary: result.meeting.summary };
 }
 
-async function toolArchiveMeeting(args: { meetingId: string }, instanceId: string) {
+async function toolArchiveMeeting(args: ToolArgs<"archive_meeting">, instanceId: string) {
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.archiveMeeting(args.meetingId, instanceId);
@@ -449,7 +177,7 @@ async function toolArchiveMeeting(args: { meetingId: string }, instanceId: strin
     return { ok: true, meetingId: args.meetingId, status: "archived" };
 }
 
-async function toolReopenMeeting(args: { meetingId: string }, instanceId: string) {
+async function toolReopenMeeting(args: ToolArgs<"reopen_meeting">, instanceId: string) {
     const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
     SqliteMeetingStore.reopenMeeting(args.meetingId, instanceId);
@@ -457,29 +185,32 @@ async function toolReopenMeeting(args: { meetingId: string }, instanceId: string
     return { ok: true, meetingId: args.meetingId, status: "active" };
 }
 
-async function toolCreateTask(args: { source_meeting_id?: string; metadata?: Record<string, unknown>; ttl?: number }) {
+async function toolCreateTask(args: ToolArgs<"create_task">) {
+    if (args.source_meeting_id && !SqliteMeetingStore.getMeeting(args.source_meeting_id)) {
+        throw new Error(`Meeting '${args.source_meeting_id}' not found.`);
+    }
     const task = createTask({ source_meeting_id: args.source_meeting_id, metadata: args.metadata, ttl: args.ttl });
     return { task_id: task.id, status: task.status, message: "Task created.", task };
 }
 
-async function toolGetTask(args: { taskId: string }) {
+async function toolGetTask(args: ToolArgs<"get_task">) {
     const task = getTask(args.taskId);
     if (!task) throw new Error(`Task '${args.taskId}' not found.`);
     return task;
 }
 
-async function toolListTasks(args: { status?: TaskStatus; limit?: number }) {
-    const tasks = listTasks(args.status, args.limit || 50);
+async function toolListTasks(args: ToolArgs<"list_tasks">) {
+    const tasks = listTasks(args.status, args.limit);
     return { count: tasks.length, tasks };
 }
 
-async function toolCancelTask(args: { taskId: string }) {
+async function toolCancelTask(args: ToolArgs<"cancel_task">) {
     const ok = cancelTask(args.taskId);
     if (!ok) throw new Error(`Task '${args.taskId}' not found or cannot be cancelled.`);
     return { ok: true, taskId: args.taskId, message: "Task cancelled." };
 }
 
-async function toolHostMaintenance(args: { action: "prune" | "clear"; count: number }, instanceId: string) {
+async function toolHostMaintenance(args: ToolArgs<"host_maintenance">, instanceId: string) {
     const removed = args.action === "clear"
         ? GlobalMessageStore.clear()
         : GlobalMessageStore.pruneOldest(args.count);
@@ -487,12 +218,12 @@ async function toolHostMaintenance(args: { action: "prune" | "clear"; count: num
     return { ok: true, removed, remaining: GlobalMessageStore.count(), message: `Removed ${removed} global messages.` };
 }
 
-async function toolListEvents(args: { limit?: number; action?: string }) {
-    const events = EventStore.list(args.limit || 20, args.action);
+async function toolListEvents(args: ToolArgs<"list_events">) {
+    const events = EventStore.list(args.limit, args.action);
     return { count: events.length, events };
 }
 
-async function toolHostDeleteProject(args: { projectId: string }, instanceId: string) {
+async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, instanceId: string) {
     const exists = await StorageManager.getProjectManifest(args.projectId);
     if (!exists) throw new Error(`Project '${args.projectId}' not found.`);
 
@@ -505,33 +236,30 @@ async function toolHostDeleteProject(args: { projectId: string }, instanceId: st
 // Tool dispatcher
 // ---------------------------------------------------------------------------
 
-async function dispatchTool(name: string, args: Record<string, unknown>, instanceId: string): Promise<unknown> {
-    const u = args as unknown;
+async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string): Promise<unknown> {
     switch (name) {
-        case "register_session_context":  return toolRegisterSessionContext(u as { projectId: string }, instanceId);
-        case "sync_project_assets":       return toolSyncProjectAssets(u as { manifest: ProjectManifest; internalDocs: string }, instanceId);
-        case "upload_project_asset":      return toolUploadAsset(u as { fileName: string; base64Content: string }, instanceId);
-        case "update_project":            return toolUpdateProject(u as { projectId: string; patch: Partial<ProjectManifest> }, instanceId);
-        case "rename_project":            return toolRenameProject(u as { oldId: string; newId: string }, instanceId);
-        case "search_projects":           return toolSearchProjects(u as { query: string; limit?: number });
-        case "get_global_topology":       return toolGetGlobalTopology(u as { projectId?: string });
-        case "send_message":              return toolSendMessage(u as { message: string; category?: DiscussionMessage["category"] }, instanceId);
-        case "read_messages":             return toolReadMessages(u as { count?: number; meetingId?: string }, instanceId);
-        case "update_global_strategy":    return toolUpdateGlobalStrategy(u as { content: string }, instanceId);
-        case "sync_global_doc":           return toolSyncGlobalDoc(u as { docId: string; title: string; content: string }, instanceId);
-        case "start_meeting":             return toolStartMeeting(u as { topic: string }, instanceId);
-        case "end_meeting":               return toolEndMeeting(u as { meetingId?: string; summary?: string }, instanceId);
-        case "archive_meeting":           return toolArchiveMeeting(u as { meetingId: string }, instanceId);
-        case "reopen_meeting":            return toolReopenMeeting(u as { meetingId: string }, instanceId);
-        case "create_task":               return toolCreateTask(u as { source_meeting_id?: string; metadata?: Record<string, unknown>; ttl?: number });
-        case "get_task":                  return toolGetTask(u as { taskId: string });
-        case "list_tasks":                return toolListTasks(u as { status?: TaskStatus; limit?: number });
-        case "cancel_task":               return toolCancelTask(u as { taskId: string });
-        case "host_maintenance":          return toolHostMaintenance(u as { action: "prune" | "clear"; count: number }, instanceId);
-        case "list_events":               return toolListEvents(u as { limit?: number; action?: string });
-        case "host_delete_project":       return toolHostDeleteProject(u as { projectId: string }, instanceId);
-        default:
-            throw new Error(`Unknown tool: '${name}'`);
+        case "register_session_context":  return toolRegisterSessionContext(parseToolArgs(name, rawArgs), instanceId);
+        case "sync_project_assets":       return toolSyncProjectAssets(parseToolArgs(name, rawArgs), instanceId);
+        case "upload_project_asset":      return toolUploadAsset(parseToolArgs(name, rawArgs), instanceId);
+        case "update_project":            return toolUpdateProject(parseToolArgs(name, rawArgs), instanceId);
+        case "rename_project":            return toolRenameProject(parseToolArgs(name, rawArgs), instanceId);
+        case "search_projects":           return toolSearchProjects(parseToolArgs(name, rawArgs));
+        case "get_global_topology":       return toolGetGlobalTopology(parseToolArgs(name, rawArgs));
+        case "send_message":              return toolSendMessage(parseToolArgs(name, rawArgs), instanceId);
+        case "read_messages":             return toolReadMessages(parseToolArgs(name, rawArgs), instanceId);
+        case "list_events":               return toolListEvents(parseToolArgs(name, rawArgs));
+        case "update_global_strategy":    return toolUpdateGlobalStrategy(parseToolArgs(name, rawArgs), instanceId);
+        case "sync_global_doc":           return toolSyncGlobalDoc(parseToolArgs(name, rawArgs), instanceId);
+        case "start_meeting":             return toolStartMeeting(parseToolArgs(name, rawArgs), instanceId);
+        case "end_meeting":               return toolEndMeeting(parseToolArgs(name, rawArgs), instanceId);
+        case "archive_meeting":           return toolArchiveMeeting(parseToolArgs(name, rawArgs), instanceId);
+        case "reopen_meeting":            return toolReopenMeeting(parseToolArgs(name, rawArgs), instanceId);
+        case "create_task":               return toolCreateTask(parseToolArgs(name, rawArgs));
+        case "get_task":                  return toolGetTask(parseToolArgs(name, rawArgs));
+        case "list_tasks":                return toolListTasks(parseToolArgs(name, rawArgs));
+        case "cancel_task":               return toolCancelTask(parseToolArgs(name, rawArgs));
+        case "host_maintenance":          return toolHostMaintenance(parseToolArgs(name, rawArgs), instanceId);
+        case "host_delete_project":       return toolHostDeleteProject(parseToolArgs(name, rawArgs), instanceId);
     }
 }
 
@@ -550,6 +278,38 @@ class HttpError extends Error {
         super(message);
     }
 }
+
+/**
+ * Run a tool for an HTTP request. Validation failures and handler rejections
+ * are the caller's fault and surface as 400, not as daemon errors.
+ */
+async function callTool(name: ToolName, args: unknown, instanceId: string): Promise<unknown> {
+    try {
+        return await dispatchTool(name, args, instanceId);
+    } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, e instanceof Error ? e.message : String(e));
+    }
+}
+
+function actor(body: Record<string, unknown>): string {
+    return typeof body.instanceId === "string" && body.instanceId ? body.instanceId : "unknown";
+}
+
+/** Query-string parameters as tool arguments; `numeric` names are converted to numbers. */
+function queryArgs(url: URL, numeric: string[]): Record<string, unknown> {
+    const args: Record<string, unknown> = {};
+    for (const [key, value] of url.searchParams) {
+        if (key === "instanceId") continue;
+        args[key] = numeric.includes(key) ? Number(value) : value;
+    }
+    return args;
+}
+
+const restSendSchema = z.object({
+    meetingId: z.string().min(1).optional(),
+    source: z.enum(["meeting", "global"]).optional()
+});
 
 async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
     const declared = Number(req.headers["content-length"]);
@@ -643,121 +403,71 @@ export async function createDaemonServer(options: {
                 const instanceId = (body.instanceId as string) || "unknown";
 
                 if (!toolName) return jsonResponse(res, 400, { ok: false, error: "tool is required" });
-                if (!TOOL_DEFINITIONS.some(t => t.name === toolName)) {
+                if (!isToolName(toolName)) {
                     return jsonResponse(res, 404, { ok: false, error: `Unknown tool: '${toolName}'` });
                 }
-
-                try {
-                    const result = await dispatchTool(toolName, args, instanceId);
-                    return jsonResponse(res, 200, { ok: true, result });
-                } catch (e) {
-                    // The tool ran and rejected the call; this is a client-side error, not a daemon failure.
-                    const message = e instanceof Error ? e.message : String(e);
-                    return jsonResponse(res, 400, { ok: false, error: message });
-                }
+                return jsonResponse(res, 200, { ok: true, result: await callTool(toolName, args, instanceId) });
             }
 
             // Messages
             if (method === "POST" && path === "/api/messages/send") {
                 const body = await parseBody(req);
-                if (!body.message) return jsonResponse(res, 400, { ok: false, error: "message is required" });
-                const instanceId = (body.instanceId as string) || "unknown";
-                const meetingId = body.meetingId as string | undefined;
-                const source = body.source as string | undefined;
+                const instanceId = actor(body);
+                const { message, category } = parseToolArgs("send_message", body);
+                const extra = restSendSchema.parse(body);
 
                 // Direct meetingId routing (bypasses session currentProject check)
-                if (meetingId || source === "meeting") {
-                    const targetMeetingId = meetingId || (SqliteMeetingStore.getActiveMeeting())?.id || null;
+                if (extra.meetingId || extra.source === "meeting") {
+                    const targetMeetingId = extra.meetingId || SqliteMeetingStore.getActiveMeeting()?.id || null;
                     if (!targetMeetingId) {
                         return jsonResponse(res, 200, { ok: false, sentTo: "global", message: "No active meeting found." });
                     }
-                    const msg: DiscussionMessage = {
-                        from: instanceId, text: body.message as string,
-                        category: (body.category as MessageCategory) || "CHAT",
-                        timestamp: new Date().toISOString()
-                    };
+                    const msg: DiscussionMessage = { from: instanceId, text: message, category: category ?? "CHAT", timestamp: new Date().toISOString() };
                     SqliteMeetingStore.addMessage(targetMeetingId, msg);
                     return jsonResponse(res, 200, { ok: true, sentTo: "meeting", meetingId: targetMeetingId, message: `Message sent to meeting ${targetMeetingId}.` });
                 }
 
-                const result = await toolSendMessage(
-                    { message: body.message as string, category: body.category as DiscussionMessage["category"] },
-                    instanceId
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await toolSendMessage({ message, category }, instanceId));
             }
 
             if (method === "GET" && path === "/api/messages/unread") {
-                const count = Number(url.searchParams.get("count")) || 10;
-                const meetingId = url.searchParams.get("meetingId") || undefined;
-                const instanceId = url.searchParams.get("instanceId") || "unknown";
-                const result = await toolReadMessages({ count, meetingId }, instanceId);
+                const result = await callTool("read_messages", queryArgs(url, ["count"]), url.searchParams.get("instanceId") || "unknown");
                 return jsonResponse(res, 200, result);
             }
 
             // Projects
             if (method === "POST" && path === "/api/projects/sync") {
                 const body = await parseBody(req);
-                if (!body.manifest) return jsonResponse(res, 400, { ok: false, error: "manifest is required" });
-                const result = await toolSyncProjectAssets(
-                    { manifest: body.manifest as ProjectManifest, internalDocs: (body.internalDocs as string) || "" },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("sync_project_assets", { internalDocs: "", ...body }, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/update") {
                 const body = await parseBody(req);
-                if (!body.projectId || !body.patch) return jsonResponse(res, 400, { ok: false, error: "projectId and patch are required" });
-                const result = await toolUpdateProject(
-                    { projectId: body.projectId as string, patch: body.patch as Partial<ProjectManifest> },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("update_project", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/rename") {
                 const body = await parseBody(req);
-                if (!body.oldId || !body.newId) return jsonResponse(res, 400, { ok: false, error: "oldId and newId are required" });
-                const result = await toolRenameProject(
-                    { oldId: body.oldId as string, newId: body.newId as string },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("rename_project", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/delete") {
                 const body = await parseBody(req);
-                if (!body.projectId) return jsonResponse(res, 400, { ok: false, error: "projectId is required" });
-                const result = await toolHostDeleteProject(
-                    { projectId: body.projectId as string },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("host_delete_project", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/projects/search") {
-                const query = url.searchParams.get("query") || "";
-                const limit = Number(url.searchParams.get("limit")) || 10;
-                if (!query) return jsonResponse(res, 400, { ok: false, error: "query is required" });
-                const result = await toolSearchProjects({ query, limit });
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("search_projects", queryArgs(url, ["limit"]), "unknown"));
             }
 
             if (method === "GET" && path === "/api/projects/topology") {
-                const projectId = url.searchParams.get("projectId") || undefined;
-                const result = await toolGetGlobalTopology({ projectId });
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("get_global_topology", queryArgs(url, []), "unknown"));
             }
 
             // Session
             if (method === "POST" && path === "/api/session/register") {
                 const body = await parseBody(req);
-                if (!body.projectId) return jsonResponse(res, 400, { ok: false, error: "projectId is required" });
-                const result = await toolRegisterSessionContext(
-                    { projectId: body.projectId as string },
-                    (body.instanceId as string) || "unknown"
-                );
+                const result = await callTool("register_session_context", body, actor(body)) as { ok: boolean };
                 return jsonResponse(res, result.ok ? 200 : 404, result);
             }
 
@@ -777,50 +487,35 @@ export async function createDaemonServer(options: {
                 }
                 if (method === "POST") {
                     const body = await parseBody(req);
-                    if (!body.title || !body.content) return jsonResponse(res, 400, { ok: false, error: "title and content are required" });
-                    const instanceId = (body.instanceId as string) || "unknown";
-                    await StorageManager.saveGlobalDoc(docId, body.title as string, body.content as string, instanceId);
+                    await callTool("sync_global_doc", { ...body, docId }, actor(body));
                     return jsonResponse(res, 200, { ok: true, docId });
                 }
             }
 
             if (method === "POST" && path === "/api/global/strategy") {
                 const body = await parseBody(req);
-                if (!body.content) return jsonResponse(res, 400, { ok: false, error: "content is required" });
-                const instanceId = (body.instanceId as string) || "unknown";
-                const result = await toolUpdateGlobalStrategy({ content: body.content as string }, instanceId);
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("update_global_strategy", body, actor(body)));
             }
 
             // Meetings
             if (method === "POST" && path === "/api/meetings/start") {
                 const body = await parseBody(req);
-                if (!body.topic) return jsonResponse(res, 400, { ok: false, error: "topic is required" });
-                const result = await toolStartMeeting({ topic: body.topic as string }, (body.instanceId as string) || "unknown");
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("start_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/end") {
                 const body = await parseBody(req);
-                const result = await toolEndMeeting(
-                    { meetingId: body.meetingId as string, summary: body.summary as string },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("end_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/archive") {
                 const body = await parseBody(req);
-                if (!body.meetingId) return jsonResponse(res, 400, { ok: false, error: "meetingId is required" });
-                const result = await toolArchiveMeeting({ meetingId: body.meetingId as string }, (body.instanceId as string) || "unknown");
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("archive_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/reopen") {
                 const body = await parseBody(req);
-                if (!body.meetingId) return jsonResponse(res, 400, { ok: false, error: "meetingId is required" });
-                const result = await toolReopenMeeting({ meetingId: body.meetingId as string }, (body.instanceId as string) || "unknown");
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("reopen_meeting", body, actor(body)));
             }
 
             const meetingMatch = path.match(/^\/api\/meetings\/(.+)$/);
@@ -834,15 +529,11 @@ export async function createDaemonServer(options: {
             // Tasks
             if (method === "POST" && path === "/api/tasks") {
                 const body = await parseBody(req);
-                const result = await toolCreateTask(body as unknown as { source_meeting_id?: string; metadata?: Record<string, unknown>; ttl?: number });
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("create_task", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/tasks") {
-                const status = url.searchParams.get("status") as TaskStatus | null;
-                const limit = Number(url.searchParams.get("limit")) || 50;
-                const result = await toolListTasks({ status: status || undefined, limit });
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("list_tasks", queryArgs(url, ["limit"]), "unknown"));
             }
 
             const taskMatch = path.match(/^\/api\/tasks\/([^/]+)(\/(.+))?$/);
@@ -851,38 +542,29 @@ export async function createDaemonServer(options: {
                 const action = taskMatch[3];
 
                 if (method === "GET" && !action) {
-                    const result = await toolGetTask({ taskId });
-                    return jsonResponse(res, 200, result);
+                    return jsonResponse(res, 200, await callTool("get_task", { taskId }, "unknown"));
                 }
                 if (method === "POST" && action === "update") {
                     const body = await parseBody(req);
-                    const task = getTask(taskId);
-                    if (!task) return jsonResponse(res, 404, { ok: false, error: `Task '${taskId}' not found.` });
-                    const updated = updateTask(taskId, body as unknown as TaskUpdate);
-                    return jsonResponse(res, 200, { ok: true, task: updated });
+                    const update = taskUpdateSchema.safeParse(body);
+                    if (!update.success) return jsonResponse(res, 400, { ok: false, error: `Invalid task update:\n${z.prettifyError(update.error)}` });
+                    if (!getTask(taskId)) return jsonResponse(res, 404, { ok: false, error: `Task '${taskId}' not found.` });
+                    return jsonResponse(res, 200, { ok: true, task: updateTask(taskId, update.data) });
                 }
                 if (method === "POST" && action === "cancel") {
-                    const result = await toolCancelTask({ taskId });
-                    return jsonResponse(res, 200, result);
+                    return jsonResponse(res, 200, await callTool("cancel_task", { taskId }, "unknown"));
                 }
             }
 
             // Maintenance
             if (method === "POST" && path === "/api/maintenance/logs") {
                 const body = await parseBody(req);
-                if (!body.action) return jsonResponse(res, 400, { ok: false, error: "action is required" });
-                const result = await toolHostMaintenance(
-                    { action: body.action as "prune" | "clear", count: (body.count as number) || 0 },
-                    (body.instanceId as string) || "unknown"
-                );
-                return jsonResponse(res, 200, result);
+                return jsonResponse(res, 200, await callTool("host_maintenance", body, actor(body)));
             }
 
             // Events
             if (method === "GET" && path === "/api/events") {
-                const limit = Number(url.searchParams.get("limit")) || 20;
-                const action = url.searchParams.get("action") || undefined;
-                return jsonResponse(res, 200, await toolListEvents({ limit, action }));
+                return jsonResponse(res, 200, await callTool("list_events", queryArgs(url, ["limit"]), "unknown"));
             }
 
             jsonResponse(res, 404, { ok: false, error: "Not found" });
@@ -890,6 +572,9 @@ export async function createDaemonServer(options: {
             const message = e instanceof Error ? e.message : String(e);
             if (e instanceof HttpError) {
                 return jsonResponse(res, e.status, { ok: false, error: message });
+            }
+            if (e instanceof ToolValidationError || e instanceof z.ZodError) {
+                return jsonResponse(res, 400, { ok: false, error: e instanceof z.ZodError ? z.prettifyError(e) : message });
             }
             console.error("[n2n-nexus daemon] Error:", message);
             jsonResponse(res, 500, { ok: false, error: message });

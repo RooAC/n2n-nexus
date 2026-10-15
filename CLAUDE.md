@@ -30,7 +30,9 @@ The daemon + MCP refactor is complete (v0.5.0). See `REFACTOR_PLAN.md` for the f
 `src/index.ts` routes to `runDaemon()` (`src/daemon/`) or `NexusServer().run()` (`src/server/nexus.ts`) based on the first CLI argument (`daemon` or default).
 
 ### Daemon (`src/daemon/`)
-`server.ts` — plain `http.Server` with all REST endpoints. Contains `TOOL_DEFINITIONS` (22 tools with JSON Schema), per-instance session map (`Map<instanceId, {currentProject}>`), and individual tool handler functions. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/maintenance endpoints.
+`tools.ts` — zod contract per tool (22 tools). `TOOL_DEFINITIONS` (JSON Schema for `GET /api/tools`) is generated from these schemas with `z.toJSONSchema`, and `parseToolArgs` validates every call. Add a tool here first, then its handler and dispatcher case in `server.ts`.
+
+`server.ts` — plain `http.Server` with all REST endpoints, per-instance session map (`Map<instanceId, {currentProject}>`), tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/event/maintenance endpoints.
 
 ### MCP Server (`src/server/nexus.ts`)
 Pure stateless proxy. On startup: connects stdio transport, then tries `GET /api/tools`; if daemon unreachable, schedules 3-second retry loop. On connect: calls `server.sendToolListChanged()`. `CallTool` → `POST /api/tools/call`. No hardcoded tool names.

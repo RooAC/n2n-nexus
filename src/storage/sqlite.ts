@@ -124,6 +124,7 @@ export function initDatabase(): Database.Database {
     
     // Enable WAL mode for better concurrent access
     db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
     
     // Initialize schema
     db.exec(SCHEMA);

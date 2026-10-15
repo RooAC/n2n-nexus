@@ -14,6 +14,8 @@
 
 ### 修复
 
+- 工具参数此前完全不校验：daemon 直接断言类型，让 SQLite 或文件系统在后面报错（例如 `category: "SYSTEM"` 会变成 `CHECK constraint failed` 的 500）。现在每个工具在 `src/daemon/tools.ts` 有 zod 契约，提供给 MCP 客户端的 JSON Schema 由它生成，同一契约校验工具调用与 REST 端点，失败返回 400 并指出出错字段。`update_project` 的 `patch` 拒绝未知字段，`create_task` 会检查 `source_meeting_id` 是否存在，SQLite 外键约束已启用。
+
 - MCP 适配器每次启动随机生成实例 ID，IDE 重启后未读游标归零，会议也没人能再结束或归档（只有发起者可以）。默认值改为 `mcp-<主机名>-<工作目录哈希>`，同一机器同一工作区保持不变。`reopen_meeting` 与 `end_meeting`、`archive_meeting` 一样只允许发起者操作。
 
 - daemon 此前接受任何 HTTP 请求，用户浏览器中打开的网页可以用跨站 `text/plain` POST 调用本地 daemon 的 `host_delete_project`。现在拒绝带浏览器 `Origin` 或跨站 `Sec-Fetch-Site` 头的请求（403），POST 必须是 `Content-Type: application/json`（415），请求体上限 16 MB（413），不再无限缓冲。

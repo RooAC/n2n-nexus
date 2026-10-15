@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Tool arguments were never validated: the daemon cast whatever arrived and let SQLite or the filesystem fail later (for example `category: "SYSTEM"` surfaced as a `CHECK constraint failed` 500). Every tool now has a zod contract in `src/daemon/tools.ts`; the JSON Schema served to MCP clients is generated from it and the same contract validates tool calls and REST endpoints, returning 400 with the failing field. `patch` for `update_project` rejects unknown fields, `create_task` checks that `source_meeting_id` exists, and SQLite foreign keys are enforced.
+
 - The MCP adapter generated a random instance ID on every start, so an IDE restart reset unread cursors and left meetings that no one could end or archive (only the initiator may). The default is now `mcp-<hostname>-<hash of working directory>`, stable per machine and workspace. `reopen_meeting` applies the same initiator check as `end_meeting` and `archive_meeting`.
 
 - The daemon accepted any HTTP request, so a web page open in the user's browser could call `host_delete_project` on the local daemon with a cross-site `text/plain` POST. Requests carrying a browser `Origin` or cross-site `Sec-Fetch-Site` header are refused (403), POST requires `Content-Type: application/json` (415), and request bodies are capped at 16 MB (413) instead of being buffered without limit.

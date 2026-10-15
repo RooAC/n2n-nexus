@@ -2,7 +2,7 @@
 
 This document describes the MCP tools exposed by the n2n-nexus adapter. Tool calls are forwarded to the daemon running at `NEXUS_ENDPOINT`.
 
-Parameter tables below are derived from `src/daemon/server.ts` (`TOOL_DEFINITIONS`) and the corresponding tool handlers.
+Parameter tables below are derived from the zod contracts in `src/daemon/tools.ts`, which generate the JSON Schema served by `GET /api/tools` and validate every call (tool and REST) before a handler runs. Invalid arguments are rejected with a descriptive error (`Invalid arguments for <tool>: ...`); unknown top-level keys are ignored.
 
 ## Conventions
 
@@ -88,7 +88,7 @@ Patch fields on an existing project manifest.
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Project to update. |
-| `patch` | object | yes | Partial manifest fields to update. Must not include `id`. |
+| `patch` | object | yes | Partial manifest fields to update. Unknown fields and `id` are rejected. |
 
 Behavior:
 
@@ -116,7 +116,7 @@ Search the project registry.
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `query` | string | yes |  | Matches project ID, name, or summary. |
-| `limit` | integer | no | `10` | Maximum number of returned projects. |
+| `limit` | integer | no | `10` | Maximum number of returned projects (1–200). |
 
 ### `get_global_topology`
 
@@ -148,7 +148,7 @@ Read recent or unread messages.
 
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `count` | integer | no | `10` | Number of messages to read. |
+| `count` | integer | no | `10` | Number of messages to read (1–500). |
 | `meetingId` | string | no |  | When provided, reads from that meeting. Otherwise reads from global logs. |
 
 Behavior:
@@ -161,7 +161,7 @@ Read the structured activity log.
 
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `limit` | integer | no | `20` | Maximum number of events, newest first. |
+| `limit` | integer | no | `20` | Maximum number of events, newest first (1–500). |
 | `action` | string | no |  | Exact action (`meeting.end`) or prefix (`project`, `meeting`). |
 
 Behavior:
@@ -234,7 +234,7 @@ Create a background task.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `source_meeting_id` | string | no | Link the task to a meeting for traceability. |
+| `source_meeting_id` | string | no | Link the task to a meeting for traceability. The meeting must exist. |
 | `metadata` | object | no | Arbitrary metadata object. |
 | `ttl` | integer | no | Time to live in milliseconds. |
 
@@ -257,7 +257,7 @@ List tasks, optionally filtered by status.
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `status` | string | no |  | One of `pending`, `running`, `completed`, `failed`, or `cancelled`. |
-| `limit` | integer | no | `50` | Maximum number of tasks returned. |
+| `limit` | integer | no | `50` | Maximum number of tasks returned (1–500). |
 
 ### `cancel_task`
 
@@ -276,7 +276,7 @@ Prune or clear the global chat stream.
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `action` | string | yes | `prune` or `clear`. |
-| `count` | integer | yes | Number of oldest messages to remove for `prune`; ignored by `clear`. |
+| `count` | integer | no | Number of oldest messages to remove for `prune` (default `0`); ignored by `clear`. |
 
 Behavior:
 
