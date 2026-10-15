@@ -65,6 +65,13 @@ describe("Daemon rate limiting", () => {
         for (let i = 0; i < 20; i++) expect((await requestJson(port, "GET", "/api/tools")).status).toBe(200);
     });
 
+    it("limits requests without an instance id only per address, not in a shared bucket", async () => {
+        for (let i = 0; i < 10; i++) {
+            const res = await requestJson<{ error?: string }>(port, "GET", "/api/meetings");
+            expect(res.status, `request ${i}: ${res.payload.error}`).toBe(200);
+        }
+    });
+
     it("caps a client that rotates instance ids by its address", async () => {
         const statuses: number[] = [];
         for (let i = 0; i < 20; i++) statuses.push((await send(`rotating-${i}`)).status);

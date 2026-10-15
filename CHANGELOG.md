@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Rate limiting, which the MCP tools specification requires of servers: a token bucket per instance ID (default 20 calls/s, burst 60; `NEXUS_RATE_LIMIT`, `NEXUS_RATE_BURST`, `0` disables) plus one per client address at five times that, since instance IDs are self-declared. Over the limit the daemon answers `429` with `Retry-After`; the MCP adapter reports it to the model as a tool error and keeps the connection. `/health` and `GET /api/tools` are exempt.
+- Rate limiting, which the MCP tools specification requires of servers: a token bucket per instance ID (default 20 calls/s, burst 60; `NEXUS_RATE_LIMIT`, `NEXUS_RATE_BURST`, `0` disables) plus one per client address at five times that, since instance IDs are self-declared. Requests without an instance ID (most REST reads) are limited per address only. Over the limit the daemon answers `429` with `Retry-After`; the MCP adapter reports it to the model as a tool error and keeps the connection. `/health` and `GET /api/tools` are exempt.
 
 - Structured tool results: every successful call returns `structuredContent` alongside the JSON text, and the eleven data-returning tools publish an `outputSchema`. Result shapes are zod contracts in `src/daemon/tool-outputs.ts` that type the handlers; a test calls all tools through the adapter for both protocol eras and checks each result against its contract. Publishing schemas for write tools as well would have grown `tools/list` from about 14 KB to 27 KB for a one-line acknowledgement, so they are left out (22 KB with the read schemas).
 

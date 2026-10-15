@@ -316,8 +316,11 @@ async function callTool(name: ToolName, args: unknown, instanceId: string): Prom
     }
 }
 
+/** Instance id recorded for requests that do not name one. */
+const UNKNOWN_INSTANCE = "unknown";
+
 function actor(body: Record<string, unknown>): string {
-    return typeof body.instanceId === "string" && body.instanceId ? body.instanceId : "unknown";
+    return typeof body.instanceId === "string" && body.instanceId ? body.instanceId : UNKNOWN_INSTANCE;
 }
 
 /** Query-string parameters as tool arguments; `numeric` names are converted to numbers. */
@@ -430,10 +433,16 @@ export async function createDaemonServer(options: {
     const instanceLimiter = new RateLimiter(limit.perSecond, limit.burst);
     const addressLimiter = new RateLimiter(limit.perSecond * ADDRESS_LIMIT_FACTOR, limit.burst * ADDRESS_LIMIT_FACTOR);
 
-    /** Tool calls from HTTP routes, counted against the calling instance's budget. */
+    /**
+     * Tool calls from HTTP routes, counted against the calling instance's budget.
+     * Requests that name no instance ("unknown") are only limited per address:
+     * pooling them in one shared bucket let any client exhaust it for all others.
+     */
     const call = (name: ToolName, args: unknown, instanceId: string) => {
-        const wait = instanceLimiter.take(`instance:${instanceId}`);
-        if (wait) throw rateLimited(wait, `instance '${instanceId}'`);
+        if (instanceId !== UNKNOWN_INSTANCE) {
+            const wait = instanceLimiter.take(`instance:${instanceId}`);
+            if (wait) throw rateLimited(wait, `instance '${instanceId}'`);
+        }
         return callTool(name, args, instanceId);
     };
 
@@ -476,7 +485,7 @@ export async function createDaemonServer(options: {
                 const body = await parseBody(req);
                 const toolName = body.tool as string;
                 const args = (body.args || {}) as Record<string, unknown>;
-                const instanceId = (body.instanceId as string) || "unknown";
+                const instanceId = (body.instanceId as string) || UNKNOWN_INSTANCE;
 
                 if (!toolName) return jsonResponse(res, 400, { ok: false, error: "tool is required" });
                 if (!isToolName(toolName)) {
@@ -492,7 +501,7 @@ export async function createDaemonServer(options: {
             }
 
             if (method === "GET" && path === "/api/messages/unread") {
-                const result = await call("read_messages", queryArgs(url, ["count"]), url.searchParams.get("instanceId") || "unknown");
+                const result = await call("read_messages", queryArgs(url, ["count"]), url.searchParams.get("instanceId") || UNKNOWN_INSTANCE);
                 return jsonResponse(res, 200, result);
             }
 
@@ -518,17 +527,17 @@ export async function createDaemonServer(options: {
             }
 
             if (method === "GET" && path === "/api/projects/search") {
-                return jsonResponse(res, 200, await call("search_projects", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("search_projects", queryArgs(url, ["limit"]), UNKNOWN_INSTANCE));
             }
 
             const projectMatch = path.match(/^\/api\/projects\/([^/]+)$/);
             if (method === "GET" && projectMatch && !["search", "topology"].includes(projectMatch[1])) {
                 const includeDocs = url.searchParams.get("includeDocs") !== "false";
-                return jsonResponse(res, 200, await call("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, "unknown"));
+                return jsonResponse(res, 200, await call("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, UNKNOWN_INSTANCE));
             }
 
             if (method === "GET" && path === "/api/projects/topology") {
-                return jsonResponse(res, 200, await call("get_global_topology", queryArgs(url, []), "unknown"));
+                return jsonResponse(res, 200, await call("get_global_topology", queryArgs(url, []), UNKNOWN_INSTANCE));
             }
 
             // Global docs
@@ -563,7 +572,7 @@ export async function createDaemonServer(options: {
 
             // Meetings
             if (method === "GET" && path === "/api/meetings") {
-                return jsonResponse(res, 200, await call("list_meetings", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_meetings", queryArgs(url, ["limit"]), UNKNOWN_INSTANCE));
             }
 
             if (method === "POST" && path === "/api/meetings/start") {
@@ -601,7 +610,7 @@ export async function createDaemonServer(options: {
             }
 
             if (method === "GET" && path === "/api/tasks") {
-                return jsonResponse(res, 200, await call("list_tasks", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_tasks", queryArgs(url, ["limit"]), UNKNOWN_INSTANCE));
             }
 
             const taskMatch = path.match(/^\/api\/tasks\/([^/]+)(\/(.+))?$/);
@@ -610,7 +619,7 @@ export async function createDaemonServer(options: {
                 const action = taskMatch[3];
 
                 if (method === "GET" && !action) {
-                    return jsonResponse(res, 200, await call("get_task", { taskId }, "unknown"));
+                    return jsonResponse(res, 200, await call("get_task", { taskId }, UNKNOWN_INSTANCE));
                 }
                 if (method === "POST" && action === "update") {
                     const body = await parseBody(req);
@@ -620,7 +629,7 @@ export async function createDaemonServer(options: {
                     return jsonResponse(res, 200, { ok: true, task: updateTask(taskId, update.data) });
                 }
                 if (method === "POST" && action === "cancel") {
-                    return jsonResponse(res, 200, await call("cancel_task", { taskId }, "unknown"));
+                    return jsonResponse(res, 200, await call("cancel_task", { taskId }, UNKNOWN_INSTANCE));
                 }
             }
 
@@ -632,7 +641,7 @@ export async function createDaemonServer(options: {
 
             // Events
             if (method === "GET" && path === "/api/events") {
-                return jsonResponse(res, 200, await call("list_events", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_events", queryArgs(url, ["limit"]), UNKNOWN_INSTANCE));
             }
 
             jsonResponse(res, 404, { ok: false, error: "Not found" });
