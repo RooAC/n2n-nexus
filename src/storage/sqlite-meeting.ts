@@ -221,12 +221,17 @@ export class SqliteMeetingStore {
     /**
      * Reopen a closed or archived meeting
      */
-    static reopenMeeting(meetingId: string, _callerId?: string): MeetingSession {
+    static reopenMeeting(meetingId: string, callerId?: string): MeetingSession {
         const db = getDatabase();
         
         const meeting = this.getMeeting(meetingId);
         if (!meeting) throw new Error(`Meeting '${meetingId}' not found.`);
         if (meeting.status === "active") throw new Error(`Meeting '${meetingId}' is already active.`);
+
+        // Permission check: Only initiator can reopen (same rule as end/archive)
+        if (callerId && meeting.initiator && meeting.initiator !== callerId) {
+            throw new Error(`Permission denied: Only initiator (${meeting.initiator}) can reopen this meeting.`);
+        }
 
         // Update status to active
         const stmt = db.prepare("UPDATE meetings SET status = 'active', closed_at = NULL WHERE id = ?");

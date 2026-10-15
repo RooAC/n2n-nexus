@@ -212,7 +212,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_ENDPOINT` | MCP 适配器连接的 daemon 地址 | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | daemon 存储根目录 | `~/.n2n-nexus` |
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
-| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID | 自动生成 |
+| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会话上下文、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>` |
 
 ## 安全和治理说明
 

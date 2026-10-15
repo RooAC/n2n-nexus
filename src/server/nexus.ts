@@ -8,6 +8,7 @@ import {
 
 import { NexusClient, NexusTransportError, ToolDefinition } from "../client/nexus-client.js";
 import { pkg } from "../config/index.js";
+import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
 const SERVICE_NAME = "n2n-nexus";
@@ -22,11 +23,7 @@ export class NexusServer {
 
     constructor() {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-        const instanceId = process.env.NEXUS_INSTANCE_ID ||
-            process.argv.find((_, i) => process.argv[i - 1] === "--id") ||
-            `mcp-${Math.random().toString(36).slice(2, 6)}`;
-
-        this.instanceId = instanceId;
+        this.instanceId = resolveInstanceId();
         this.client = new NexusClient({ endpoint, timeoutMs: 5000 });
 
         this.server = new Server(

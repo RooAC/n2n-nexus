@@ -177,7 +177,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_ENDPOINT` | Daemon URL for MCP adapter | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | Storage root for daemon | `~/.n2n-nexus` |
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
-| `NEXUS_INSTANCE_ID` | Override MCP instance ID | auto-generated |
+| `NEXUS_INSTANCE_ID` | Override MCP instance ID (read cursors, session context and meeting permissions are keyed on it) | `mcp-<hostname>-<hash of working directory>` |
 
 ## 🔐 Security and governance notes
 
