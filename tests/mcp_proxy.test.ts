@@ -253,3 +253,49 @@ describe("MCP proxy reconnect loop", () => {
         await new Promise((r) => hung.close(r));
     });
 });
+
+describe("MCP proxy reconnect race", () => {
+    it("keeps reconnecting if the daemon drops again while a successful attempt is still finishing", async () => {
+        const http = await import("node:http");
+        let drop = true;
+        const tools = [{ name: "ping", description: "p", inputSchema: { type: "object", properties: {} } }];
+        const fake = http.createServer((req, res) => {
+            if (req.url === "/api/tools") { res.end(JSON.stringify({ tools })); return; }
+            if (drop) { req.socket.destroy(); return; }
+            req.resume();
+            req.on("end", () => res.end(JSON.stringify({ ok: true, result: { pong: true } })));
+        });
+        // Reserve a port, keep it closed so the daemon starts "down".
+        await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
+        const port = (fake.address() as import("node:net").AddressInfo).port;
+        await new Promise((r) => fake.close(r));
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${port}`;
+        process.env.NEXUS_INSTANCE_ID = "race";
+
+        const proxy = new NexusServer({ retryIntervalMs: 50, requestTimeoutMs: 500 });
+        const internals = proxy as unknown as { connected: boolean; notifyToolsChanged: () => Promise<void> };
+        // Widen the window between "connected" and the end of the attempt (the client notification).
+        const notify = internals.notifyToolsChanged.bind(proxy);
+        internals.notifyToolsChanged = async () => { if (internals.connected) await new Promise((r) => setTimeout(r, 300)); await notify(); };
+
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        const input = new PassThrough();
+        await proxy.run({ transport: serverSide, input, onExit: () => { } });
+        const client = new Client({ name: "ide", version: "1" });
+        await client.connect(clientSide);
+
+        await new Promise<void>((r) => fake.listen(port, "127.0.0.1", () => r()));
+        for (let i = 0; i < 100 && !internals.connected; i++) await new Promise((r) => setTimeout(r, 10));
+        const during = await client.callTool({ name: "ping", arguments: {} });   // transport error inside the window
+        expect(JSON.stringify(during.content)).toContain("Daemon unavailable");
+
+        drop = false;
+        await new Promise((r) => setTimeout(r, 1000));
+        const after = await client.callTool({ name: "ping", arguments: {} });
+        expect(after.isError).toBeFalsy();
+
+        input.resume(); input.end();
+        await client.close();
+        await new Promise((r) => fake.close(r));
+    });
+});

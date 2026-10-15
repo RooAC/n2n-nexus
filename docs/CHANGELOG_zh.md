@@ -32,6 +32,8 @@
 
 ### 修复
 
+- 一次重连尝试刚连上、还在通知客户端时，若有工具调用再次失去守护进程连接，这次尝试结束后仍会停掉重连循环，而适配器已经断开；之后每次调用都只返回 "Daemon is not ready yet"，直到重启 IDE。现在只有连接仍然在线时才停止重连。
+
 - 适配器的重连循环使用 3 秒的 `setInterval`，而单次尝试最长要等 5 秒请求超时，守护进程假死时请求会层层叠加。现在每次尝试结束后才安排下一次。
 
 - `rename_project`、`cancel_task`、`end_meeting`、`archive_meeting`、`reopen_meeting` 此前标注为 `destructiveHint: false`，而 MCP 规定该值只用于纯追加式工具，客户端可能不经用户确认就执行它们。现在标为破坏性。

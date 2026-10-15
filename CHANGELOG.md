@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- If a tool call lost the daemon while a reconnect attempt that had just succeeded was still notifying the client, the attempt then stopped the retry loop although the adapter was disconnected again; every later call answered "Daemon is not ready yet" until the IDE restarted. The loop now stops only if the connection is still up.
+
 - The adapter's reconnect loop used a 3-second `setInterval` while each attempt could take up to the 5-second request timeout, so a hung daemon accumulated overlapping requests. Each attempt is now scheduled only after the previous one finishes.
 
 - `rename_project`, `cancel_task`, `end_meeting`, `archive_meeting` and `reopen_meeting` were annotated `destructiveHint: false`, which MCP reserves for purely additive tools; clients could run them without asking the user. They are now marked destructive.

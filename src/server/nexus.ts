@@ -200,7 +200,9 @@ export class NexusServer {
                 console.error(`[n2n-nexus] Waiting for daemon at ${endpoint}...`);
                 const ok = await this.tryConnect();
                 if (!this.retrying) return;           // stopped while the attempt was in flight
-                if (ok) this.stopRetry();
+                // A tools/call may have lost the daemon again while this attempt was still
+                // notifying the client; only stop if the connection is still up.
+                if (ok && this.connected) this.stopRetry();
                 else next();
             }, this.retryIntervalMs);
         };
