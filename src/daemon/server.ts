@@ -52,8 +52,7 @@ async function toolRegisterSessionContext(args: ToolArgs<"register_session_conte
 async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, instanceId: string) {
     const m = { ...args.manifest, lastUpdated: args.manifest.lastUpdated ?? new Date().toISOString() };
 
-    await StorageManager.saveProjectManifest(m);
-    await StorageManager.saveProjectDocs(m.id, args.internalDocs);
+    await StorageManager.saveProject(m, args.internalDocs);
     EventStore.record(instanceId, "project.sync", m.id);
     return { ok: true, projectId: m.id, message: `Project '${m.id}' manifest and docs synced.` };
 }

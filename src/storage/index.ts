@@ -71,6 +71,13 @@ export class StorageManager {
     static listRegistry() { return RegistryStorage.listRegistry(); }
     static getProjectManifest(id: string) { return RegistryStorage.getProjectManifest(id); }
     static saveProjectManifest(manifest: ProjectManifest) { return this.write(() => RegistryStorage.saveProjectManifest(manifest)); }
+    /** Manifest and internal docs in one critical section, so a concurrent delete cannot interleave. */
+    static saveProject(manifest: ProjectManifest, docs: string) {
+        return this.write(async () => {
+            await RegistryStorage.saveProjectManifest(manifest);
+            await ProjectStorage.saveProjectDocs(manifest.id, docs);
+        });
+    }
     static patchProjectManifest(id: string, patch: Partial<ProjectManifest>) { return this.write(() => RegistryStorage.patchProjectManifest(id, patch)); }
     static calculateTopology(projectId?: string) { return RegistryStorage.calculateTopology(projectId); }
 
