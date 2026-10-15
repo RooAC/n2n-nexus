@@ -48,7 +48,10 @@ upload_project_asset(fileName, base64Content) → 上传二进制文件到项目
 send_message(message, category?, meetingId?)  → 发到指定会议，否则活跃会议，否则全局聊天
 read_messages(count?, meetingId?)             → 读取你的未读消息（增量）
 list_events(limit?, action?)                  → 结构化活动日志（project.sync、meeting.end 等）
+get_global_strategy()                         → 读取主战略文档
 update_global_strategy(content)               → 覆盖写入主战略文档
+list_global_docs()                            → 列出跨项目共享文档
+get_global_doc(docId)                         → 读取共享文档
 sync_global_doc(docId, title, content)        → 创建/更新跨项目共享文档
 ```
 

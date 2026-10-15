@@ -182,7 +182,36 @@ Overwrite the master strategy document.
 
 Behavior:
 
-- Writes `global/blueprint.md` under the storage root. Read it back with `GET /api/global/strategy`.
+- Writes `global/blueprint.md` under the storage root. Read it back with `get_global_strategy` or `GET /api/global/strategy`.
+
+### `get_global_strategy`
+
+Read the master strategy document. No parameters.
+
+Behavior:
+
+- Returns `{ content }`.
+
+### `list_global_docs`
+
+List global shared documents. No parameters.
+
+Behavior:
+
+- Returns `{ count, docs: [{ docId, title, lastUpdated, updatedBy }] }`, most recently updated first.
+
+### `get_global_doc`
+
+Read one global shared document.
+
+| Parameter | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `docId` | string | yes | Document ID from `list_global_docs`. |
+
+Behavior:
+
+- Returns `{ docId, title, lastUpdated, updatedBy, content }`.
+- Fails if the document does not exist.
 
 ### `sync_global_doc`
 

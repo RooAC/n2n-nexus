@@ -78,7 +78,10 @@ export const TOOL_SCHEMAS = {
         limit: positiveInt(500).default(20),
         action: z.string().min(1).optional().describe("Exact action or prefix such as 'project' or 'meeting'")
     }),
+    get_global_strategy: z.object({}),
     update_global_strategy: z.object({ content: z.string().min(1) }),
+    list_global_docs: z.object({}),
+    get_global_doc: z.object({ docId: docIdSchema }),
     sync_global_doc: z.object({
         docId: docIdSchema,
         title: z.string().min(1),
@@ -129,7 +132,10 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     send_message: "Post a message. Goes to meetingId if given, else to the active meeting, else to global chat.",
     read_messages: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
     list_events: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",
+    get_global_strategy: "Read the master strategy document (global/blueprint.md).",
     update_global_strategy: "Overwrite the master strategy document (global/blueprint.md).",
+    list_global_docs: "List global shared documents: id, title, last update and author.",
+    get_global_doc: "Read a global shared document by docId, with its title and metadata.",
     sync_global_doc: "Create/update a global shared document.",
     start_meeting: "Start new meeting session. Returns meeting ID.",
     end_meeting: "End active meeting. Locks history.",

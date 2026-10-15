@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 新增 `get_global_strategy`、`list_global_docs`、`get_global_doc` 工具。此前助手能写主策略和共享文档，却没有工具读回，只有 REST API 能读。
+
 - `list_events` 工具与 `GET /api/events`：结构化活动日志（actor、action、target、detail），记录经由 daemon 发生的每次状态变更。
 
 ### 移除

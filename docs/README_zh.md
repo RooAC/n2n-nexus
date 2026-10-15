@@ -130,7 +130,10 @@ npx n2n-nexus daemon --port 5688
 - `send_message`：发送会议消息或全局消息。
 - `read_messages`：增量读取未读消息（全局或指定会议）。
 - `list_events`：读取结构化活动日志（项目同步、重命名、会议结束等）。
+- `get_global_strategy`：读取主策略文档。
 - `update_global_strategy`：更新主策略文档。
+- `list_global_docs`：列出共享文档。
+- `get_global_doc`：读取共享文档。
 - `sync_global_doc`：创建或更新共享文档。
 
 ### 会议管理

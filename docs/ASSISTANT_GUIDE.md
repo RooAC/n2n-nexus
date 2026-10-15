@@ -46,7 +46,10 @@ All write tools run synchronously and return their result directly.
 send_message(message, category?, meetingId?)  → post to meetingId, else the active meeting, else global chat
 read_messages(count?, meetingId?)             → read your unread messages (incremental)
 list_events(limit?, action?)                  → structured activity log (project.sync, meeting.end, ...)
+get_global_strategy()                         → read the master strategy document
 update_global_strategy(content)               → overwrite the master strategy document
+list_global_docs()                            → list cross-project shared documents
+get_global_doc(docId)                         → read a shared document
 sync_global_doc(docId, title, content)        → create or update a cross-project shared document
 ```
 

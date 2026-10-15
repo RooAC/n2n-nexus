@@ -144,6 +144,24 @@ async function toolUpdateGlobalStrategy(args: ToolArgs<"update_global_strategy">
     return { ok: true, message: "Global strategy updated." };
 }
 
+async function toolGetGlobalStrategy() {
+    return { content: await StorageManager.getGlobalBlueprint() };
+}
+
+async function toolListGlobalDocs() {
+    const index = await StorageManager.listGlobalDocs();
+    const docs = Object.entries(index)
+        .map(([docId, entry]) => ({ docId, ...entry }))
+        .sort((a, b) => b.lastUpdated.localeCompare(a.lastUpdated));
+    return { count: docs.length, docs };
+}
+
+async function toolGetGlobalDoc(args: ToolArgs<"get_global_doc">) {
+    const entry = (await StorageManager.listGlobalDocs())[args.docId];
+    if (!entry) throw new Error(`Document '${args.docId}' not found.`);
+    return { docId: args.docId, ...entry, content: await StorageManager.getGlobalDoc(args.docId) };
+}
+
 async function toolSyncGlobalDoc(args: ToolArgs<"sync_global_doc">, instanceId: string) {
     await StorageManager.saveGlobalDoc(args.docId, args.title, args.content, instanceId);
     EventStore.record(instanceId, "doc.sync", args.docId, { title: args.title });
@@ -244,7 +262,10 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
         case "send_message":              return toolSendMessage(parseToolArgs(name, rawArgs), instanceId);
         case "read_messages":             return toolReadMessages(parseToolArgs(name, rawArgs), instanceId);
         case "list_events":               return toolListEvents(parseToolArgs(name, rawArgs));
+        case "get_global_strategy":       parseToolArgs(name, rawArgs); return toolGetGlobalStrategy();
         case "update_global_strategy":    return toolUpdateGlobalStrategy(parseToolArgs(name, rawArgs), instanceId);
+        case "list_global_docs":          parseToolArgs(name, rawArgs); return toolListGlobalDocs();
+        case "get_global_doc":            return toolGetGlobalDoc(parseToolArgs(name, rawArgs));
         case "sync_global_doc":           return toolSyncGlobalDoc(parseToolArgs(name, rawArgs), instanceId);
         case "start_meeting":             return toolStartMeeting(parseToolArgs(name, rawArgs), instanceId);
         case "end_meeting":               return toolEndMeeting(parseToolArgs(name, rawArgs), instanceId);
