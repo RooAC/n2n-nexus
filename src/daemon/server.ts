@@ -11,7 +11,7 @@ import { createTask, updateTask, getTask, listTasks, cancelTask } from "../stora
 import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
 import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } from "./rate-limit.js";
-import { ToolResult } from "./tool-outputs.js";
+import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, ToolValidationError } from "./tools.js";
 import { z } from "zod";
 
@@ -304,9 +304,14 @@ function rateLimited(retryAfterSec: number, scope: string): HttpError {
  */
 async function callTool(name: ToolName, args: unknown, instanceId: string): Promise<unknown> {
     try {
-        return await dispatchTool(name, args, instanceId);
+        return finalizeResult(name, await dispatchTool(name, args, instanceId));
     } catch (e) {
         if (e instanceof HttpError) throw e;
+        if (e instanceof ResultContractError) {
+            // A daemon-side defect (or unreadable stored data), not the caller's fault.
+            console.error("[n2n-nexus daemon]", e.message);
+            throw new HttpError(500, e.message);
+        }
         throw new HttpError(400, e instanceof Error ? e.message : String(e));
     }
 }

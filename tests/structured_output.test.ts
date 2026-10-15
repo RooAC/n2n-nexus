@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
 import { NexusServer } from "../src/server/nexus.js";
 import { TOOL_NAMES } from "../src/daemon/tools.js";
 import { TOOL_OUTPUT_SCHEMAS } from "../src/daemon/tool-outputs.js";
 import { startTestDaemon, DaemonHarness } from "./helpers/daemon.js";
+import { StorageManager } from "../src/storage/index.js";
 
 const ERAS = {
     "2025-11-25": undefined,
@@ -80,5 +81,33 @@ describe.each(Object.entries(ERAS))("structuredContent for every tool, %s client
 
         expect([...called].sort()).toEqual([...TOOL_NAMES].sort());
         await client.close();
+    });
+});
+
+describe("Result contracts at runtime", () => {
+    let daemon: DaemonHarness;
+    beforeEach(async () => { daemon = await startTestDaemon("result-contracts"); });
+    afterEach(async () => { await daemon.close(); vi.restoreAllMocks(); });
+
+    it("strips fields a handler returns beyond its contract", async () => {
+        await daemon.callTool("sync_project_assets", { manifest: manifest("web_drift"), internalDocs: "" });
+        const real = StorageManager.getProjectManifest.bind(StorageManager);
+        vi.spyOn(StorageManager, "getProjectManifest").mockImplementation(async (id: string) => {
+            const m = await real(id);
+            return m && ({ ...m, internalSecret: "x" } as typeof m);
+        });
+        const res = await daemon.callTool<{ manifest: Record<string, unknown> }>("get_project", { projectId: "web_drift" });
+        expect(res.status).toBe(200);
+        expect(res.payload.result?.manifest).not.toHaveProperty("internalSecret");
+        expect(res.payload.result?.manifest.id).toBe("web_drift");
+    });
+
+    it("turns a result that cannot meet its contract into a server error", async () => {
+        await daemon.callTool("sync_project_assets", { manifest: manifest("web_broken"), internalDocs: "" });
+        vi.spyOn(console, "error").mockImplementation(() => { });
+        vi.spyOn(StorageManager, "getProjectManifest").mockResolvedValue({ id: "web_broken" } as never);
+        const res = await daemon.callTool("get_project", { projectId: "web_broken" });
+        expect(res.status).toBe(500);
+        expect(res.payload.error).toContain("does not match its contract");
     });
 });

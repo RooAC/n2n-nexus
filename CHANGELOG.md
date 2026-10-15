@@ -32,6 +32,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Result contracts were only enforced by TypeScript, which ignores extra fields on returned variables, so a new field in stored data could reach clients as structuredContent that violates the published `outputSchema`. Every result now passes through its zod contract on the way out: undeclared fields are stripped, and a result that cannot meet the contract becomes a server error.
+
 - If a tool call lost the daemon while a reconnect attempt that had just succeeded was still notifying the client, the attempt then stopped the retry loop although the adapter was disconnected again; every later call answered "Daemon is not ready yet" until the IDE restarted. The loop now stops only if the connection is still up.
 
 - The adapter's reconnect loop used a 3-second `setInterval` while each attempt could take up to the 5-second request timeout, so a hung daemon accumulated overlapping requests. Each attempt is now scheduled only after the previous one finishes.
