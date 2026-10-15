@@ -8,6 +8,8 @@ import { ProjectStorage } from "./projects.js";
 import { DocStorage } from "./docs.js";
 import { fileWriteLock, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
+export const BLUEPRINT_PLACEHOLDER = "# Global Coordination Blueprint\n\nShared meeting space.";
+
 export class StorageManager {
     private static initialized = false;
 
@@ -28,7 +30,7 @@ export class StorageManager {
         await this.loadJsonSafe(this.registryFile, { projects: {} });
 
         if (!await this.exists(this.globalBlueprint)) {
-            await writeFileAtomic(this.globalBlueprint, "# Global Coordination Blueprint\n\nShared meeting space.");
+            await writeFileAtomic(this.globalBlueprint, BLUEPRINT_PLACEHOLDER);
         }
 
         await DocStorage.init();

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { importLegacyDiscussion } from "../src/storage/migrations.js";
+import { importLegacyDiscussion, importLegacyStrategy } from "../src/storage/migrations.js";
 import { GlobalMessageStore } from "../src/storage/global-messages.js";
+import { DocStorage } from "../src/storage/docs.js";
+import { BLUEPRINT_PLACEHOLDER } from "../src/storage/index.js";
 import { closeDatabase, initDatabase } from "../src/storage/sqlite.js";
 
 const TEST_ROOT = path.join(process.cwd(), "tests", "tmp", "migrations");
@@ -42,5 +44,19 @@ describe("Legacy data migrations", () => {
 
     it("does nothing when there is no legacy file", async () => {
         expect(await importLegacyDiscussion()).toBe(0);
+        expect(await importLegacyStrategy()).toBe(false);
+    });
+
+    it("moves the legacy 'strategy' global doc into blueprint.md unless a real blueprint exists", async () => {
+        await DocStorage.saveBlueprint(BLUEPRINT_PLACEHOLDER);
+        await DocStorage.saveDoc("strategy", "Global Collaboration Strategy", "# Real strategy", "ide-a");
+        expect(await importLegacyStrategy()).toBe(true);
+        expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
+        expect((await DocStorage.listDocs()).strategy).toBeUndefined();
+
+        await DocStorage.saveDoc("strategy", "Old", "# Older strategy", "ide-a");
+        expect(await importLegacyStrategy()).toBe(true);
+        expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
+        expect((await DocStorage.listDocs()).strategy).toBeUndefined();
     });
 });

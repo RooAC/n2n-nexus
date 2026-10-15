@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { NexusPaths } from "./paths.js";
 import { GlobalMessageStore } from "./global-messages.js";
+import { DocStorage } from "./docs.js";
+import { BLUEPRINT_PLACEHOLDER } from "./index.js";
 import { getDatabase } from "./sqlite.js";
 import { MESSAGE_CATEGORIES, MessageCategory } from "../types.js";
 import { FILE_ENCODING } from "../constants.js";
@@ -58,6 +60,25 @@ export async function importLegacyDiscussion(): Promise<number> {
     return imported;
 }
 
+/**
+ * 0.5.0's update_global_strategy saved the strategy as the global doc
+ * "strategy"; it now lives in global/blueprint.md. Move it there unless the
+ * blueprint has already been written.
+ */
+export async function importLegacyStrategy(): Promise<boolean> {
+    const docs = await DocStorage.listDocs();
+    if (!docs.strategy) return false;
+    const legacy = await DocStorage.getDoc("strategy");
+    const current = await DocStorage.getBlueprint();
+    if (legacy && (!current || current === BLUEPRINT_PLACEHOLDER)) {
+        await DocStorage.saveBlueprint(legacy);
+    }
+    await DocStorage.deleteDoc("strategy");
+    console.error("[n2n-nexus] Moved legacy global doc 'strategy' into global/blueprint.md");
+    return true;
+}
+
 export async function runMigrations(): Promise<void> {
     await importLegacyDiscussion();
+    await importLegacyStrategy();
 }
