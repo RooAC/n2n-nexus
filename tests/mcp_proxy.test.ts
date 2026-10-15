@@ -59,6 +59,15 @@ describe("MCP proxy", () => {
         await client.close();
     });
 
+    it("answers an unknown tool with a JSON-RPC InvalidParams error", async () => {
+        const { client } = await connectProxy();
+        await expect(client.callTool({ name: "no_such_tool", arguments: {} }))
+            .rejects.toMatchObject({ code: -32602, message: expect.stringContaining("Unknown tool: no_such_tool") });
+        // The connection and tool list are unaffected.
+        expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+        await client.close();
+    });
+
     it("forwards successful calls and returns the daemon result", async () => {
         const { client } = await connectProxy();
         const result = await client.callTool({ name: "send_message", arguments: { message: "hi" } });

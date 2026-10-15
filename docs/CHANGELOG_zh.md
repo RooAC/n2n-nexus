@@ -24,6 +24,8 @@
 
 ### 修复
 
+- 调用适配器不认识的工具时，此前返回 `isError: true` 的工具结果。MCP 规范把未知工具归为协议错误，适配器现在返回 JSON-RPC 错误 `-32602`（Invalid Params），守护进程报告工具不存在时同样如此。
+
 - IDE 关闭 stdin 后 MCP 适配器不退出：守护进程不可达时，3 秒一次的重连定时器让进程一直存活，留下孤儿适配器。现在 stdin 结束时适配器会关闭并退出，符合 stdio 传输规范。
 
 - 与 `Object.prototype` 键同名的项目和文档 ID 处理错误：`register_session_context({ projectId: "constructor" })` 对不存在的项目返回成功，名为 `__proto__` 的项目或文档写入后丢失（赋值改写了对象原型）。注册表与文档索引改为无原型的映射。

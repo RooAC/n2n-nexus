@@ -3,10 +3,12 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
     CallToolRequestSchema,
+    ErrorCode,
     ListToolsRequestSchema,
+    McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { NexusClient, NexusTransportError, ToolDefinition } from "../client/nexus-client.js";
+import { NexusClient, NexusToolError, NexusTransportError, ToolDefinition } from "../client/nexus-client.js";
 import { pkg } from "../config/index.js";
 import { resolveInstanceId } from "./instance-id.js";
 
@@ -56,6 +58,10 @@ export class NexusServer {
                 };
             }
 
+            // Unknown tool is a protocol error (JSON-RPC -32602), not a tool execution error.
+            const unknownTool = () => new McpError(ErrorCode.InvalidParams, `Unknown tool: ${request.params.name}`);
+            if (!this.cachedTools.some((t) => t.name === request.params.name)) throw unknownTool();
+
             try {
                 const result = await this.client.callTool(
                     request.params.name,
@@ -70,6 +76,8 @@ export class NexusServer {
                 };
             } catch (e) {
                 const message = e instanceof Error ? e.message : String(e);
+                // The daemon dropped the tool since the list was fetched.
+                if (e instanceof NexusToolError && e.status === 404) throw unknownTool();
                 if (!(e instanceof NexusTransportError)) {
                     // The daemon answered; the tool itself failed. Keep the tool list.
                     return { content: [{ type: "text", text: message }], isError: true };

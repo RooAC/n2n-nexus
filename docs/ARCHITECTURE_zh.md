@@ -28,7 +28,7 @@ MCP-A  MCP-B  MCP-C
 1. **Daemon 是唯一的真相来源** — 所有读写、业务逻辑和工具定义都在 daemon 侧。
 2. **MCP 是无状态协议适配器** — 不含工具定义、不含 hardcode 工具名、不存本地数据。
 3. **Daemon 决定工具能力** — MCP 启动时拉取 `GET /api/tools`；daemon 升级新工具后，所有已连接 MCP 立即获得新能力，无需更新。
-4. **无本地降级** — daemon 不可达时，MCP 每 3 秒重试并报告错误，不做本地 fallback（避免数据分裂）。daemon 拒绝的工具调用（校验失败、不存在、无权限）作为错误结果返回给 IDE，不影响连接。
+4. **无本地降级** — daemon 不可达时，MCP 每 3 秒重试并报告错误，不做本地 fallback（避免数据分裂）。daemon 拒绝的工具调用（校验失败、不存在、无权限）作为错误结果（`isError: true`）返回给 IDE，不影响连接；未知工具名返回 JSON-RPC `-32602` 错误。
 5. **MCP ↔ Daemon 全部走普通 HTTP** — 不使用 SSE；AI 是请求驱动模型，不需要推送。
 
 ### MCP 启动流程
