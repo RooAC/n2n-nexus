@@ -10,9 +10,11 @@ describe("Tool contracts", () => {
             expect(tool.inputSchema.type).toBe("object");
             expect(tool.inputSchema).not.toHaveProperty("$schema");
             expect(tool.description.length).toBeGreaterThan(0);
+            expect(tool.title.length).toBeGreaterThan(0);
         }
         const byName = Object.fromEntries(TOOL_DEFINITIONS.map((t) => [t.name, t]));
         expect(TOOL_DEFINITIONS.every((t) => t.annotations.openWorldHint === false)).toBe(true);
+        expect(new Set(TOOL_DEFINITIONS.map((t) => t.title)).size).toBe(TOOL_DEFINITIONS.length);
         expect(byName.host_delete_project.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
         expect(byName.host_maintenance.annotations.destructiveHint).toBe(true);
         for (const name of ["get_project", "list_global_docs", "list_meetings", "search_projects", "get_task"]) {

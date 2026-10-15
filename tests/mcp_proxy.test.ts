@@ -57,6 +57,7 @@ describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegoti
         expect(before.tools.length).toBeGreaterThan(0);
         const del = before.tools.find((t) => t.name === "host_delete_project");
         expect(del?.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
+        expect(del?.title).toBe("Delete Project");
 
         const failed = await client.callTool({ name: "get_task", arguments: { taskId: "nope" } });
         expect(failed.isError).toBe(true);

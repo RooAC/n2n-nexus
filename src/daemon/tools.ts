@@ -159,6 +159,36 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     host_delete_project: "Delete project. Irreversible."
 };
 
+/** Human-readable names clients show in their UI (MCP `title`). */
+const TOOL_TITLES: Record<ToolName, string> = {
+    sync_project_assets: "Sync Project",
+    upload_project_asset: "Upload Project Asset",
+    update_project: "Update Project",
+    rename_project: "Rename Project",
+    search_projects: "Search Projects",
+    get_global_topology: "Project Topology",
+    get_project: "Read Project",
+    send_message: "Send Message",
+    read_messages: "Read Messages",
+    list_events: "Activity Log",
+    get_global_strategy: "Read Strategy",
+    update_global_strategy: "Update Strategy",
+    list_global_docs: "List Shared Docs",
+    get_global_doc: "Read Shared Doc",
+    sync_global_doc: "Save Shared Doc",
+    list_meetings: "List Meetings",
+    start_meeting: "Start Meeting",
+    end_meeting: "End Meeting",
+    archive_meeting: "Archive Meeting",
+    reopen_meeting: "Reopen Meeting",
+    create_task: "Create Task",
+    get_task: "Read Task",
+    list_tasks: "List Tasks",
+    cancel_task: "Cancel Task",
+    host_maintenance: "Prune Global Chat",
+    host_delete_project: "Delete Project"
+};
+
 /**
  * MCP tool annotations: behaviour hints clients use to decide, for example,
  * whether to ask the user before a call. All tools act on the local daemon
@@ -212,6 +242,7 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
 
 export type ToolDefinition = {
     name: ToolName;
+    title: string;
     description: string;
     inputSchema: { type: "object"; properties: Record<string, unknown>; required?: string[] };
     annotations: ToolAnnotations;
@@ -227,6 +258,7 @@ export const TOOL_NAMES = Object.keys(TOOL_SCHEMAS) as ToolName[];
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = TOOL_NAMES.map((name) => ({
     name,
+    title: TOOL_TITLES[name],
     description: TOOL_DESCRIPTIONS[name],
     inputSchema: toInputSchema(TOOL_SCHEMAS[name]),
     annotations: TOOL_ANNOTATIONS[name]
