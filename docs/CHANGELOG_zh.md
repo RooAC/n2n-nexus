@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 所有工具加上 MCP 工具注解（`readOnlyHint`、`destructiveHint`、`idempotentHint`、`openWorldHint`），客户端可以区分只读工具和会覆盖或删除数据的工具，并在调用后者前请用户确认。
+
 - 新增 `list_meetings` 工具与 `GET /api/meetings`：列出会议及其状态、发起者、参与者、消息与决策数、摘要。此前助手只能访问已知 ID 的会议。
 
 - 新增 `get_project` 工具与 `GET /api/projects/:projectId`：读取项目完整 Manifest 和内部文档。此前助手能同步却无法读回。

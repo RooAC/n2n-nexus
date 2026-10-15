@@ -10,6 +10,7 @@ export type ToolDefinition = {
         properties: Record<string, unknown>;
         required?: string[];
     };
+    annotations?: Record<string, unknown>;
 };
 
 export type NexusClientOptions = {

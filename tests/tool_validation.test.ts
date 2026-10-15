@@ -11,6 +11,17 @@ describe("Tool contracts", () => {
             expect(tool.inputSchema).not.toHaveProperty("$schema");
             expect(tool.description.length).toBeGreaterThan(0);
         }
+        const byName = Object.fromEntries(TOOL_DEFINITIONS.map((t) => [t.name, t]));
+        expect(TOOL_DEFINITIONS.every((t) => t.annotations.openWorldHint === false)).toBe(true);
+        expect(byName.host_delete_project.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+        expect(byName.host_maintenance.annotations.destructiveHint).toBe(true);
+        for (const name of ["get_project", "list_global_docs", "list_meetings", "search_projects", "get_task"]) {
+            expect(byName[name].annotations.readOnlyHint, name).toBe(true);
+        }
+        // read_messages moves the unread cursor, so it is not read-only.
+        expect(byName.read_messages.annotations.readOnlyHint).toBe(false);
+        expect(byName.send_message.annotations.destructiveHint).toBe(false);
+
         const send = TOOL_DEFINITIONS.find((t) => t.name === "send_message")!;
         expect((send.inputSchema.properties.category as { enum: string[] }).enum).toEqual([...MESSAGE_CATEGORIES]);
         expect(send.inputSchema.required).toEqual(["message"]);

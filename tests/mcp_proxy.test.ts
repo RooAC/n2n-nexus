@@ -47,6 +47,8 @@ describe("MCP proxy", () => {
         const { client } = await connectProxy();
         const before = await client.listTools();
         expect(before.tools.length).toBeGreaterThan(0);
+        const del = before.tools.find((t) => t.name === "host_delete_project");
+        expect(del?.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
 
         const failed = await client.callTool({ name: "get_task", arguments: { taskId: "nope" } });
         expect(failed.isError).toBe(true);

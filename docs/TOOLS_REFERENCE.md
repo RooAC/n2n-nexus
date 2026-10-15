@@ -6,6 +6,7 @@ Parameter tables below are derived from the zod contracts in `src/daemon/tools.t
 
 ## Conventions
 
+- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint` (may overwrite or delete existing data), `idempotentHint` and `openWorldHint: false` (all tools act only on the local daemon). Read tools are marked read-only; `sync_project_assets`, `update_project`, `upload_project_asset`, `sync_global_doc`, `update_global_strategy`, `host_maintenance` and `host_delete_project` are marked destructive, so clients can ask for confirmation. `read_messages` is not read-only because it advances the unread cursor.
 - Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name comes from the MCP initialize handshake). Read cursors, session context and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.

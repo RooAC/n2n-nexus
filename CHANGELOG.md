@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) on every tool, so clients can tell read-only tools from ones that overwrite or delete data and ask the user before the latter.
+
 - `list_meetings` tool and `GET /api/meetings`: list meetings with status, initiator, participants, message and decision counts and summary. Assistants could only reach a meeting whose id they already knew.
 
 - `get_project` tool and `GET /api/projects/:projectId`: read a project's full manifest and internal docs. Assistants could sync them but had no tool to read them back.

@@ -159,10 +159,58 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     host_delete_project: "Delete project. Irreversible."
 };
 
+/**
+ * MCP tool annotations: behaviour hints clients use to decide, for example,
+ * whether to ask the user before a call. All tools act on the local daemon
+ * only, so openWorldHint is false throughout.
+ */
+export type ToolAnnotations = {
+    readOnlyHint: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint: false;
+};
+
+const readOnly: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
+/** Changes state; `destructive` = may overwrite or remove existing data; `idempotent` = repeating the same call has no further effect. */
+const write = (destructive: boolean, idempotent: boolean): ToolAnnotations =>
+    ({ readOnlyHint: false, destructiveHint: destructive, idempotentHint: idempotent, openWorldHint: false });
+
+const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
+    register_session_context: write(false, true),
+    sync_project_assets: write(true, true),       // replaces manifest and docs
+    upload_project_asset: write(true, true),      // overwrites a same-named asset
+    update_project: write(true, true),            // replaces the patched fields
+    rename_project: write(false, false),
+    search_projects: readOnly,
+    get_global_topology: readOnly,
+    get_project: readOnly,
+    send_message: write(false, false),
+    read_messages: write(false, false),           // advances this instance's unread cursor
+    list_events: readOnly,
+    get_global_strategy: readOnly,
+    update_global_strategy: write(true, true),    // overwrites the document
+    list_global_docs: readOnly,
+    get_global_doc: readOnly,
+    sync_global_doc: write(true, true),           // overwrites the document
+    list_meetings: readOnly,
+    start_meeting: write(false, false),
+    end_meeting: write(false, false),
+    archive_meeting: write(false, false),
+    reopen_meeting: write(false, false),
+    create_task: write(false, false),
+    get_task: readOnly,
+    list_tasks: readOnly,
+    cancel_task: write(false, true),
+    host_maintenance: write(true, false),         // deletes chat messages
+    host_delete_project: write(true, true)        // irreversible
+};
+
 export type ToolDefinition = {
     name: ToolName;
     description: string;
     inputSchema: { type: "object"; properties: Record<string, unknown>; required?: string[] };
+    annotations: ToolAnnotations;
 };
 
 function toInputSchema(schema: z.ZodType): ToolDefinition["inputSchema"] {
@@ -176,7 +224,8 @@ export const TOOL_NAMES = Object.keys(TOOL_SCHEMAS) as ToolName[];
 export const TOOL_DEFINITIONS: ToolDefinition[] = TOOL_NAMES.map((name) => ({
     name,
     description: TOOL_DESCRIPTIONS[name],
-    inputSchema: toInputSchema(TOOL_SCHEMAS[name])
+    inputSchema: toInputSchema(TOOL_SCHEMAS[name]),
+    annotations: TOOL_ANNOTATIONS[name]
 }));
 
 export function isToolName(name: string): name is ToolName {
