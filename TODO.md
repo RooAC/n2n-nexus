@@ -21,7 +21,6 @@
 ## Backlog
 
 ### Near-term
-- [ ] Task cleanup job — scheduled purge of expired/completed tasks
 - [ ] Daemon process management — systemd / launchd / PM2 integration guide
 
 ### Future

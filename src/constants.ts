@@ -16,8 +16,9 @@ export const NEXUS_PORT = 5688;
 // HTTP request body limit for the daemon (base64 asset uploads are the largest payload)
 export const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
-// Task cleanup
+// Task lifecycle: finished tasks are purged after this age; maintenance runs at this interval
 export const TASK_CLEANUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const TASK_MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000;      // 1 hour
 
 // File I/O
 export const FILE_ENCODING = "utf-8" as const;

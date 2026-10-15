@@ -98,7 +98,7 @@ export const TOOL_SCHEMAS = {
     create_task: z.object({
         source_meeting_id: z.string().min(1).optional().describe("Link to a meeting for traceability"),
         metadata: z.record(z.string(), z.unknown()).optional(),
-        ttl: positiveInt(Number.MAX_SAFE_INTEGER).optional().describe("TTL in milliseconds")
+        ttl: positiveInt(Number.MAX_SAFE_INTEGER).optional().describe("TTL in milliseconds; a pending/running task past its TTL is marked failed")
     }),
     get_task: z.object({ taskId: z.string().min(1) }),
     list_tasks: z.object({

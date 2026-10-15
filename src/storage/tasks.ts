@@ -166,17 +166,31 @@ export function cancelTask(id: string): boolean {
 }
 
 /**
+ * Mark pending/running tasks whose TTL has elapsed as failed.
+ */
+export function expireTasks(now: number = Date.now()): number {
+    return getDatabase().prepare(`
+        UPDATE tasks
+        SET status = 'failed', error_message = 'TTL expired', updated_at = ?
+        WHERE status IN ('pending', 'running')
+          AND ttl IS NOT NULL
+          AND strftime('%s', created_at) * 1000 + ttl < ?
+    `).run(new Date(now).toISOString(), now).changes;
+}
+
+/**
  * Delete completed/failed/cancelled tasks older than specified age
  */
-export function cleanupTasks(maxAgeMs: number = TASK_CLEANUP_MAX_AGE_MS): number {
-    const db = getDatabase();
-    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-
-    const result = db.prepare(`
+export function cleanupTasks(maxAgeMs: number = TASK_CLEANUP_MAX_AGE_MS, now: number = Date.now()): number {
+    const cutoff = new Date(now - maxAgeMs).toISOString();
+    return getDatabase().prepare(`
         DELETE FROM tasks 
         WHERE status IN ('completed', 'failed', 'cancelled') 
         AND updated_at < ?
-    `).run(cutoff);
+    `).run(cutoff).changes;
+}
 
-    return result.changes;
+/** Expire overdue tasks, then purge finished ones past the retention window. */
+export function runTaskMaintenance(now: number = Date.now()): { expired: number; removed: number } {
+    return { expired: expireTasks(now), removed: cleanupTasks(TASK_CLEANUP_MAX_AGE_MS, now) };
 }

@@ -1,5 +1,7 @@
 import { createDaemonServer } from "./server.js";
 import { closeDatabase } from "../storage/sqlite.js";
+import { runTaskMaintenance } from "../storage/tasks.js";
+import { TASK_MAINTENANCE_INTERVAL_MS } from "../constants.js";
 import { pkg } from "../config/index.js";
 import { getArg } from "../config/cli.js";
 import { getRootPath } from "../config/paths.js";
@@ -35,6 +37,14 @@ export async function runDaemon(): Promise<void> {
             resolve();
         });
     });
+
+    // Expire overdue tasks and purge old finished ones at startup and then periodically
+    const maintain = () => {
+        const { expired, removed } = runTaskMaintenance();
+        if (expired || removed) console.error(`[n2n-nexus] Task maintenance: ${expired} expired, ${removed} removed.`);
+    };
+    maintain();
+    setInterval(maintain, TASK_MAINTENANCE_INTERVAL_MS).unref();
 
     // Graceful shutdown: stop accepting connections, let in-flight requests
     // finish, then close SQLite. A second signal exits immediately.

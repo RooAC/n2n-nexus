@@ -243,7 +243,7 @@ Create a background task.
 | --- | --- | --- | --- |
 | `source_meeting_id` | string | no | Link the task to a meeting for traceability. The meeting must exist. |
 | `metadata` | object | no | Arbitrary metadata object. |
-| `ttl` | integer | no | Time to live in milliseconds. |
+| `ttl` | integer | no | Time to live in milliseconds. A pending or running task past its TTL is marked `failed` (`TTL expired`) by the hourly maintenance run; finished tasks are purged after 7 days. |
 
 Behavior:
 

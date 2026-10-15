@@ -87,12 +87,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_meeting ON tasks(source_meeting_id);
-CREATE TRIGGER IF NOT EXISTS tasks_updated_at
-AFTER UPDATE ON tasks
-FOR EACH ROW
-BEGIN
-    UPDATE tasks SET updated_at = datetime('now') WHERE id = OLD.id;
-END;
+-- updateTask sets updated_at itself in ISO 8601; the old trigger overwrote it
+-- with datetime('now') in a different format, breaking timestamp comparisons.
+DROP TRIGGER IF EXISTS tasks_updated_at;
 
 -- Read cursors table (tracks each IDE's last read message per context)
 CREATE TABLE IF NOT EXISTS read_cursors (
