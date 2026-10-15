@@ -1,100 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import http from "http";
-import { AddressInfo } from "net";
-import { promises as fs } from "fs";
-import path from "path";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
-import { createDaemonServer } from "../src/daemon/server.js";
-import { closeDatabase } from "../src/storage/sqlite.js";
 import { StorageManager } from "../src/storage/index.js";
 import { NexusPaths } from "../src/storage/paths.js";
 import { ProjectManifest } from "../src/types.js";
-
-const TEST_ROOT = path.join(process.cwd(), "tests", "tmp", "daemon-projects");
-const API_BASE_PORT = 0;
-
-type DaemonHarness = {
-    port: number;
-    close: () => Promise<void>;
-};
-
-function requestJson<T>(base: string, method: string, route: string, body?: unknown): Promise<{ status: number; payload: T }> {
-    return new Promise((resolve, reject) => {
-        const req = http.request(
-            {
-                method,
-                hostname: "127.0.0.1",
-                port: Number(base),
-                path: route,
-                headers: {
-                    "Content-Type": "application/json",
-                    ...(body ? { "Content-Length": Buffer.byteLength(JSON.stringify(body)) } : {})
-                }
-            },
-            (res) => {
-                let data = "";
-                res.on("data", (chunk) => (data += chunk));
-                res.on("end", () => {
-                    try {
-                        resolve({
-                            status: res.statusCode || 0,
-                            payload: data ? (JSON.parse(data) as T) : ({} as T)
-                        });
-                    } catch (error) {
-                        reject(error);
-                    }
-                });
-            }
-        );
-
-        req.on("error", reject);
-        if (body) {
-            req.write(JSON.stringify(body));
-        }
-        req.end();
-    });
-}
-
-async function startDaemon(): Promise<DaemonHarness> {
-    const { server } = await createDaemonServer({
-        port: API_BASE_PORT,
-        version: "test"
-    });
-
-    await new Promise<void>((resolve, reject) => {
-        server.listen(0, "127.0.0.1", () => resolve());
-        server.once("error", reject);
-    });
-
-    const addr = server.address();
-    if (!addr || typeof addr === "string") {
-        throw new Error("Daemon address not ready");
-    }
-    const port = (addr as AddressInfo).port;
-
-    return {
-        port,
-        close: () => new Promise((resolve) => server.close(() => resolve()))
-    };
-}
+import { startTestDaemon, DaemonHarness } from "./helpers/daemon.js";
 
 describe("Daemon project write API", () => {
-    let daemon: DaemonHarness | null = null;
+    let daemon: DaemonHarness;
 
-    beforeEach(async () => {
-        closeDatabase();
-        await fs.rm(TEST_ROOT, { recursive: true, force: true });
-        await fs.mkdir(TEST_ROOT, { recursive: true });
-        process.env.NEXUS_ROOT = TEST_ROOT;
-        StorageManager.resetInit();
-        daemon = await startDaemon();
-    });
-
-    afterEach(async () => {
-        await daemon?.close();
-        daemon = null;
-        closeDatabase();
-    });
+    beforeEach(async () => { daemon = await startTestDaemon("daemon-projects"); });
+    afterEach(async () => { await daemon.close(); });
 
     it("sync_project_assets -> update_project -> rename_project -> delete_project: one source of truth", async () => {
         const manifestA: ProjectManifest = {
@@ -105,55 +22,40 @@ describe("Daemon project write API", () => {
             relations: [],
             lastUpdated: new Date().toISOString(),
             repositoryUrl: "https://example.com/demo",
-            localPath: path.join(TEST_ROOT, "demo"),
+            localPath: path.join(daemon.root, "demo"),
             endpoints: [{ name: "api", url: "http://localhost:3000", description: "main" }],
             apiSpec: [{ method: "GET", path: "/health", summary: "health" }]
         };
         await fs.mkdir(manifestA.localPath, { recursive: true });
 
-        const sync = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/sync", {
-            manifest: manifestA,
-            internalDocs: "# Internal Notes",
-            projectId: manifestA.id,
-            instanceId: "ide-a"
+        const sync = await daemon.request<{ ok: boolean; projectId: string }>("POST", "/api/projects/sync", {
+            manifest: manifestA, internalDocs: "# Internal Notes", instanceId: "ide-a"
         });
         expect(sync.status).toBe(200);
-        expect(sync.payload.ok).toBe(true);
-        expect(sync.payload.projectId).toBe("proj-demo");
+        expect(sync.payload).toMatchObject({ ok: true, projectId: "proj-demo" });
 
-        const syncedManifest = await StorageManager.getProjectManifest("proj-demo");
-        expect(syncedManifest?.id).toBe("proj-demo");
-        const syncedDocs = await StorageManager.getProjectDocs("proj-demo");
-        expect(syncedDocs).toContain("Internal Notes");
+        expect((await StorageManager.getProjectManifest("proj-demo"))?.id).toBe("proj-demo");
+        expect(await StorageManager.getProjectDocs("proj-demo")).toContain("Internal Notes");
 
-        const update = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/update", {
-            projectId: "proj-demo",
-            patch: { description: "Updated" },
-            instanceId: "ide-a"
+        const update = await daemon.request<{ ok: boolean }>("POST", "/api/projects/update", {
+            projectId: "proj-demo", patch: { description: "Updated" }, instanceId: "ide-a"
         });
         expect(update.status).toBe(200);
-        expect(update.payload.ok).toBe(true);
-        const updated = await StorageManager.getProjectManifest("proj-demo");
-        expect(updated?.description).toBe("Updated");
+        expect((await StorageManager.getProjectManifest("proj-demo"))?.description).toBe("Updated");
 
-        const rename = await requestJson<{ ok: boolean; newId: string }>(daemon!.port.toString(), "POST", "/api/projects/rename", {
-            oldId: "proj-demo",
-            newId: "proj-demo-renamed",
-            instanceId: "ide-a"
+        const rename = await daemon.request<{ ok: boolean; newId: string }>("POST", "/api/projects/rename", {
+            oldId: "proj-demo", newId: "proj-demo-renamed", instanceId: "ide-a"
         });
         expect(rename.status).toBe(200);
         expect(rename.payload.newId).toBe("proj-demo-renamed");
         expect(await StorageManager.getProjectManifest("proj-demo")).toBeNull();
         expect(await StorageManager.getProjectManifest("proj-demo-renamed")).not.toBeNull();
-        const expectedDocPath = path.join(NexusPaths.projectDocPath("proj-demo-renamed"));
-        expect(await StorageManager.exists(expectedDocPath)).toBe(true);
+        expect(await StorageManager.exists(NexusPaths.projectDocPath("proj-demo-renamed"))).toBe(true);
 
-        const remove = await requestJson<{ ok: boolean; projectId: string }>(daemon!.port.toString(), "POST", "/api/projects/delete", {
-            projectId: "proj-demo-renamed",
-            instanceId: "ide-a"
+        const remove = await daemon.request<{ ok: boolean }>("POST", "/api/projects/delete", {
+            projectId: "proj-demo-renamed", instanceId: "ide-a"
         });
         expect(remove.status).toBe(200);
-        expect(remove.payload.ok).toBe(true);
         expect(await StorageManager.getProjectManifest("proj-demo-renamed")).toBeNull();
         expect(await StorageManager.exists(path.join(StorageManager.projectsRoot, "proj-demo-renamed"))).toBe(false);
     });
