@@ -45,7 +45,7 @@ upload_project_asset(fileName, base64Content) → 上传二进制文件到项目
 ### 4. 消息与协作
 
 ```
-send_message(message, category?)              → 发消息到活跃会议或全局聊天
+send_message(message, category?, meetingId?)  → 发到指定会议，否则活跃会议，否则全局聊天
 read_messages(count?, meetingId?)             → 读取你的未读消息（增量）
 list_events(limit?, action?)                  → 结构化活动日志（project.sync、meeting.end 等）
 update_global_strategy(content)               → 覆盖写入主战略文档

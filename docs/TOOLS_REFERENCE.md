@@ -130,17 +130,20 @@ Read the project topology.
 
 ### `send_message`
 
-Post a message to the active meeting or global chat.
+Post a message to a meeting or to global chat.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `message` | string | yes | Message body. |
 | `category` | string | no | One of `MEETING_START`, `PROPOSAL`, `DECISION`, `UPDATE`, or `CHAT`. |
+| `meetingId` | string | no | Target meeting. Must be active. |
 
 Behavior:
 
-- If there is an active meeting and this adapter has an active project context, the message is sent to the meeting.
-- Otherwise it is written to the global chat log.
+- With `meetingId`, the message goes to that meeting.
+- Otherwise, if a meeting is active, the message goes to it.
+- Otherwise it is written to global chat.
+- Returns `{ ok, sentTo: "meeting" | "global", meetingId?, messageId? }`.
 
 ### `read_messages`
 

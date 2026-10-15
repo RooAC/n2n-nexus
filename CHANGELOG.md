@@ -24,6 +24,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `send_message` routing no longer depends on `register_session_context`: a message goes to `meetingId` when given, else to the active meeting, else to global chat. `POST /api/messages/send` uses the same rule (its `source` parameter is gone) instead of a separate code path with different defaults.
+
 - Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed.
 - Daemon state changes (session register, project sync/rename/delete, meeting end, ...) are recorded as events instead of `SYSTEM` lines in the global chat.
 

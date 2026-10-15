@@ -289,12 +289,22 @@ export class SqliteMeetingStore {
     }
 
     /**
+     * Id of the current default meeting, if it is still active.
+     * Cheap: does not load the meeting's messages.
+     */
+    static getActiveMeetingId(): string | null {
+        const defaultId = this.getState("default_meeting");
+        if (!defaultId) return null;
+        const row = getDatabase().prepare("SELECT id FROM meetings WHERE id = ? AND status = 'active'").get(defaultId) as { id: string } | undefined;
+        return row?.id ?? null;
+    }
+
+    /**
      * Get the current active meeting
      */
     static getActiveMeeting(): MeetingSession | null {
-        const defaultId = this.getState("default_meeting");
-        if (!defaultId) return null;
-        return this.getMeeting(defaultId);
+        const id = this.getActiveMeetingId();
+        return id ? this.getMeeting(id) : null;
     }
 
     /**

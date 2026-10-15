@@ -67,7 +67,8 @@ export const TOOL_SCHEMAS = {
     // Messaging
     send_message: z.object({
         message: z.string().min(1),
-        category: z.enum(MESSAGE_CATEGORIES).optional()
+        category: z.enum(MESSAGE_CATEGORIES).optional(),
+        meetingId: z.string().min(1).optional().describe("Target meeting. Defaults to the active meeting, or global chat when none is active.")
     }),
     read_messages: z.object({
         count: positiveInt(500).default(10),
@@ -125,7 +126,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     rename_project: "Rename project ID with cascading relation updates.",
     search_projects: "Search project registry by name or description.",
     get_global_topology: "Default: project list + stats. With projectId: detailed subgraph.",
-    send_message: "Post message to active meeting or global chat.",
+    send_message: "Post a message. Goes to meetingId if given, else to the active meeting, else to global chat.",
     read_messages: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
     list_events: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",
     update_global_strategy: "Overwrite master strategy document.",

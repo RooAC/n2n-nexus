@@ -104,7 +104,6 @@ describe("Daemon messages API", () => {
             "/api/messages/send",
             {
                 message: "first",
-                source: "meeting",
                 meetingId: meeting.id,
                 instanceId: "IDE-B"
             }
@@ -129,7 +128,6 @@ describe("Daemon messages API", () => {
             "/api/messages/send",
             {
                 message: "second",
-                source: "meeting",
                 meetingId: meeting.id,
                 instanceId: "IDE-C"
             }

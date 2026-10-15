@@ -24,6 +24,8 @@
 
 ### 变更
 
+- `send_message` 的路由不再依赖 `register_session_context`：给了 `meetingId` 就发到该会议，否则发到活跃会议，否则发到全局聊天。`POST /api/messages/send` 采用同一规则（去掉了 `source` 参数），不再有一套默认值不同的独立代码路径。
+
 - 全局聊天从 `global/discussion.json` 迁入 SQLite。不带 `meetingId` 的 `read_messages` 现在真正按实例增量读取（工具描述此前就这样承诺），追加不再重写整个文件，`host_maintenance` 会返回删除条数。
 - daemon 的状态变更（注册会话、项目同步/重命名/删除、会议结束等）记录为事件，不再以 `SYSTEM` 行写入全局聊天。
 

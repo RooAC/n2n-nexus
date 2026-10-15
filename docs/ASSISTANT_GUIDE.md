@@ -43,7 +43,7 @@ All write tools run synchronously and return their result directly.
 ### 4. Messages and collaboration
 
 ```
-send_message(message, category?)              → post to the active meeting or global chat
+send_message(message, category?, meetingId?)  → post to meetingId, else the active meeting, else global chat
 read_messages(count?, meetingId?)             → read your unread messages (incremental)
 list_events(limit?, action?)                  → structured activity log (project.sync, meeting.end, ...)
 update_global_strategy(content)               → overwrite the master strategy document

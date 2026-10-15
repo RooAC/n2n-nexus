@@ -31,4 +31,25 @@ describe("Meeting lifecycle through the daemon", () => {
         const meeting = await daemon.request<{ status: string; participants: string[] }>("GET", `/api/meetings/${meetingId}`);
         expect(meeting.payload.status).toBe("active");
     });
+
+    it("routes send_message to the active meeting, an explicit meeting, or global chat", async () => {
+        const started = await daemon.callTool<{ meetingId: string }>("start_meeting", { topic: "Routing" }, "ide-a");
+        const meetingId = started.payload.result!.meetingId;
+
+        // No register_session_context needed: an active meeting receives the message.
+        const toActive = await daemon.callTool<{ sentTo: string; meetingId: string }>("send_message", { message: "hello" }, "ide-b");
+        expect(toActive.payload.result).toMatchObject({ sentTo: "meeting", meetingId });
+
+        await daemon.callTool("end_meeting", { meetingId }, "ide-a");
+
+        const toGlobal = await daemon.callTool<{ sentTo: string }>("send_message", { message: "after" }, "ide-b");
+        expect(toGlobal.payload.result?.sentTo).toBe("global");
+
+        const toClosed = await daemon.callTool("send_message", { message: "late", meetingId }, "ide-b");
+        expect(toClosed.status).toBe(400);
+        expect(toClosed.payload.error).toContain("closed");
+
+        const unread = await daemon.callTool<{ count: number }>("read_messages", { meetingId, count: 10 }, "ide-c");
+        expect(unread.payload.result?.count).toBe(1);
+    });
 });

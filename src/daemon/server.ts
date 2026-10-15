@@ -105,9 +105,7 @@ async function toolGetGlobalTopology(args: ToolArgs<"get_global_topology">) {
 }
 
 async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string) {
-    const session = getSession(instanceId);
-    const activeMeeting = SqliteMeetingStore.getActiveMeeting();
-    const meetingId = (activeMeeting && session.currentProject) ? activeMeeting.id : null;
+    const meetingId = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
 
     if (meetingId) {
         const msg: DiscussionMessage = {
@@ -157,11 +155,7 @@ async function toolStartMeeting(args: ToolArgs<"start_meeting">, instanceId: str
 }
 
 async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string) {
-    let id = args.meetingId;
-    if (!id) {
-        const active = SqliteMeetingStore.getActiveMeeting();
-        if (active) id = active.id;
-    }
+    const id = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
     if (!id) throw new Error("No active meeting found to end.");
 
     const result = SqliteMeetingStore.endMeeting(id, args.summary, instanceId);
@@ -306,11 +300,6 @@ function queryArgs(url: URL, numeric: string[]): Record<string, unknown> {
     return args;
 }
 
-const restSendSchema = z.object({
-    meetingId: z.string().min(1).optional(),
-    source: z.enum(["meeting", "global"]).optional()
-});
-
 async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Promise<Record<string, unknown>> {
     const declared = Number(req.headers["content-length"]);
     if (declared > maxBytes) throw new HttpError(413, `Request body exceeds ${maxBytes} bytes`);
@@ -412,22 +401,7 @@ export async function createDaemonServer(options: {
             // Messages
             if (method === "POST" && path === "/api/messages/send") {
                 const body = await parseBody(req);
-                const instanceId = actor(body);
-                const { message, category } = parseToolArgs("send_message", body);
-                const extra = restSendSchema.parse(body);
-
-                // Direct meetingId routing (bypasses session currentProject check)
-                if (extra.meetingId || extra.source === "meeting") {
-                    const targetMeetingId = extra.meetingId || SqliteMeetingStore.getActiveMeeting()?.id || null;
-                    if (!targetMeetingId) {
-                        return jsonResponse(res, 200, { ok: false, sentTo: "global", message: "No active meeting found." });
-                    }
-                    const msg: DiscussionMessage = { from: instanceId, text: message, category: category ?? "CHAT", timestamp: new Date().toISOString() };
-                    SqliteMeetingStore.addMessage(targetMeetingId, msg);
-                    return jsonResponse(res, 200, { ok: true, sentTo: "meeting", meetingId: targetMeetingId, message: `Message sent to meeting ${targetMeetingId}.` });
-                }
-
-                return jsonResponse(res, 200, await toolSendMessage({ message, category }, instanceId));
+                return jsonResponse(res, 200, await callTool("send_message", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/messages/unread") {
