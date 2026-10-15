@@ -52,6 +52,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The MCP adapter moved from `@modelcontextprotocol/sdk` 1.x (protocol 2025-11-25) to the v2 SDK (`@modelcontextprotocol/server` 2.3) and serves both the stateless 2026-07-28 revision and 2025-era clients over stdio via `serveStdio`. 2026-07-28 clients get `server/discover`, the per-request `_meta` envelope and list-changed notifications on `subscriptions/listen`; the instance ID reads the client name from the request envelope. The adapter now fetches the tool list before it starts serving, so the first `tools/list` is complete whenever the daemon is up.
+
 - Tools without parameters (`get_global_strategy`, `list_global_docs`) publish `{ "type": "object", "properties": {}, "additionalProperties": false }`, the form the MCP specification recommends, and reject unexpected arguments.
 
 - `send_message` routing no longer depends on `register_session_context`: a message goes to `meetingId` when given, else to the active meeting, else to global chat. `POST /api/messages/send` uses the same rule (its `source` parameter is gone) instead of a separate code path with different defaults.

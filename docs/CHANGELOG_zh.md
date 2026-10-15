@@ -52,6 +52,8 @@
 
 ### 变更
 
+- MCP 适配器从 `@modelcontextprotocol/sdk` 1.x（协议 2025-11-25）迁移到 v2 SDK（`@modelcontextprotocol/server` 2.3），通过 `serveStdio` 在 stdio 上同时服务无状态的 2026-07-28 版与 2025 代客户端。2026-07-28 客户端可使用 `server/discover`、每请求 `_meta` 信封，并经 `subscriptions/listen` 收到列表变更通知；实例 ID 从请求信封读取客户端名。适配器在开始服务前先拉取工具列表，守护进程在线时第一次 `tools/list` 即完整。
+
 - 无参数工具（`get_global_strategy`、`list_global_docs`）的 schema 改为 MCP 规范推荐的 `{ "type": "object", "properties": {}, "additionalProperties": false }`，并拒绝多余参数。
 
 - `send_message` 的路由不再依赖 `register_session_context`：给了 `meetingId` 就发到该会议，否则发到活跃会议，否则发到全局聊天。`POST /api/messages/send` 采用同一规则（去掉了 `source` 参数），不再有一套默认值不同的独立代码路径。

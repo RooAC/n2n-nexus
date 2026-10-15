@@ -36,19 +36,21 @@ MCP-A  MCP-B  MCP-C
 ```
 读取 NEXUS_ENDPOINT（默认 http://127.0.0.1:5688）
   │
-  ├─ 连接 stdio transport → IDE 认为 MCP 已就绪
+  ├─ 先拉一次 GET /api/tools（daemon 不在线时立即失败）
   │
-  └─ 后台重试循环（每 3 秒）
-        │
-        ├─ GET /api/tools 失败
-        │     → 打印 "[n2n-nexus] Waiting for daemon..."
-        │     → 继续等待，不退出
-        │
-        └─ GET /api/tools 成功
-              → 缓存工具列表
-              → 发送 notifications/tools/list_changed
-              → IDE 重新拉取，工具出现
+  ├─ 开始 stdio 服务（MCP TypeScript SDK v2，serveStdio）
+  │     ├─ 2026-07-28 客户端：server/discover、每请求 _meta 信封，
+  │     │  list_changed 经 subscriptions/listen 下发
+  │     └─ 2025 代客户端：initialize 握手，主动下发 list_changed
+  │
+  ├─ 若 daemon 不在线：重试循环（每 3 秒）
+  │     └─ GET /api/tools 成功 → 缓存工具列表
+  │           → notifications/tools/list_changed → IDE 重新拉取
+  │
+  └─ stdin 关闭 → 停止重试、关闭、退出
 ```
+
+适配器的实例 ID（未读游标、会议权限以它为键）取自请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代）里的客户端名，`NEXUS_INSTANCE_ID` / `--id` 可固定。
 
 ---
 

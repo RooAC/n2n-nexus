@@ -35,7 +35,7 @@ The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CH
 `server.ts` — plain `http.Server` with all REST endpoints, tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/event/maintenance endpoints.
 
 ### MCP Server (`src/server/nexus.ts`)
-Pure stateless proxy. On startup: connects stdio transport, then tries `GET /api/tools`; if daemon unreachable, schedules 3-second retry loop. On connect: calls `server.sendToolListChanged()`. `CallTool` → `POST /api/tools/call`. No hardcoded tool names.
+Pure stateless proxy on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). On startup: tries `GET /api/tools`, then serves stdio through `serveStdio(() => buildServer())`, which answers both 2026-07-28 clients (per-request `_meta` envelope, `server/discover`) and 2025-era clients (`initialize`). If the daemon is unreachable, a 3-second retry loop runs; on connect it calls `sendToolListChanged()`. `tools/call` → `POST /api/tools/call`. Exits when stdin closes. No hardcoded tool names.
 
 ### Storage layer (`src/storage/`)
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
@@ -50,9 +50,14 @@ Only the daemon process accesses SQLite directly. MCP processes go through HTTP.
 // Capability must declare listChanged for notifications to work
 capabilities: { tools: { listChanged: true } }
 
-// On daemon connect:
-server.sendToolListChanged(); // triggers IDE to re-fetch
+// On daemon connect (routed to subscriptions/listen on 2026-07-28 connections):
+server.sendToolListChanged();
+
+// 2026-07-28 has no initialize: read client identity per request
+ctx.mcpReq.envelope?.[CLIENT_INFO_META_KEY] ?? server.getClientVersion()
 ```
+
+Tests in `tests/mcp_proxy.test.ts` run every proxy case against both a 2025-era client and a client pinned to 2026-07-28 (`@modelcontextprotocol/client`).
 
 ## TypeScript / Module Notes
 

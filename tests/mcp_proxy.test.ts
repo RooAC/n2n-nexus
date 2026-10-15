@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { PassThrough } from "node:stream";
 
 import { NexusServer } from "../src/server/nexus.js";
@@ -27,10 +26,19 @@ describe("NexusClient error classification", () => {
     });
 });
 
-describe("MCP proxy", () => {
+// The adapter serves both protocol eras: 2025-era clients open with `initialize`,
+// 2026-07-28 clients probe with `server/discover` and send a `_meta` envelope per request.
+const ERAS = {
+    "2025-11-25 (initialize)": undefined,
+    "2026-07-28 (stateless)": { mode: { pin: "2026-07-28" } }
+} as const;
+
+describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegotiation) => {
     let daemon: DaemonHarness;
     beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy"); });
     afterEach(async () => { await daemon.close(); });
+
+    const newClient = (name: string) => new Client({ name, version: "1.0" }, versionNegotiation ? { versionNegotiation } : {});
 
     async function connectProxy() {
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
@@ -38,7 +46,7 @@ describe("MCP proxy", () => {
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
         const proxy = new NexusServer();
         await proxy.run({ transport: serverSide });
-        const client = new Client({ name: "test-ide", version: "0.0.0" });
+        const client = newClient("test-ide");
         await client.connect(clientSide);
         return { proxy, client };
     }
@@ -82,7 +90,7 @@ describe("MCP proxy", () => {
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
         await new NexusServer().run({ transport: serverSide });
-        const client = new Client({ name: "Fancy IDE", version: "1.0" });
+        const client = newClient("Fancy IDE");
         await client.connect(clientSide);
         await client.callTool({ name: "send_message", arguments: { message: "from ide" } });
         const recent = await daemon.callTool<{ messages: { from: string }[] }>("read_messages", { count: 5 }, "observer");

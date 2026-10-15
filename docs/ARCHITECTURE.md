@@ -36,19 +36,21 @@ Stateless protocol adapter, one per IDE
 ```
 Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │
-  ├─ Connect stdio transport → IDE sees MCP as ready
+  ├─ GET /api/tools once (fails fast if the daemon is down)
   │
-  └─ Background retry loop (every 3 s)
-        │
-        ├─ GET /api/tools fails
-        │     → log "[n2n-nexus] Waiting for daemon..."
-        │     → keep retrying, do not exit
-        │
-        └─ GET /api/tools succeeds
-              → cache tool list
-              → send notifications/tools/list_changed
-              → IDE re-fetches: tools appear
+  ├─ Serve stdio (MCP TypeScript SDK v2, serveStdio)
+  │     ├─ 2026-07-28 clients: server/discover, per-request _meta envelope,
+  │     │  list_changed delivered on subscriptions/listen
+  │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
+  │
+  ├─ If the daemon was down: retry loop (every 3 s)
+  │     └─ GET /api/tools succeeds → cache tool list
+  │           → notifications/tools/list_changed → IDE re-fetches
+  │
+  └─ stdin closes → stop retrying, close, exit
 ```
+
+The adapter's instance ID (read cursors, meeting permissions) uses the client name from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
 
 ---
 

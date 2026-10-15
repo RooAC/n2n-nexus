@@ -82,12 +82,13 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@modelcontextprotocol/server": "^2.3.1",
     "better-sqlite3": "^13.0.3",
     "zod": "^4.6.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.3.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "eslint": "^10.12.0",
