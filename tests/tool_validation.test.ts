@@ -5,7 +5,7 @@ import { MESSAGE_CATEGORIES } from "../src/types.js";
 
 describe("Tool contracts", () => {
     it("publishes one JSON Schema per tool, generated from the zod contract", () => {
-        expect(TOOL_DEFINITIONS).toHaveLength(25);
+        expect(TOOL_DEFINITIONS).toHaveLength(26);
         for (const tool of TOOL_DEFINITIONS) {
             expect(tool.inputSchema.type).toBe("object");
             expect(tool.inputSchema).not.toHaveProperty("$schema");

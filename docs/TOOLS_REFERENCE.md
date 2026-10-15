@@ -126,6 +126,20 @@ Read the project topology.
 | --- | --- | --- | --- |
 | `projectId` | string | no | When provided, returns a focused subgraph for that project. Without it, returns a global project list and stats. |
 
+### `get_project`
+
+Read one project's manifest and internal docs.
+
+| Parameter | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `projectId` | string | yes |  | Project to read. |
+| `includeDocs` | boolean | no | `true` | Set `false` to skip the internal docs. |
+
+Behavior:
+
+- Returns `{ manifest, internalDocs? }`. Also available as `GET /api/projects/:projectId?includeDocs=false`.
+- Fails if the project does not exist.
+
 ## Messaging and collaboration
 
 ### `send_message`

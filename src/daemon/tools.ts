@@ -63,6 +63,10 @@ export const TOOL_SCHEMAS = {
     get_global_topology: z.object({
         projectId: projectIdSchema.optional().describe("Focus on one project (optional)")
     }),
+    get_project: z.object({
+        projectId: projectIdSchema,
+        includeDocs: z.boolean().default(true).describe("Also return the internal docs (Markdown)")
+    }),
 
     // Messaging
     send_message: z.object({
@@ -129,6 +133,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     rename_project: "Rename project ID with cascading relation updates.",
     search_projects: "Search project registry by name or description.",
     get_global_topology: "Default: project list + stats. With projectId: detailed subgraph.",
+    get_project: "Read a project's full manifest and, by default, its internal docs.",
     send_message: "Post a message. Goes to meetingId if given, else to the active meeting, else to global chat.",
     read_messages: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
     list_events: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",

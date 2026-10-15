@@ -68,3 +68,28 @@ describe("Project tools through /api/tools/call", () => {
         expect(cancelled.payload.result?.ok).toBe(true);
     });
 });
+
+describe("get_project", () => {
+    let daemon: DaemonHarness;
+    beforeEach(async () => { daemon = await startTestDaemon("get-project"); });
+    afterEach(async () => { await daemon.close(); });
+
+    it("returns the synced manifest and internal docs", async () => {
+        await daemon.callTool("sync_project_assets", { manifest: { ...manifest("web_read", "Read", "d"), techStack: ["ts"] }, internalDocs: "# Notes" });
+
+        const full = await daemon.callTool<{ manifest: { id: string; techStack: string[] }; internalDocs: string }>("get_project", { projectId: "web_read" });
+        expect(full.payload.result?.manifest).toMatchObject({ id: "web_read", techStack: ["ts"] });
+        expect(full.payload.result?.internalDocs).toBe("# Notes");
+
+        const slim = await daemon.request<{ manifest: unknown; internalDocs?: string }>("GET", "/api/projects/web_read?includeDocs=false");
+        expect(slim.status).toBe(200);
+        expect(slim.payload.internalDocs).toBeUndefined();
+
+        const missing = await daemon.callTool("get_project", { projectId: "web_none" });
+        expect(missing.status).toBe(400);
+        expect(missing.payload.error).toContain("not found");
+
+        const search = await daemon.request("GET", "/api/projects/search?query=read");
+        expect(search.status).toBe(200);
+    });
+});

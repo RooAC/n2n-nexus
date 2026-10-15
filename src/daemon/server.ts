@@ -106,6 +106,14 @@ async function toolGetGlobalTopology(args: ToolArgs<"get_global_topology">) {
     return StorageManager.calculateTopology(args.projectId);
 }
 
+async function toolGetProject(args: ToolArgs<"get_project">) {
+    const manifest = await StorageManager.getProjectManifest(args.projectId);
+    if (!manifest) throw new Error(`Project '${args.projectId}' not found.`);
+    return args.includeDocs
+        ? { manifest, internalDocs: await StorageManager.getProjectDocs(args.projectId) }
+        : { manifest };
+}
+
 async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string) {
     const meetingId = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
 
@@ -259,6 +267,7 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
         case "rename_project":            return toolRenameProject(parseToolArgs(name, rawArgs), instanceId);
         case "search_projects":           return toolSearchProjects(parseToolArgs(name, rawArgs));
         case "get_global_topology":       return toolGetGlobalTopology(parseToolArgs(name, rawArgs));
+        case "get_project":               return toolGetProject(parseToolArgs(name, rawArgs));
         case "send_message":              return toolSendMessage(parseToolArgs(name, rawArgs), instanceId);
         case "read_messages":             return toolReadMessages(parseToolArgs(name, rawArgs), instanceId);
         case "list_events":               return toolListEvents(parseToolArgs(name, rawArgs));
@@ -493,6 +502,12 @@ export async function createDaemonServer(options: {
 
             if (method === "GET" && path === "/api/projects/search") {
                 return jsonResponse(res, 200, await callTool("search_projects", queryArgs(url, ["limit"]), "unknown"));
+            }
+
+            const projectMatch = path.match(/^\/api\/projects\/([^/]+)$/);
+            if (method === "GET" && projectMatch && !["search", "topology"].includes(projectMatch[1])) {
+                const includeDocs = url.searchParams.get("includeDocs") !== "false";
+                return jsonResponse(res, 200, await callTool("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, "unknown"));
             }
 
             if (method === "GET" && path === "/api/projects/topology") {

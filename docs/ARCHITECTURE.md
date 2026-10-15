@@ -161,6 +161,7 @@ POST /api/projects/rename
 POST /api/projects/delete
 GET  /api/projects/search
 GET  /api/projects/topology
+GET  /api/projects/:projectId
 ```
 
 ### Messages & Global

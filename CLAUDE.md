@@ -30,7 +30,7 @@ The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CH
 `src/index.ts` routes to `runDaemon()` (`src/daemon/`) or `NexusServer().run()` (`src/server/nexus.ts`) based on the first CLI argument (`daemon` or default).
 
 ### Daemon (`src/daemon/`)
-`tools.ts` — zod contract per tool (25 tools). `TOOL_DEFINITIONS` (JSON Schema for `GET /api/tools`) is generated from these schemas with `z.toJSONSchema`, and `parseToolArgs` validates every call. Add a tool here first, then its handler and dispatcher case in `server.ts`.
+`tools.ts` — zod contract per tool (26 tools). `TOOL_DEFINITIONS` (JSON Schema for `GET /api/tools`) is generated from these schemas with `z.toJSONSchema`, and `parseToolArgs` validates every call. Add a tool here first, then its handler and dispatcher case in `server.ts`.
 
 `server.ts` — plain `http.Server` with all REST endpoints, per-instance session map (`Map<instanceId, {currentProject}>`), tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/event/maintenance endpoints.
 

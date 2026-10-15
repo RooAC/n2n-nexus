@@ -124,6 +124,7 @@ npx n2n-nexus daemon --port 5688
 - `upload_project_asset`：上传二进制或文本资产。
 - `search_projects`：搜索项目注册表。
 - `get_global_topology`：查看项目拓扑和依赖关系。
+- `get_project`：读取项目完整 Manifest 和内部文档。
 
 ### 消息和协作
 

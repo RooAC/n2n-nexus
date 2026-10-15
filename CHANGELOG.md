@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `get_project` tool and `GET /api/projects/:projectId`: read a project's full manifest and internal docs. Assistants could sync them but had no tool to read them back.
+
 - `get_global_strategy`, `list_global_docs` and `get_global_doc` tools. Assistants could write the strategy and shared docs but had no tool to read them back; only the REST API could.
 
 - `list_events` tool and `GET /api/events`: a structured activity log (actor, action, target, detail) of every state change made through the daemon.
