@@ -37,8 +37,7 @@ Pure stateless proxy. On startup: connects stdio transport, then tries `GET /api
 
 ### Storage layer (`src/storage/`) — unchanged
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
-- `sqlite.ts` + `sqlite-meeting.ts` — SQLite with WAL mode for meetings, tasks, read cursors
-- `store.ts` (`UnifiedMeetingStore`) — auto-selects SQLite or JSON fallback for meetings
+- `sqlite.ts` + `sqlite-meeting.ts` — SQLite with WAL mode for meetings, tasks, read cursors (SQLite is required; there is no JSON fallback)
 - `registry.ts` / `projects.ts` / `logs.ts` / `docs.ts` — JSON file-based storage for projects, global docs, logs
 - `paths.ts` — all file paths derived from `getRootPath()` which reads `NEXUS_ROOT` env or `~/.n2n-nexus`
 

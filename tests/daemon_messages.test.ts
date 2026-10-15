@@ -7,7 +7,7 @@ import path from "path";
 import { createDaemonServer } from "../src/daemon/server.js";
 import { closeDatabase } from "../src/storage/sqlite.js";
 import { StorageManager } from "../src/storage/index.js";
-import { UnifiedMeetingStore } from "../src/storage/store.js";
+import { SqliteMeetingStore } from "../src/storage/sqlite-meeting.js";
 
 const TEST_ROOT = path.join(process.cwd(), "tests", "tmp", "daemon-messages");
 const API_BASE_PORT = 0;
@@ -96,12 +96,7 @@ describe("Daemon messages API", () => {
     });
 
     it("supports unread cursor per instance for meeting messages", async () => {
-        const storageInfo = await UnifiedMeetingStore.getStorageInfo();
-        if (storageInfo.storage_mode === "json") {
-            return;
-        }
-
-        const meeting = await UnifiedMeetingStore.startMeeting("Daemon Cursor", "IDE-A");
+        const meeting = SqliteMeetingStore.startMeeting("Daemon Cursor", "IDE-A");
 
         const firstSend = await requestJson<{ ok: boolean; sentTo: "meeting" | "global"; meetingId?: string }>(
             daemon!.port.toString(),

@@ -68,7 +68,6 @@ All data lives under the daemon's storage root (default `~/.n2n-nexus`):
 │       ├── manifest.json          # Project metadata
 │       ├── internal_blueprint.md  # Internal technical docs
 │       └── assets/                # Binary assets (images, PDFs)
-├── meetings/               # Meeting files (JSON fallback mode)
 ├── registry.json           # Global project index
 └── nexus.db                # SQLite database (meetings, tasks, cursors)
 ```
@@ -148,7 +147,6 @@ POST /api/tools/call         Execute tool call { tool, args, instanceId }
 ### System
 ```
 GET  /health                 Health status + version
-GET  /api/storage/info       Storage mode and stats
 ```
 
 ### Session & Projects

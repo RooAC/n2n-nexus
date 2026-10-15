@@ -29,13 +29,13 @@ export async function runDaemon(): Promise<void> {
     // Inject root path into CONFIG via env so StorageManager picks it up
     process.env.NEXUS_ROOT = root;
 
-    const { server, storageInfo } = await createDaemonServer({ port, host, version: pkg.version });
+    const { server } = await createDaemonServer({ port, host, version: pkg.version });
 
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(port, host, () => {
             console.error(`[n2n-nexus] Daemon v${pkg.version} listening on http://${host}:${port}`);
-            console.error(`[n2n-nexus] Storage: ${root} (${storageInfo.storageMode}${storageInfo.isDegraded ? ", degraded" : ""})`);
+            console.error(`[n2n-nexus] Storage: ${root}`);
             resolve();
         });
     });

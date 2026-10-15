@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- JSON meeting-store fallback (`store.ts`, `meetings.ts`) and the `/api/storage/info` endpoint. SQLite is required; the daemon no longer reports a "degraded" storage mode.
+
 ### Changed
 
 - Require Node.js 22.14+ on the 22.x release line, or Node.js 23.6+ and update MCP SDK, SQLite, and test dependencies to their latest compatible stable releases.

@@ -2,6 +2,16 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [Unreleased]
+
+### 移除
+
+- 会议存储的 JSON 回退（`store.ts`、`meetings.ts`）与 `/api/storage/info` 端点。SQLite 为必需依赖，daemon 不再报告“degraded”存储模式。
+
+### 变更
+
+- 要求 Node.js 22.14+（22.x 系列）或 23.6+，并将 MCP SDK、SQLite 与测试依赖更新到最新兼容稳定版。
+
 ## [0.5.0] - 2026-06-14
 
 ### 🏗️ Daemon + MCP 架构（破坏性重构）

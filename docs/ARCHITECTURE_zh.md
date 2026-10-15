@@ -68,7 +68,6 @@ MCP-A  MCP-B  MCP-C
 │       ├── manifest.json          # 项目元数据
 │       ├── internal_blueprint.md  # 内部技术文档
 │       └── assets/                # 二进制资产（图片、PDF）
-├── meetings/               # 会议文件（JSON 回退模式）
 ├── registry.json           # 全局项目索引
 └── nexus.db                # SQLite 数据库（会议、任务、游标）
 ```
@@ -148,7 +147,6 @@ POST /api/tools/call         执行工具调用 { tool, args, instanceId }
 ### 系统
 ```
 GET  /health                 健康状态 + 版本信息
-GET  /api/storage/info       存储模式和统计
 ```
 
 ### 会话与项目

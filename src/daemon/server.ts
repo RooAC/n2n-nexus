@@ -2,7 +2,7 @@ import http from "node:http";
 import { URL } from "node:url";
 
 import { StorageManager } from "../storage/index.js";
-import { UnifiedMeetingStore } from "../storage/store.js";
+import { SqliteMeetingStore } from "../storage/sqlite-meeting.js";
 import {
     createTask, updateTask, getTask, listTasks, cancelTask,
     initTasksTable, TaskStatus, TaskUpdate
@@ -13,21 +13,10 @@ import { ProjectManifest, DiscussionMessage } from "../types.js";
 // Storage bootstrap
 // ---------------------------------------------------------------------------
 
-export type DaemonStorageInfo = {
-    ready: boolean;
-    storageMode: "sqlite" | "json";
-    isDegraded: boolean;
-};
-
-async function initializeStorage(): Promise<DaemonStorageInfo> {
+async function initializeStorage(): Promise<void> {
     await StorageManager.init();
+    SqliteMeetingStore.init();
     initTasksTable();
-    const info = await UnifiedMeetingStore.getStorageInfo();
-    return {
-        ready: true,
-        storageMode: info.storage_mode,
-        isDegraded: info.is_degraded
-    };
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +401,7 @@ async function toolGetGlobalTopology(args: { projectId?: string }) {
 async function toolSendMessage(args: { message: string; category?: DiscussionMessage["category"] }, instanceId: string) {
     if (!args.message) throw new Error("message is required.");
     const session = getSession(instanceId);
-    const activeMeeting = await UnifiedMeetingStore.getActiveMeeting();
+    const activeMeeting = SqliteMeetingStore.getActiveMeeting();
     const meetingId = (activeMeeting && session.currentProject) ? activeMeeting.id : null;
 
     if (meetingId) {
@@ -422,7 +411,7 @@ async function toolSendMessage(args: { message: string; category?: DiscussionMes
             category: args.category,
             timestamp: new Date().toISOString()
         };
-        await UnifiedMeetingStore.addMessage(meetingId, msg);
+        SqliteMeetingStore.addMessage(meetingId, msg);
         return { ok: true, sentTo: "meeting", meetingId, message: `Message sent to meeting ${meetingId}.` };
     }
 
@@ -434,9 +423,9 @@ async function toolReadMessages(args: { count?: number; meetingId?: string }, in
     const count = args.count || 10;
 
     if (args.meetingId) {
-        const meeting = await UnifiedMeetingStore.getMeeting(args.meetingId);
+        const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
         if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
-        const messages = await UnifiedMeetingStore.getRecentMessages(count, args.meetingId, instanceId);
+        const messages = SqliteMeetingStore.getRecentMessages(count, args.meetingId, instanceId);
         return { source: "meeting", meetingId: args.meetingId, messages, count: messages.length };
     }
 
@@ -458,19 +447,19 @@ async function toolSyncGlobalDoc(args: { docId: string; title: string; content: 
 
 async function toolStartMeeting(args: { topic: string }, instanceId: string) {
     if (!args.topic) throw new Error("topic is required.");
-    const meeting = await UnifiedMeetingStore.startMeeting(args.topic, instanceId);
+    const meeting = SqliteMeetingStore.startMeeting(args.topic, instanceId);
     return { ok: true, meetingId: meeting.id, topic: meeting.topic, status: meeting.status };
 }
 
 async function toolEndMeeting(args: { meetingId?: string; summary?: string }, instanceId: string) {
     let id = args.meetingId;
     if (!id) {
-        const active = await UnifiedMeetingStore.getActiveMeeting();
+        const active = SqliteMeetingStore.getActiveMeeting();
         if (active) id = active.id;
     }
     if (!id) throw new Error("No active meeting found to end.");
 
-    const result = await UnifiedMeetingStore.endMeeting(id, args.summary, instanceId);
+    const result = SqliteMeetingStore.endMeeting(id, args.summary, instanceId);
     if (args.summary) {
         await StorageManager.addGlobalLog("SYSTEM", `Meeting ended: ${result.meeting.topic}. Summary: ${args.summary}`);
     }
@@ -478,16 +467,16 @@ async function toolEndMeeting(args: { meetingId?: string; summary?: string }, in
 }
 
 async function toolArchiveMeeting(args: { meetingId: string }, instanceId: string) {
-    const meeting = await UnifiedMeetingStore.getMeeting(args.meetingId);
+    const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
-    await UnifiedMeetingStore.archiveMeeting(args.meetingId, instanceId);
+    SqliteMeetingStore.archiveMeeting(args.meetingId, instanceId);
     return { ok: true, meetingId: args.meetingId, status: "archived" };
 }
 
 async function toolReopenMeeting(args: { meetingId: string }, instanceId: string) {
-    const meeting = await UnifiedMeetingStore.getMeeting(args.meetingId);
+    const meeting = SqliteMeetingStore.getMeeting(args.meetingId);
     if (!meeting) throw new Error(`Meeting '${args.meetingId}' not found.`);
-    await UnifiedMeetingStore.reopenMeeting(args.meetingId, instanceId);
+    SqliteMeetingStore.reopenMeeting(args.meetingId, instanceId);
     return { ok: true, meetingId: args.meetingId, status: "active" };
 }
 
@@ -607,8 +596,8 @@ export async function createDaemonServer(options: {
     port: number;
     host?: string;
     version: string;
-}): Promise<{ server: http.Server; storageInfo: DaemonStorageInfo }> {
-    const storageInfo = await initializeStorage();
+}): Promise<{ server: http.Server }> {
+    await initializeStorage();
 
     const server = http.createServer(async (req, res) => {
         const method = req.method || "GET";
@@ -618,17 +607,7 @@ export async function createDaemonServer(options: {
         try {
             // Health
             if (method === "GET" && path === "/health") {
-                return jsonResponse(res, 200, {
-                    ok: true, version: options.version,
-                    storageMode: storageInfo.storageMode,
-                    isDegraded: storageInfo.isDegraded,
-                    ready: storageInfo.ready
-                });
-            }
-
-            // Storage info
-            if (method === "GET" && path === "/api/storage/info") {
-                return jsonResponse(res, 200, storageInfo);
+                return jsonResponse(res, 200, { ok: true, version: options.version });
             }
 
             // Tool definitions
@@ -659,7 +638,7 @@ export async function createDaemonServer(options: {
 
                 // Direct meetingId routing (bypasses session currentProject check)
                 if (meetingId || source === "meeting") {
-                    const targetMeetingId = meetingId || (await UnifiedMeetingStore.getActiveMeeting())?.id || null;
+                    const targetMeetingId = meetingId || (SqliteMeetingStore.getActiveMeeting())?.id || null;
                     if (!targetMeetingId) {
                         return jsonResponse(res, 200, { ok: false, sentTo: "global", message: "No active meeting found." });
                     }
@@ -668,7 +647,7 @@ export async function createDaemonServer(options: {
                         category: (body.category as DiscussionMessage["category"]) || "CHAT",
                         timestamp: new Date().toISOString()
                     };
-                    await UnifiedMeetingStore.addMessage(targetMeetingId, msg);
+                    SqliteMeetingStore.addMessage(targetMeetingId, msg);
                     return jsonResponse(res, 200, { ok: true, sentTo: "meeting", meetingId: targetMeetingId, message: `Message sent to meeting ${targetMeetingId}.` });
                 }
 
@@ -818,7 +797,7 @@ export async function createDaemonServer(options: {
             const meetingMatch = path.match(/^\/api\/meetings\/(.+)$/);
             if (meetingMatch && method === "GET") {
                 const meetingId = decodeURIComponent(meetingMatch[1]);
-                const meeting = await UnifiedMeetingStore.getMeeting(meetingId);
+                const meeting = SqliteMeetingStore.getMeeting(meetingId);
                 if (!meeting) return jsonResponse(res, 404, { ok: false, error: `Meeting '${meetingId}' not found.` });
                 return jsonResponse(res, 200, meeting);
             }
@@ -875,5 +854,5 @@ export async function createDaemonServer(options: {
         }
     });
 
-    return { server, storageInfo };
+    return { server };
 }

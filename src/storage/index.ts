@@ -37,13 +37,6 @@ export class StorageManager {
 
         await DocStorage.init();
 
-        try {
-            const { initTasksTable } = await import("./tasks.js");
-            initTasksTable();
-        } catch {
-            /* tasks module is optional */
-        }
-
         this.initialized = true;
     }
 
