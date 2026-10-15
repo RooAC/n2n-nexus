@@ -105,4 +105,6 @@ export class StorageManager {
     static getGlobalDoc(docId: string) { return DocStorage.getDoc(docId); }
     static saveGlobalDoc(docId: string, title: string, content: string, updatedBy: string) { return this.write(() => DocStorage.saveDoc(docId, title, content, updatedBy)); }
     static deleteGlobalDoc(docId: string) { return this.write(() => DocStorage.deleteDoc(docId)); }
+    static getGlobalBlueprint() { return DocStorage.getBlueprint(); }
+    static saveGlobalBlueprint(content: string) { return this.write(() => DocStorage.saveBlueprint(content)); }
 }

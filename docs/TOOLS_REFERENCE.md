@@ -180,6 +180,10 @@ Overwrite the master strategy document.
 | --- | --- | --- | --- |
 | `content` | string | yes | Full Markdown content for the global strategy document. |
 
+Behavior:
+
+- Writes `global/blueprint.md` under the storage root. Read it back with `GET /api/global/strategy`.
+
 ### `sync_global_doc`
 
 Create or update a shared global document.

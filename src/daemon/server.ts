@@ -137,7 +137,7 @@ async function toolReadMessages(args: ToolArgs<"read_messages">, instanceId: str
 }
 
 async function toolUpdateGlobalStrategy(args: ToolArgs<"update_global_strategy">, instanceId: string) {
-    await StorageManager.saveGlobalDoc("strategy", "Global Collaboration Strategy", args.content, instanceId);
+    await StorageManager.saveGlobalBlueprint(args.content);
     EventStore.record(instanceId, "strategy.update");
     return { ok: true, message: "Global strategy updated." };
 }
@@ -464,6 +464,10 @@ export async function createDaemonServer(options: {
                     await callTool("sync_global_doc", { ...body, docId }, actor(body));
                     return jsonResponse(res, 200, { ok: true, docId });
                 }
+            }
+
+            if (method === "GET" && path === "/api/global/strategy") {
+                return jsonResponse(res, 200, { content: await StorageManager.getGlobalBlueprint() });
             }
 
             if (method === "POST" && path === "/api/global/strategy") {

@@ -33,11 +33,19 @@ export class DocStorage {
 
     static async init(): Promise<void> {
         await this.ensureDirectory();
+    }
+
+    /** The master strategy document (global/blueprint.md). */
+    static async getBlueprint(): Promise<string> {
         try {
-            await fs.access(NexusPaths.globalBlueprint);
+            return await fs.readFile(NexusPaths.globalBlueprint, FILE_ENCODING);
         } catch {
-            await writeFileAtomic(NexusPaths.globalBlueprint, "# Global Collaboration Blueprint\n\nShared meeting space.");
+            return "";
         }
+    }
+
+    static async saveBlueprint(content: string): Promise<void> {
+        await writeFileAtomic(NexusPaths.globalBlueprint, content);
     }
 
     static async listDocs(): Promise<GlobalDocIndex> {

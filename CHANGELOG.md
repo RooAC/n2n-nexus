@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `update_global_strategy` wrote `global/docs/strategy.md` while the documentation described `global/blueprint.md` as the master strategy document, and two initializers created `blueprint.md` with different placeholder text. The tool now writes `blueprint.md`; `GET /api/global/strategy` reads it.
+
 - `sqlite.ts` registered SIGINT/SIGTERM handlers at import time that called `process.exit(0)` immediately, so the daemon's graceful `server.close` never ran. Signal handling now lives in the daemon entry point: stop accepting connections, finish in-flight requests, close the database, exit.
 
 - Tool arguments were never validated: the daemon cast whatever arrived and let SQLite or the filesystem fail later (for example `category: "SYSTEM"` surfaced as a `CHECK constraint failed` 500). Every tool now has a zod contract in `src/daemon/tools.ts`; the JSON Schema served to MCP clients is generated from it and the same contract validates tool calls and REST endpoints, returning 400 with the failing field. `patch` for `update_project` rejects unknown fields, `create_task` checks that `source_meeting_id` exists, and SQLite foreign keys are enforced.

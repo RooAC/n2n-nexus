@@ -122,6 +122,12 @@ describe("StorageManager", () => {
         await expect(StorageManager.getGlobalDoc("release-notes")).resolves.toBe("");
     });
 
+    it("should store the global strategy in blueprint.md", async () => {
+        await StorageManager.saveGlobalBlueprint("# Strategy\n\nShip it.");
+        expect(await fs.readFile(StorageManager.globalBlueprint, "utf-8")).toBe("# Strategy\n\nShip it.");
+        expect(await StorageManager.getGlobalBlueprint()).toBe("# Strategy\n\nShip it.");
+    });
+
     it("should reject path traversal in project and document identifiers", async () => {
         await expect(StorageManager.saveGlobalDoc("../escape", "Bad", "x", "tester"))
             .rejects

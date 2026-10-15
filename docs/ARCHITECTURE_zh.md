@@ -171,6 +171,7 @@ GET  /api/events
 GET  /api/global/docs
 GET  /api/global/docs/:docId
 POST /api/global/docs/:docId
+GET  /api/global/strategy
 POST /api/global/strategy
 ```
 
