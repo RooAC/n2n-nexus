@@ -17,6 +17,22 @@ export type NexusClientOptions = {
     timeoutMs?: number;
 };
 
+/** The daemon could not be reached or answered with something that is not JSON. */
+export class NexusTransportError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "NexusTransportError";
+    }
+}
+
+/** The daemon answered, but the tool call itself failed (unknown tool, validation, not found, ...). */
+export class NexusToolError extends Error {
+    constructor(message: string, public readonly status: number) {
+        super(message);
+        this.name = "NexusToolError";
+    }
+}
+
 function normalizeEndpoint(endpoint?: string): string {
     const raw = endpoint || process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
     if (/^https?:\/\//i.test(raw)) return raw;
@@ -55,22 +71,25 @@ export class NexusClient {
                     let data = "";
                     res.on("data", chunk => { data += chunk; });
                     res.on("end", () => {
+                        let parsed: { error?: string };
                         try {
-                            const parsed = data ? JSON.parse(data) : {};
-                            if (res.statusCode && res.statusCode >= 400) {
-                                reject(new Error(parsed.error || `HTTP ${res.statusCode}`));
-                            } else {
-                                resolve(parsed as T);
-                            }
+                            parsed = data ? JSON.parse(data) : {};
                         } catch {
-                            reject(new Error(`Invalid JSON response: ${data}`));
+                            reject(new NexusTransportError(`Invalid JSON response from daemon: ${data.slice(0, 200)}`));
+                            return;
+                        }
+                        const status = res.statusCode ?? 0;
+                        if (status >= 400) {
+                            reject(new NexusToolError(parsed.error || `HTTP ${status}`, status));
+                        } else {
+                            resolve(parsed as T);
                         }
                     });
                 }
             );
 
-            req.on("error", reject);
-            req.on("timeout", () => req.destroy(new Error("Request timeout")));
+            req.on("error", (e) => reject(e instanceof NexusTransportError ? e : new NexusTransportError(e.message)));
+            req.on("timeout", () => req.destroy(new NexusTransportError(`Request to ${this.endpoint} timed out after ${this.timeoutMs} ms`)));
             if (payload) req.write(payload);
             req.end();
         });
@@ -90,7 +109,7 @@ export class NexusClient {
             "POST", "/api/tools/call",
             { tool: name, args: args || {}, instanceId: instanceId || "unknown" }
         );
-        if (!res.ok) throw new Error(res.error || "Tool call failed");
+        if (!res.ok) throw new NexusToolError(res.error || "Tool call failed", 200);
         return res.result;
     }
 }

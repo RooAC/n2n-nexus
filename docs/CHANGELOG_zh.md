@@ -12,6 +12,10 @@
 
 - 会议存储的 JSON 回退（`store.ts`、`meetings.ts`）与 `/api/storage/info` 端点。SQLite 为必需依赖，daemon 不再报告“degraded”存储模式。
 
+### 修复
+
+- MCP 适配器此前把任何失败的工具调用（任务不存在、会议已关闭、权限不足等）都当成 daemon 掉线：清空工具列表、通知 IDE 并进入重连循环。现在传输失败与工具失败区分开（`NexusTransportError` 与 `NexusToolError`），只有前者触发重连，工具失败以 `isError` 结果返回。`POST /api/tools/call` 对未知工具返回 404，对工具拒绝的调用返回 400。
+
 ### 变更
 
 - 全局聊天从 `global/discussion.json` 迁入 SQLite。不带 `meetingId` 的 `read_messages` 现在真正按实例增量读取（工具描述此前就这样承诺），追加不再重写整个文件，`host_maintenance` 会返回删除条数。

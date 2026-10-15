@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
 
 - JSON meeting-store fallback (`store.ts`, `meetings.ts`) and the `/api/storage/info` endpoint. SQLite is required; the daemon no longer reports a "degraded" storage mode.
 
+### Fixed
+
+- The MCP adapter treated every failed tool call (unknown task, closed meeting, permission denied, ...) as the daemon going away: it cleared the tool list, notified the IDE and entered the reconnect loop. Transport failures and tool failures are now distinct (`NexusTransportError` vs `NexusToolError`); only the former triggers reconnection, and tool failures are returned as `isError` results. `POST /api/tools/call` answers 404 for an unknown tool and 400 when the tool rejects the call.
+
 ### Changed
 
 - Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed.

@@ -1,11 +1,12 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { NexusClient, ToolDefinition } from "../client/nexus-client.js";
+import { NexusClient, NexusTransportError, ToolDefinition } from "../client/nexus-client.js";
 import { pkg } from "../config/index.js";
 
 const RETRY_INTERVAL_MS = 3000;
@@ -63,7 +64,11 @@ export class NexusServer {
                 };
             } catch (e) {
                 const message = e instanceof Error ? e.message : String(e);
-                // Daemon went away — start retry loop
+                if (!(e instanceof NexusTransportError)) {
+                    // The daemon answered; the tool itself failed. Keep the tool list.
+                    return { content: [{ type: "text", text: message }], isError: true };
+                }
+                // Daemon went away — drop the tool list and start the retry loop
                 if (this.connected) {
                     this.connected = false;
                     this.cachedTools = [];
@@ -104,8 +109,8 @@ export class NexusServer {
         }, RETRY_INTERVAL_MS);
     }
 
-    async run() {
-        const transport = new StdioServerTransport();
+    /** Connect the MCP server; `transport` defaults to stdio and is injectable for tests. */
+    async run(transport: Transport = new StdioServerTransport()) {
         await this.server.connect(transport);
 
         // Try to connect immediately; if not ready, start retry loop

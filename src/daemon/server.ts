@@ -7,7 +7,7 @@ import { GlobalMessageStore } from "../storage/global-messages.js";
 import { EventStore } from "../storage/events.js";
 import {
     createTask, updateTask, getTask, listTasks, cancelTask,
-    initTasksTable, TaskStatus, TaskUpdate
+    TaskStatus, TaskUpdate
 } from "../storage/tasks.js";
 import { ProjectManifest, DiscussionMessage, MessageCategory, MESSAGE_CATEGORIES } from "../types.js";
 
@@ -18,7 +18,6 @@ import { ProjectManifest, DiscussionMessage, MessageCategory, MESSAGE_CATEGORIES
 async function initializeStorage(): Promise<void> {
     await StorageManager.init();
     SqliteMeetingStore.init();
-    initTasksTable();
 }
 
 // ---------------------------------------------------------------------------
@@ -592,9 +591,18 @@ export async function createDaemonServer(options: {
                 const instanceId = (body.instanceId as string) || "unknown";
 
                 if (!toolName) return jsonResponse(res, 400, { ok: false, error: "tool is required" });
+                if (!TOOL_DEFINITIONS.some(t => t.name === toolName)) {
+                    return jsonResponse(res, 404, { ok: false, error: `Unknown tool: '${toolName}'` });
+                }
 
-                const result = await dispatchTool(toolName, args, instanceId);
-                return jsonResponse(res, 200, { ok: true, result });
+                try {
+                    const result = await dispatchTool(toolName, args, instanceId);
+                    return jsonResponse(res, 200, { ok: true, result });
+                } catch (e) {
+                    // The tool ran and rejected the call; this is a client-side error, not a daemon failure.
+                    const message = e instanceof Error ? e.message : String(e);
+                    return jsonResponse(res, 400, { ok: false, error: message });
+                }
             }
 
             // Messages

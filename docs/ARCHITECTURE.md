@@ -28,7 +28,7 @@ Stateless protocol adapter, one per IDE
 1. **Daemon is the single source of truth** — all reads/writes, business logic, and tool definitions live in the daemon.
 2. **MCP is a stateless protocol adapter** — no tool definitions, no hardcoded names, no local data.
 3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup; any daemon upgrade is immediately visible to all connected MCPs.
-4. **No local fallback** — if the daemon is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation.
+4. **No local fallback** — if the daemon is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation. A tool call the daemon rejects (validation, not found, permission) is returned to the IDE as an error result and does not affect the connection.
 5. **Plain HTTP between MCP and daemon** — no SSE; AI is request-driven and doesn't need push.
 
 ### MCP Startup Flow

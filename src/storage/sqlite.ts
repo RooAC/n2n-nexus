@@ -72,6 +72,29 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_action ON events(action);
 
+-- Tasks managed by assistants
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')) DEFAULT 'pending',
+    progress REAL DEFAULT 0.0 CHECK(progress >= 0.0 AND progress <= 1.0),
+    source_meeting_id TEXT,
+    metadata TEXT,
+    result_uri TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ttl INTEGER,
+    FOREIGN KEY (source_meeting_id) REFERENCES meetings(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_meeting ON tasks(source_meeting_id);
+CREATE TRIGGER IF NOT EXISTS tasks_updated_at
+AFTER UPDATE ON tasks
+FOR EACH ROW
+BEGIN
+    UPDATE tasks SET updated_at = datetime('now') WHERE id = OLD.id;
+END;
+
 -- Read cursors table (tracks each IDE's last read message per context)
 CREATE TABLE IF NOT EXISTS read_cursors (
     instance_id TEXT NOT NULL,

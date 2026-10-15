@@ -45,59 +45,6 @@ function generateTaskId(): string {
 }
 
 
-let initialized = false;
-
-/**
- * Initialize the tasks table (run migrations)
- */
-export function initTasksTable(): void {
-    if (initialized) return;
-
-    const db = getDatabase();
-
-    const TASKS_SCHEMA = `
-    CREATE TABLE IF NOT EXISTS tasks (
-        id TEXT PRIMARY KEY,
-        status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed', 'cancelled')) DEFAULT 'pending',
-        progress REAL DEFAULT 0.0 CHECK(progress >= 0.0 AND progress <= 1.0),
-        source_meeting_id TEXT,
-        metadata TEXT,
-        result_uri TEXT,
-        error_message TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-        ttl INTEGER,
-        FOREIGN KEY (source_meeting_id) REFERENCES meetings(id) ON DELETE SET NULL
-    );
-    
-    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_tasks_meeting ON tasks(source_meeting_id);
-    `;
-
-    db.exec(TASKS_SCHEMA);
-
-    // Add trigger for auto-updating updated_at (separate exec to handle IF NOT EXISTS)
-    try {
-        db.exec(`
-            CREATE TRIGGER IF NOT EXISTS tasks_updated_at
-            AFTER UPDATE ON tasks
-            FOR EACH ROW
-            BEGIN
-                UPDATE tasks SET updated_at = datetime('now') WHERE id = OLD.id;
-            END;
-        `);
-    } catch {
-        // Trigger may already exist in older SQLite versions without IF NOT EXISTS support
-    }
-
-    console.error("[Nexus] Tasks table initialized");
-    initialized = true;
-}
-
-export function resetTasksInit(): void {
-    initialized = false;
-}
-
 /**
  * Create a new task
  */
