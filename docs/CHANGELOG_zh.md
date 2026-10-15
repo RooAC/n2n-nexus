@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 限流（MCP 工具规范对服务端的要求）：每个实例 ID 一个令牌桶（默认每秒 20 次、突发 60 次；`NEXUS_RATE_LIMIT`、`NEXUS_RATE_BURST`，设 `0` 关闭），另按客户端地址以 5 倍额度再限一次，因为实例 ID 由调用方自报。超限时守护进程返回带 `Retry-After` 的 `429`，MCP 适配器把它作为工具错误交给模型，连接不受影响。`/health` 与 `GET /api/tools` 不计入。
+
 - 结构化工具结果：每次成功调用在 JSON 文本之外同时返回 `structuredContent`，11 个返回数据的工具发布 `outputSchema`。结果结构是 `src/daemon/tool-outputs.ts` 中的 zod 契约，并用于给处理函数定类型；有测试经适配器在新旧两代协议下调用全部工具，逐个按契约校验结果。若写入类工具也发布 schema，`tools/list` 会从约 14 KB 涨到 27 KB，而它们只返回一行确认，因此未发布（只发布读取类时为 22 KB）。
 
 - 每个工具新增显示用的 `title`（例如 "Delete Project"），MCP 客户端会用它代替原始工具名展示。

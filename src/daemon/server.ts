@@ -10,6 +10,7 @@ import { runMigrations } from "../storage/migrations.js";
 import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
 import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
+import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } from "./rate-limit.js";
 import { ToolResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, ToolValidationError } from "./tools.js";
 import { z } from "zod";
@@ -276,20 +277,25 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-function jsonResponse(res: http.ServerResponse, status: number, body: unknown) {
+function jsonResponse(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
     const payload = JSON.stringify(body);
     res.writeHead(status, {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-        ...(status === 413 ? { Connection: "close" } : {})
+        ...(status === 413 ? { Connection: "close" } : {}),
+        ...headers
     });
     res.end(payload);
 }
 
 class HttpError extends Error {
-    constructor(public readonly status: number, message: string) {
+    constructor(public readonly status: number, message: string, public readonly headers: Record<string, string> = {}) {
         super(message);
     }
+}
+
+function rateLimited(retryAfterSec: number, scope: string): HttpError {
+    return new HttpError(429, `Rate limit exceeded for ${scope}; retry after ${retryAfterSec}s.`, { "Retry-After": String(retryAfterSec) });
 }
 
 /**
@@ -409,10 +415,22 @@ export async function createDaemonServer(options: {
     version: string;
     maxBodyBytes?: number;
     allowedHosts?: string[];
+    /** Per-instance tool call limit; the per-address limit is ADDRESS_LIMIT_FACTOR times this. */
+    rateLimit?: RateLimitConfig;
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
     const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
     const allowedHosts = options.allowedHosts ?? allowedHostsFromEnv();
+    const limit = options.rateLimit ?? rateLimitFromEnv();
+    const instanceLimiter = new RateLimiter(limit.perSecond, limit.burst);
+    const addressLimiter = new RateLimiter(limit.perSecond * ADDRESS_LIMIT_FACTOR, limit.burst * ADDRESS_LIMIT_FACTOR);
+
+    /** Tool calls from HTTP routes, counted against the calling instance's budget. */
+    const call = (name: ToolName, args: unknown, instanceId: string) => {
+        const wait = instanceLimiter.take(`instance:${instanceId}`);
+        if (wait) throw rateLimited(wait, `instance '${instanceId}'`);
+        return callTool(name, args, instanceId);
+    };
 
     const server = http.createServer(async (req, res) => {
         const method = req.method || "GET";
@@ -425,6 +443,17 @@ export async function createDaemonServer(options: {
             if (guard) {
                 req.resume();
                 return jsonResponse(res, guard.status, { ok: false, error: guard.message });
+            }
+
+            // Health and the tool list stay reachable so adapters can tell "busy" from "down".
+            const exempt = method === "GET" && (path === "/health" || path === "/api/tools");
+            if (!exempt) {
+                const wait = addressLimiter.take(`address:${req.socket.remoteAddress ?? "unknown"}`);
+                if (wait) {
+                    req.resume();
+                    const e = rateLimited(wait, "this client address");
+                    return jsonResponse(res, e.status, { ok: false, error: e.message }, e.headers);
+                }
             }
 
             // Health
@@ -448,53 +477,53 @@ export async function createDaemonServer(options: {
                 if (!isToolName(toolName)) {
                     return jsonResponse(res, 404, { ok: false, error: `Unknown tool: '${toolName}'` });
                 }
-                return jsonResponse(res, 200, { ok: true, result: await callTool(toolName, args, instanceId) });
+                return jsonResponse(res, 200, { ok: true, result: await call(toolName, args, instanceId) });
             }
 
             // Messages
             if (method === "POST" && path === "/api/messages/send") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("send_message", body, actor(body)));
+                return jsonResponse(res, 200, await call("send_message", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/messages/unread") {
-                const result = await callTool("read_messages", queryArgs(url, ["count"]), url.searchParams.get("instanceId") || "unknown");
+                const result = await call("read_messages", queryArgs(url, ["count"]), url.searchParams.get("instanceId") || "unknown");
                 return jsonResponse(res, 200, result);
             }
 
             // Projects
             if (method === "POST" && path === "/api/projects/sync") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("sync_project_assets", { internalDocs: "", ...body }, actor(body)));
+                return jsonResponse(res, 200, await call("sync_project_assets", { internalDocs: "", ...body }, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/update") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("update_project", body, actor(body)));
+                return jsonResponse(res, 200, await call("update_project", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/rename") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("rename_project", body, actor(body)));
+                return jsonResponse(res, 200, await call("rename_project", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/projects/delete") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("host_delete_project", body, actor(body)));
+                return jsonResponse(res, 200, await call("host_delete_project", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/projects/search") {
-                return jsonResponse(res, 200, await callTool("search_projects", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("search_projects", queryArgs(url, ["limit"]), "unknown"));
             }
 
             const projectMatch = path.match(/^\/api\/projects\/([^/]+)$/);
             if (method === "GET" && projectMatch && !["search", "topology"].includes(projectMatch[1])) {
                 const includeDocs = url.searchParams.get("includeDocs") !== "false";
-                return jsonResponse(res, 200, await callTool("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, "unknown"));
+                return jsonResponse(res, 200, await call("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, "unknown"));
             }
 
             if (method === "GET" && path === "/api/projects/topology") {
-                return jsonResponse(res, 200, await callTool("get_global_topology", queryArgs(url, []), "unknown"));
+                return jsonResponse(res, 200, await call("get_global_topology", queryArgs(url, []), "unknown"));
             }
 
             // Global docs
@@ -513,7 +542,7 @@ export async function createDaemonServer(options: {
                 }
                 if (method === "POST") {
                     const body = await parseBody(req);
-                    await callTool("sync_global_doc", { ...body, docId }, actor(body));
+                    await call("sync_global_doc", { ...body, docId }, actor(body));
                     return jsonResponse(res, 200, { ok: true, docId });
                 }
             }
@@ -524,32 +553,32 @@ export async function createDaemonServer(options: {
 
             if (method === "POST" && path === "/api/global/strategy") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("update_global_strategy", body, actor(body)));
+                return jsonResponse(res, 200, await call("update_global_strategy", body, actor(body)));
             }
 
             // Meetings
             if (method === "GET" && path === "/api/meetings") {
-                return jsonResponse(res, 200, await callTool("list_meetings", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_meetings", queryArgs(url, ["limit"]), "unknown"));
             }
 
             if (method === "POST" && path === "/api/meetings/start") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("start_meeting", body, actor(body)));
+                return jsonResponse(res, 200, await call("start_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/end") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("end_meeting", body, actor(body)));
+                return jsonResponse(res, 200, await call("end_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/archive") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("archive_meeting", body, actor(body)));
+                return jsonResponse(res, 200, await call("archive_meeting", body, actor(body)));
             }
 
             if (method === "POST" && path === "/api/meetings/reopen") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("reopen_meeting", body, actor(body)));
+                return jsonResponse(res, 200, await call("reopen_meeting", body, actor(body)));
             }
 
             const meetingMatch = path.match(/^\/api\/meetings\/(.+)$/);
@@ -563,11 +592,11 @@ export async function createDaemonServer(options: {
             // Tasks
             if (method === "POST" && path === "/api/tasks") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("create_task", body, actor(body)));
+                return jsonResponse(res, 200, await call("create_task", body, actor(body)));
             }
 
             if (method === "GET" && path === "/api/tasks") {
-                return jsonResponse(res, 200, await callTool("list_tasks", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_tasks", queryArgs(url, ["limit"]), "unknown"));
             }
 
             const taskMatch = path.match(/^\/api\/tasks\/([^/]+)(\/(.+))?$/);
@@ -576,7 +605,7 @@ export async function createDaemonServer(options: {
                 const action = taskMatch[3];
 
                 if (method === "GET" && !action) {
-                    return jsonResponse(res, 200, await callTool("get_task", { taskId }, "unknown"));
+                    return jsonResponse(res, 200, await call("get_task", { taskId }, "unknown"));
                 }
                 if (method === "POST" && action === "update") {
                     const body = await parseBody(req);
@@ -586,26 +615,26 @@ export async function createDaemonServer(options: {
                     return jsonResponse(res, 200, { ok: true, task: updateTask(taskId, update.data) });
                 }
                 if (method === "POST" && action === "cancel") {
-                    return jsonResponse(res, 200, await callTool("cancel_task", { taskId }, "unknown"));
+                    return jsonResponse(res, 200, await call("cancel_task", { taskId }, "unknown"));
                 }
             }
 
             // Maintenance
             if (method === "POST" && path === "/api/maintenance/logs") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await callTool("host_maintenance", body, actor(body)));
+                return jsonResponse(res, 200, await call("host_maintenance", body, actor(body)));
             }
 
             // Events
             if (method === "GET" && path === "/api/events") {
-                return jsonResponse(res, 200, await callTool("list_events", queryArgs(url, ["limit"]), "unknown"));
+                return jsonResponse(res, 200, await call("list_events", queryArgs(url, ["limit"]), "unknown"));
             }
 
             jsonResponse(res, 404, { ok: false, error: "Not found" });
         } catch (e) {
             const message = e instanceof Error ? e.message : String(e);
             if (e instanceof HttpError) {
-                return jsonResponse(res, e.status, { ok: false, error: message });
+                return jsonResponse(res, e.status, { ok: false, error: message }, e.headers);
             }
             if (e instanceof ToolValidationError || e instanceof z.ZodError) {
                 return jsonResponse(res, 400, { ok: false, error: e instanceof z.ZodError ? z.prettifyError(e) : message });
