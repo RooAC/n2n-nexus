@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 新增 `list_meetings` 工具与 `GET /api/meetings`：列出会议及其状态、发起者、参与者、消息与决策数、摘要。此前助手只能访问已知 ID 的会议。
+
 - 新增 `get_project` 工具与 `GET /api/projects/:projectId`：读取项目完整 Manifest 和内部文档。此前助手能同步却无法读回。
 
 - 新增 `get_global_strategy`、`list_global_docs`、`get_global_doc` 工具。此前助手能写主策略和共享文档，却没有工具读回，只有 REST API 能读。

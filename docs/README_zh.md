@@ -139,6 +139,7 @@ npx n2n-nexus daemon --port 5688
 
 ### 会议管理
 
+- `list_meetings`：列出会议（状态、参与者、消息与决策数、摘要）。
 - `start_meeting`：开启会议会话。
 - `end_meeting`：关闭并锁定会议。
 - `archive_meeting`：归档已关闭会议。

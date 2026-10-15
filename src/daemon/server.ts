@@ -176,6 +176,11 @@ async function toolSyncGlobalDoc(args: ToolArgs<"sync_global_doc">, instanceId: 
     return { ok: true, message: `Global document '${args.title}' (${args.docId}) synchronized.` };
 }
 
+async function toolListMeetings(args: ToolArgs<"list_meetings">) {
+    const meetings = SqliteMeetingStore.listMeetings(args.status, args.limit);
+    return { count: meetings.length, activeMeetingId: SqliteMeetingStore.getActiveMeetingId(), meetings };
+}
+
 async function toolStartMeeting(args: ToolArgs<"start_meeting">, instanceId: string) {
     const meeting = SqliteMeetingStore.startMeeting(args.topic, instanceId);
     EventStore.record(instanceId, "meeting.start", meeting.id, { topic: meeting.topic });
@@ -276,6 +281,7 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
         case "list_global_docs":          parseToolArgs(name, rawArgs); return toolListGlobalDocs();
         case "get_global_doc":            return toolGetGlobalDoc(parseToolArgs(name, rawArgs));
         case "sync_global_doc":           return toolSyncGlobalDoc(parseToolArgs(name, rawArgs), instanceId);
+        case "list_meetings":             return toolListMeetings(parseToolArgs(name, rawArgs));
         case "start_meeting":             return toolStartMeeting(parseToolArgs(name, rawArgs), instanceId);
         case "end_meeting":               return toolEndMeeting(parseToolArgs(name, rawArgs), instanceId);
         case "archive_meeting":           return toolArchiveMeeting(parseToolArgs(name, rawArgs), instanceId);
@@ -552,6 +558,10 @@ export async function createDaemonServer(options: {
             }
 
             // Meetings
+            if (method === "GET" && path === "/api/meetings") {
+                return jsonResponse(res, 200, await callTool("list_meetings", queryArgs(url, ["limit"]), "unknown"));
+            }
+
             if (method === "POST" && path === "/api/meetings/start") {
                 const body = await parseBody(req);
                 return jsonResponse(res, 200, await callTool("start_meeting", body, actor(body)));

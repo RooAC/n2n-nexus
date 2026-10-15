@@ -66,6 +66,7 @@ sync_global_doc(docId, title, content)        → 创建/更新跨项目共享�
 ### 5. 战术会议
 
 ```
+list_meetings(status?, limit?)    → 列出会议：状态、参与者、消息/决策数、摘要
 start_meeting(topic)              → 开启新会议，返回 meetingId
 send_message("...", "PROPOSAL")   → 在会议中发言
 send_message("...", "DECISION")   → 记录决策

@@ -52,4 +52,22 @@ describe("Meeting lifecycle through the daemon", () => {
         const unread = await daemon.callTool<{ count: number }>("read_messages", { meetingId, count: 10 }, "ide-c");
         expect(unread.payload.result?.count).toBe(1);
     });
+
+    it("lists meetings with counts, summary and status filter", async () => {
+        const a = (await daemon.callTool<{ meetingId: string }>("start_meeting", { topic: "First" }, "ide-a")).payload.result!.meetingId;
+        await daemon.callTool("send_message", { message: "p", category: "PROPOSAL" }, "ide-b");
+        await daemon.callTool("send_message", { message: "d", category: "DECISION" }, "ide-a");
+        await daemon.callTool("end_meeting", { meetingId: a, summary: "agreed" }, "ide-a");
+        const b = (await daemon.callTool<{ meetingId: string }>("start_meeting", { topic: "Second" }, "ide-b")).payload.result!.meetingId;
+
+        type Listed = { count: number; activeMeetingId: string; meetings: { id: string; status: string; participants: string[]; messageCount: number; decisionCount: number; summary?: string }[] };
+        const all = await daemon.callTool<Listed>("list_meetings", {});
+        expect(all.payload.result?.activeMeetingId).toBe(b);
+        const first = all.payload.result!.meetings.find((m) => m.id === a)!;
+        expect(first).toMatchObject({ status: "closed", messageCount: 2, decisionCount: 1, summary: "agreed" });
+        expect(first.participants.sort()).toEqual(["ide-a", "ide-b"]);
+
+        const active = await daemon.request<Listed>("GET", "/api/meetings?status=active&limit=5");
+        expect(active.payload.meetings.map((m) => m.id)).toEqual([b]);
+    });
 });

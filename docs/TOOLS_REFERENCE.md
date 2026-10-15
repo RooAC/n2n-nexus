@@ -239,6 +239,20 @@ Create or update a shared global document.
 
 ## Meeting management
 
+### `list_meetings`
+
+List meetings, newest first.
+
+| Parameter | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `status` | string | no |  | `active`, `closed`, or `archived`. |
+| `limit` | integer | no | `20` | Maximum number of meetings (1–200). |
+
+Behavior:
+
+- Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, messageCount, decisionCount, summary? }] }`.
+- Read a meeting's messages with `read_messages(meetingId)`. Also available as `GET /api/meetings?status=&limit=`.
+
 ### `start_meeting`
 
 Open a new meeting session.

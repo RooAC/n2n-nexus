@@ -103,7 +103,7 @@ The adapter can start before the daemon. It loads the daemon tool list once the 
 
 ## 🛠️ Toolset
 
-The daemon exposes 26 tools, grouped by purpose:
+The daemon exposes 27 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
@@ -111,7 +111,7 @@ The daemon exposes 26 tools, grouped by purpose:
 | **Projects & assets** | `search_projects`, `get_project`, `update_project`, `rename_project`, `sync_project_assets`, `upload_project_asset` | Find, read, update, and rename projects; sync manifests and internal docs; upload binary assets. |
 | **Global docs** | `list_global_docs`, `get_global_doc`, `sync_global_doc`, `get_global_strategy`, `update_global_strategy` | List, read, create and update shared global documents and the master strategy document. |
 | **Messaging** | `send_message`, `read_messages`, `list_events` | Post and read meeting and global messages; read the structured activity log. |
-| **Meetings** | `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | Open, close, archive, and reopen meeting sessions. |
+| **Meetings** | `list_meetings`, `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | List, open, close, archive, and reopen meeting sessions. |
 | **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and track tasks that assistants manage themselves. |
 | **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear the global chat stream; delete a project. |
 

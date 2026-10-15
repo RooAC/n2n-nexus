@@ -178,6 +178,7 @@ POST /api/global/strategy
 
 ### 会议
 ```
+GET  /api/meetings
 POST /api/meetings/start
 POST /api/meetings/end
 POST /api/meetings/archive

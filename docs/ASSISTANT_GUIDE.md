@@ -65,6 +65,7 @@ Message categories (`category`):
 ### 5. Tactical meetings
 
 ```
+list_meetings(status?, limit?)    → list meetings with status, participants, counts, summary
 start_meeting(topic)              → open a meeting, returns meetingId
 send_message("...", "PROPOSAL")   → post a proposal inside the meeting
 send_message("...", "DECISION")   → record a decision

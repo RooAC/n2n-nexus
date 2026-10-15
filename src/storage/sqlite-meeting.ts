@@ -243,40 +243,52 @@ export class SqliteMeetingStore {
     /**
      * List meetings with optional status filter
      */
-    static listMeetings(status?: MeetingStatus): Array<{
+    static listMeetings(status?: MeetingStatus, limit: number = 50): Array<{
         id: string;
         topic: string;
         status: MeetingStatus;
+        initiator: string;
         startTime: string;
-        participantCount: number;
+        endTime?: string;
+        participants: string[];
+        messageCount: number;
+        decisionCount: number;
+        summary?: string;
     }> {
         const db = getDatabase();
-        
-        let query = "SELECT id, topic, status, participants, created_at FROM meetings";
-        const params: string[] = [];
-        
-        if (status) {
-            query += " WHERE status = ?";
-            params.push(status);
-        }
-        
-        query += " ORDER BY created_at DESC";
-        
-        const stmt = db.prepare(query);
-        const meetings = (params.length > 0 ? stmt.all(...params) : stmt.all()) as Array<{
+
+        const rows = db.prepare(`
+            SELECT m.id, m.topic, m.status, m.initiator, m.participants, m.created_at, m.closed_at, m.summary,
+                   (SELECT COUNT(*) FROM messages WHERE meeting_id = m.id) AS message_count,
+                   (SELECT COUNT(*) FROM decisions WHERE meeting_id = m.id) AS decision_count
+            FROM meetings m
+            WHERE (? IS NULL OR m.status = ?)
+            ORDER BY m.created_at DESC
+            LIMIT ?
+        `).all(status ?? null, status ?? null, limit) as Array<{
             id: string;
             topic: string;
             status: MeetingStatus;
+            initiator: string | null;
             participants: string;
             created_at: string;
+            closed_at: string | null;
+            summary: string | null;
+            message_count: number;
+            decision_count: number;
         }>;
 
-        return meetings.map(m => ({
+        return rows.map(m => ({
             id: m.id,
             topic: m.topic,
             status: m.status,
+            initiator: m.initiator || "Unknown",
             startTime: m.created_at,
-            participantCount: JSON.parse(m.participants).length
+            endTime: m.closed_at || undefined,
+            participants: JSON.parse(m.participants),
+            messageCount: m.message_count,
+            decisionCount: m.decision_count,
+            summary: m.summary || undefined
         }));
     }
 

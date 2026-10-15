@@ -93,6 +93,10 @@ export const TOOL_SCHEMAS = {
     }),
 
     // Meetings
+    list_meetings: z.object({
+        status: z.enum(["active", "closed", "archived"]).optional(),
+        limit: positiveInt(200).default(20)
+    }),
     start_meeting: z.object({ topic: z.string().min(1) }),
     end_meeting: z.object({
         meetingId: z.string().min(1).optional().describe("Defaults to the active meeting"),
@@ -142,6 +146,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     list_global_docs: "List global shared documents: id, title, last update and author.",
     get_global_doc: "Read a global shared document by docId, with its title and metadata.",
     sync_global_doc: "Create/update a global shared document.",
+    list_meetings: "List meetings, newest first: id, topic, status, initiator, participants, message/decision counts, summary. Read messages with read_messages(meetingId).",
     start_meeting: "Start new meeting session. Returns meeting ID.",
     end_meeting: "End active meeting. Locks history.",
     archive_meeting: "Archive closed meeting. Read-only after.",
