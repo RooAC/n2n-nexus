@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The adapter fetched the daemon tool list before it began reading stdin. A daemon that accepted connections but never answered held `server/discover` and `initialize` for the 5-second client timeout, long enough for probing clients to misclassify the server as legacy, and delayed exit after stdin closed. The adapter now serves immediately and fetches in the background.
+
 - On 2026-07-28 connections, a request without `io.modelcontextprotocol/clientInfo` (only a SHOULD in the spec) got an instance ID without the IDE name, so one client could appear as two instances with split unread cursors and meeting permissions. The adapter now keeps the first client name seen on the connection.
 
 - Calling a tool the adapter does not know returned a tool result with `isError: true`. The MCP specification classifies an unknown tool as a protocol error; the adapter now answers with JSON-RPC error `-32602` (Invalid Params), also when the daemon reports the tool as unknown.
@@ -54,7 +56,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- The MCP adapter moved from `@modelcontextprotocol/sdk` 1.x (protocol 2025-11-25) to the v2 SDK (`@modelcontextprotocol/server` 2.3) and serves both the stateless 2026-07-28 revision and 2025-era clients over stdio via `serveStdio`. 2026-07-28 clients get `server/discover`, the per-request `_meta` envelope and list-changed notifications on `subscriptions/listen`; the instance ID reads the client name from the request envelope. The adapter now fetches the tool list before it starts serving, so the first `tools/list` is complete whenever the daemon is up.
+- The MCP adapter moved from `@modelcontextprotocol/sdk` 1.x (protocol 2025-11-25) to the v2 SDK (`@modelcontextprotocol/server` 2.3) and serves both the stateless 2026-07-28 revision and 2025-era clients over stdio via `serveStdio`. 2026-07-28 clients get `server/discover`, the per-request `_meta` envelope and list-changed notifications on `subscriptions/listen`; the instance ID reads the client name from the request envelope. The first `tools/list` waits up to one second for the startup daemon fetch, so it is complete whenever a local daemon is up, while `server/discover` and `initialize` are answered immediately even if the daemon hangs.
 
 - Tools without parameters (`get_global_strategy`, `list_global_docs`) publish `{ "type": "object", "properties": {}, "additionalProperties": false }`, the form the MCP specification recommends, and reject unexpected arguments.
 

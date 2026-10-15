@@ -152,3 +152,37 @@ describe("MCP proxy instance id on 2026-07-28 connections", () => {
         await clientSide.close();
     });
 });
+
+describe("MCP proxy with a daemon that accepts connections but never answers", () => {
+    it("still answers the client promptly and exits as soon as input ends", async () => {
+        const net = await import("node:net");
+        const sockets: import("node:net").Socket[] = [];
+        const hung = net.createServer((sock) => { sockets.push(sock); });
+        await new Promise<void>((r) => hung.listen(0, "127.0.0.1", () => r()));
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${(hung.address() as import("node:net").AddressInfo).port}`;
+        process.env.NEXUS_INSTANCE_ID = "hung-test";
+
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        const input = new PassThrough();
+        let exitedAt = 0;
+        const proxy = new NexusServer();
+        const started = Date.now();
+        void proxy.run({ transport: serverSide, input, onExit: () => { exitedAt = Date.now(); } });
+
+        const client = new Client({ name: "ide", version: "1" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+        await client.connect(clientSide);
+        const list = await client.listTools();
+        expect(list.tools).toEqual([]);
+        expect(Date.now() - started).toBeLessThan(2500);
+
+        const endAt = Date.now();
+        input.resume();
+        input.end();
+        for (let i = 0; i < 50 && !exitedAt; i++) await new Promise((r) => setTimeout(r, 10));
+        expect(exitedAt).toBeGreaterThan(0);
+        expect(exitedAt - endAt).toBeLessThan(500);
+
+        sockets.forEach((s) => s.destroy());
+        await new Promise((r) => hung.close(r));
+    });
+});

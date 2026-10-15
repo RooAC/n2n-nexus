@@ -12,6 +12,8 @@ import { pkg } from "../config/index.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
+/** How long the first tools/list waits for the startup daemon fetch before answering with what it has. */
+const INITIAL_LIST_WAIT_MS = 1000;
 const SERVICE_NAME = "n2n-nexus";
 
 export type RunOptions = {
@@ -47,6 +49,8 @@ export class NexusServer {
      * fall back to a different instance id than its siblings.
      */
     private clientName: string | undefined;
+    /** The first daemon fetch, started once serving has begun. */
+    private initialFetch: Promise<boolean> | null = null;
 
     constructor() {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
@@ -60,7 +64,13 @@ export class NexusServer {
             { capabilities: { tools: { listChanged: true } } }
         );
 
-        server.setRequestHandler("tools/list", async () => ({ tools: this.cachedTools }));
+        server.setRequestHandler("tools/list", async () => {
+            // Give a local daemon a moment so the first list is complete; never block on a hung one.
+            if (!this.connected && this.initialFetch) {
+                await Promise.race([this.initialFetch, new Promise((r) => setTimeout(r, INITIAL_LIST_WAIT_MS))]);
+            }
+            return { tools: this.cachedTools };
+        });
 
         server.setRequestHandler("tools/call", async (request, ctx) => {
             if (!this.connected) {
@@ -177,16 +187,17 @@ export class NexusServer {
             input.once("close", exit);
         }
 
-        // Fetch the tool list before serving, so the first tools/list already has it when the
-        // daemon is up (2026-07-28 clients only hear list_changed if they subscribe).
-        const ok = await this.tryConnect();
-
+        // Serve first so discover/initialize are answered even when the daemon hangs;
+        // tools/list briefly waits for this fetch (2026-07-28 clients only hear
+        // list_changed if they subscribe).
         this.handle = serveStdio(() => this.buildServer(), {
             transport: options.transport,
             onerror: (err) => console.error("[n2n-nexus] MCP transport error:", err.message)
         });
 
-        if (!ok) {
+        this.initialFetch = this.tryConnect();
+        const ok = await this.initialFetch;
+        if (!ok && !this.stopped) {
             const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
             console.error(`[n2n-nexus] Daemon not available at ${endpoint}. Will retry every ${RETRY_INTERVAL_MS / 1000}s...`);
             this.scheduleRetry();

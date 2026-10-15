@@ -36,9 +36,8 @@ MCP-A  MCP-B  MCP-C
 ```
 读取 NEXUS_ENDPOINT（默认 http://127.0.0.1:5688）
   │
-  ├─ 先拉一次 GET /api/tools（daemon 不在线时立即失败）
-  │
-  ├─ 开始 stdio 服务（MCP TypeScript SDK v2，serveStdio）
+  ├─ 开始 stdio 服务（MCP TypeScript SDK v2，serveStdio），同时拉一次 GET /api/tools；
+  │  第一次 tools/list 最多等这次拉取 1 秒
   │     ├─ 2026-07-28 客户端：server/discover、每请求 _meta 信封，
   │     │  list_changed 经 subscriptions/listen 下发
   │     └─ 2025 代客户端：initialize 握手，主动下发 list_changed
@@ -50,7 +49,7 @@ MCP-A  MCP-B  MCP-C
   └─ stdin 关闭 → 停止重试、关闭、退出
 ```
 
-适配器的实例 ID（未读游标、会议权限以它为键）取自请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代）里的客户端名，`NEXUS_INSTANCE_ID` / `--id` 可固定。
+适配器的实例 ID（未读游标、会议权限以它为键）取自该连接上第一次见到的客户端名，来源是请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代），`NEXUS_INSTANCE_ID` / `--id` 可固定。
 
 ---
 

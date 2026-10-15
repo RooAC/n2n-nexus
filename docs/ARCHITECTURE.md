@@ -36,9 +36,8 @@ Stateless protocol adapter, one per IDE
 ```
 Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │
-  ├─ GET /api/tools once (fails fast if the daemon is down)
-  │
-  ├─ Serve stdio (MCP TypeScript SDK v2, serveStdio)
+  ├─ Serve stdio (MCP TypeScript SDK v2, serveStdio) and GET /api/tools once;
+  │  the first tools/list waits up to 1 s for that fetch
   │     ├─ 2026-07-28 clients: server/discover, per-request _meta envelope,
   │     │  list_changed delivered on subscriptions/listen
   │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
@@ -50,7 +49,7 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   └─ stdin closes → stop retrying, close, exit
 ```
 
-The adapter's instance ID (read cursors, meeting permissions) uses the client name from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
+The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
 
 ---
 

@@ -26,6 +26,8 @@
 
 ### 修复
 
+- 适配器此前先拉取守护进程工具列表、再开始读 stdin。守护进程接受连接却不回应时，`server/discover` 与 `initialize` 要等 5 秒客户端超时，足以让探测型客户端把它误判为旧版服务器，stdin 关闭后也迟迟不退出。现在适配器立即开始服务，在后台拉取。
+
 - 在 2026-07-28 连接上，不带 `io.modelcontextprotocol/clientInfo` 的请求（规范只是 SHOULD）得到的实例 ID 不含 IDE 名，同一客户端会变成两个实例，未读游标和会议权限随之分裂。适配器现在沿用该连接上第一次见到的客户端名。
 
 - 调用适配器不认识的工具时，此前返回 `isError: true` 的工具结果。MCP 规范把未知工具归为协议错误，适配器现在返回 JSON-RPC 错误 `-32602`（Invalid Params），守护进程报告工具不存在时同样如此。
@@ -54,7 +56,7 @@
 
 ### 变更
 
-- MCP 适配器从 `@modelcontextprotocol/sdk` 1.x（协议 2025-11-25）迁移到 v2 SDK（`@modelcontextprotocol/server` 2.3），通过 `serveStdio` 在 stdio 上同时服务无状态的 2026-07-28 版与 2025 代客户端。2026-07-28 客户端可使用 `server/discover`、每请求 `_meta` 信封，并经 `subscriptions/listen` 收到列表变更通知；实例 ID 从请求信封读取客户端名。适配器在开始服务前先拉取工具列表，守护进程在线时第一次 `tools/list` 即完整。
+- MCP 适配器从 `@modelcontextprotocol/sdk` 1.x（协议 2025-11-25）迁移到 v2 SDK（`@modelcontextprotocol/server` 2.3），通过 `serveStdio` 在 stdio 上同时服务无状态的 2026-07-28 版与 2025 代客户端。2026-07-28 客户端可使用 `server/discover`、每请求 `_meta` 信封，并经 `subscriptions/listen` 收到列表变更通知；实例 ID 从请求信封读取客户端名。第一次 `tools/list` 最多等待 1 秒的启动拉取，本地守护进程在线时即完整；即使守护进程假死，`server/discover` 与 `initialize` 也立即得到响应。
 
 - 无参数工具（`get_global_strategy`、`list_global_docs`）的 schema 改为 MCP 规范推荐的 `{ "type": "object", "properties": {}, "additionalProperties": false }`，并拒绝多余参数。
 

@@ -35,7 +35,7 @@ The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CH
 `server.ts` — plain `http.Server` with all REST endpoints, tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/event/maintenance endpoints.
 
 ### MCP Server (`src/server/nexus.ts`)
-Pure stateless proxy on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). On startup: tries `GET /api/tools`, then serves stdio through `serveStdio(() => buildServer())`, which answers both 2026-07-28 clients (per-request `_meta` envelope, `server/discover`) and 2025-era clients (`initialize`). If the daemon is unreachable, a 3-second retry loop runs; on connect it calls `sendToolListChanged()`. `tools/call` → `POST /api/tools/call`. Exits when stdin closes. No hardcoded tool names.
+Pure stateless proxy on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). On startup: serves stdio through `serveStdio(() => buildServer())` and fetches `GET /api/tools` in the background (the first `tools/list` waits up to 1 s for it). `serveStdio` answers both 2026-07-28 clients (per-request `_meta` envelope, `server/discover`) and 2025-era clients (`initialize`). If the daemon is unreachable, a 3-second retry loop runs; on connect it calls `sendToolListChanged()`. `tools/call` → `POST /api/tools/call`. Exits when stdin closes. No hardcoded tool names.
 
 ### Storage layer (`src/storage/`)
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
