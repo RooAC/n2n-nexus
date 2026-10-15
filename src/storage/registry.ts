@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
-import { writeJsonAtomic } from "./fs-utils.js";
+import { toDict, writeJsonAtomic } from "./fs-utils.js";
 import { ProjectManifest } from "../types.js";
 
 export type RegistryData = {
@@ -11,7 +11,7 @@ export type RegistryData = {
     }>;
 };
 
-const emptyRegistry: RegistryData = { projects: {} };
+const emptyRegistry = (): RegistryData => ({ projects: toDict() });
 
 async function readRegistry(): Promise<RegistryData> {
     try {
@@ -19,17 +19,17 @@ async function readRegistry(): Promise<RegistryData> {
         const parsed = JSON.parse(raw);
         return sanitizeRegistry(parsed);
     } catch {
-        return { ...emptyRegistry };
+        return emptyRegistry();
     }
 }
 
 function sanitizeRegistry(data: unknown): RegistryData {
-    if (!data || typeof data !== "object") return { ...emptyRegistry };
+    if (!data || typeof data !== "object") return emptyRegistry();
     const root = data as { projects?: unknown };
-    if (!root.projects || typeof root.projects !== "object") return { ...emptyRegistry };
+    if (!root.projects || typeof root.projects !== "object") return emptyRegistry();
 
     return {
-        projects: Object.fromEntries(
+        projects: toDict(
             Object.entries(root.projects as Record<string, unknown>).map(([id, item]) => {
                 if (!item || typeof item !== "object") {
                     return [id, {

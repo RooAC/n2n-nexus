@@ -27,6 +27,18 @@ export async function writeFileAtomic(filePath: string, data: string | Buffer): 
     }
 }
 
+/**
+ * Copy entries into an object without a prototype. Registry and index maps
+ * are keyed by user-supplied ids; on a plain object ids such as
+ * "constructor" or "__proto__" hit Object.prototype on lookup or rewrite the
+ * prototype on assignment.
+ */
+export function toDict<T>(entries: Iterable<[string, T]> = []): Record<string, T> {
+    const dict = Object.create(null) as Record<string, T>;
+    for (const [k, v] of entries) dict[k] = v;
+    return dict;
+}
+
 export function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
     return writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 }

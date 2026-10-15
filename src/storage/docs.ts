@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
 import { FILE_ENCODING } from "../constants.js";
-import { writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { GlobalDocIndex } from "../types.js";
 
 export class DocStorage {
@@ -19,11 +19,11 @@ export class DocStorage {
         try {
             const raw = await fs.readFile(NexusPaths.docsIndexFile, FILE_ENCODING);
             const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === "object") return parsed as GlobalDocIndex;
+            if (parsed && typeof parsed === "object") return toDict(Object.entries(parsed as GlobalDocIndex));
         } catch {
             // fall through
         }
-        return {};
+        return toDict();
     }
 
     private static async writeIndex(index: GlobalDocIndex): Promise<void> {
