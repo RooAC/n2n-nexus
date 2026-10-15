@@ -48,6 +48,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Tools without parameters (`get_global_strategy`, `list_global_docs`) publish `{ "type": "object", "properties": {}, "additionalProperties": false }`, the form the MCP specification recommends, and reject unexpected arguments.
+
 - `send_message` routing no longer depends on `register_session_context`: a message goes to `meetingId` when given, else to the active meeting, else to global chat. `POST /api/messages/send` uses the same rule (its `source` parameter is gone) instead of a separate code path with different defaults.
 
 - Global chat moved from `global/discussion.json` into SQLite. `read_messages` without `meetingId` is now truly incremental per instance (the tool description had promised this), appends no longer rewrite the whole file, and `host_maintenance` reports how many messages were removed. On first start the daemon imports an existing `discussion.json` (categories outside the five known values become unset) and renames it to `discussion.json.migrated`.

@@ -22,6 +22,10 @@ describe("Tool contracts", () => {
         expect(byName.read_messages.annotations.readOnlyHint).toBe(false);
         expect(byName.send_message.annotations.destructiveHint).toBe(false);
 
+        for (const name of ["get_global_strategy", "list_global_docs"]) {
+            expect(byName[name].inputSchema, name).toEqual({ type: "object", properties: {}, additionalProperties: false });
+        }
+
         const send = TOOL_DEFINITIONS.find((t) => t.name === "send_message")!;
         expect((send.inputSchema.properties.category as { enum: string[] }).enum).toEqual([...MESSAGE_CATEGORIES]);
         expect(send.inputSchema.required).toEqual(["message"]);

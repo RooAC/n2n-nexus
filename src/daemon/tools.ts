@@ -39,6 +39,9 @@ export const manifestSchema = z.object({
 export const manifestPatchSchema = manifestSchema.omit({ id: true, lastUpdated: true }).partial().strict()
     .describe("Manifest fields to update. 'id' cannot be changed here; use rename_project.");
 
+/** Tools without parameters: the spec recommends a schema that accepts only `{}`. */
+const noParams = z.strictObject({});
+
 export const TASK_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
 
 export const TOOL_SCHEMAS = {
@@ -82,9 +85,9 @@ export const TOOL_SCHEMAS = {
         limit: positiveInt(500).default(20),
         action: z.string().min(1).optional().describe("Exact action or prefix such as 'project' or 'meeting'")
     }),
-    get_global_strategy: z.object({}),
+    get_global_strategy: noParams,
     update_global_strategy: z.object({ content: z.string().min(1) }),
-    list_global_docs: z.object({}),
+    list_global_docs: noParams,
     get_global_doc: z.object({ docId: docIdSchema }),
     sync_global_doc: z.object({
         docId: docIdSchema,
