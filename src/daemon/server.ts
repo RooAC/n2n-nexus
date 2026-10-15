@@ -329,7 +329,12 @@ async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Pr
         req.on("end", () => {
             if (tooLarge) return reject(new HttpError(413, `Request body exceeds ${maxBytes} bytes`));
             if (received === 0) return resolve({});
-            try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { reject(new HttpError(400, "Invalid JSON")); }
+            let parsed: unknown;
+            try { parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return reject(new HttpError(400, "Invalid JSON")); }
+            if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+                return reject(new HttpError(400, "Request body must be a JSON object"));
+            }
+            resolve(parsed as Record<string, unknown>);
         });
         req.on("error", reject);
     });

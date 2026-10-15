@@ -76,6 +76,14 @@ describe("Daemon HTTP guards", () => {
         expect(JSON.parse(res.body).error).toContain("exceeds");
     });
 
+    it("answers 400, not 500, for a body that is not a JSON object", async () => {
+        for (const body of [null, [], "text", 42]) {
+            const res = await requestJson<{ error: string }>(port, "POST", "/api/tools/call", body);
+            expect(res.status, JSON.stringify(body)).toBe(400);
+            expect(res.payload.error).toContain("JSON object");
+        }
+    });
+
     it("still serves plain JSON clients", async () => {
         const res = await requestJson<{ ok: boolean }>(port, "POST", "/api/tools/call", call);
         expect(res.status).toBe(200);
