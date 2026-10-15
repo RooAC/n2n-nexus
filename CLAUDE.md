@@ -24,7 +24,7 @@ Pre-commit runs lint; pre-push runs `build && test` (via lefthook).
 
 ## Architecture
 
-The daemon + MCP refactor is complete (v0.5.0). See `REFACTOR_PLAN.md` for the full rationale.
+The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CHANGELOG.md` under 0.5.0.
 
 ### Entry point
 `src/index.ts` routes to `runDaemon()` (`src/daemon/`) or `NexusServer().run()` (`src/server/nexus.ts`) based on the first CLI argument (`daemon` or default).
@@ -37,7 +37,7 @@ The daemon + MCP refactor is complete (v0.5.0). See `REFACTOR_PLAN.md` for the f
 ### MCP Server (`src/server/nexus.ts`)
 Pure stateless proxy. On startup: connects stdio transport, then tries `GET /api/tools`; if daemon unreachable, schedules 3-second retry loop. On connect: calls `server.sendToolListChanged()`. `CallTool` → `POST /api/tools/call`. No hardcoded tool names.
 
-### Storage layer (`src/storage/`) — unchanged
+### Storage layer (`src/storage/`)
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
 - `sqlite.ts` + `sqlite-meeting.ts` / `global-messages.ts` / `events.ts` / `tasks.ts` — SQLite with WAL mode for meetings, global chat, the activity event log, tasks, read cursors (SQLite is required; there is no JSON fallback)
 - `registry.ts` / `projects.ts` / `docs.ts` — file-based storage for projects and global docs; all writes go through `fs-utils.ts` (daemon-wide write lock + atomic temp-file-and-rename)
