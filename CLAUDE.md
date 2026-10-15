@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run build          # tsc → build/
 npm run dev            # tsc -w (watch mode)
 npm test               # vitest run (all tests)
-npm run lint           # eslint src/**
+npm run lint           # eslint src tests
 
 # Run a single test file
 npx vitest run tests/daemon_messages.test.ts

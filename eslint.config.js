@@ -19,6 +19,14 @@ export default tseslint.config(
         }
     },
     {
+        files: ["tests/**/*.ts"],
+        rules: {
+            "@typescript-eslint/no-explicit-any": "error",
+            "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+            "no-console": ["error", { "allow": ["warn", "error"] }]
+        }
+    },
+    {
         ignores: ["build/", "node_modules/", "vitest.config.ts"]
     }
 );

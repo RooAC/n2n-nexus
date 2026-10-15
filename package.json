@@ -78,7 +78,7 @@
     "check": "npm run lint && npm test && npm run build && npm run audit && npm run pack:dry-run",
     "test:publish": "npm run build && npm test && npm pack --dry-run",
     "test:integration": "vitest run tests/daemon_projects.test.ts tests/daemon_messages.test.ts tests/message_cursor.test.ts",
-    "lint": "eslint src/**",
+    "lint": "eslint src tests",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
