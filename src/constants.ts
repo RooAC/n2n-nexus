@@ -1,7 +1,5 @@
 /**
- * Nexus Network Constants
- * 
- * Centralized configuration for network-related settings.
+ * Nexus constants
  */
 
 // Service identification
@@ -12,13 +10,8 @@ export const SERVICE_NAME = "n2n-nexus";
 // Use "0.0.0.0" only when you intentionally expose it to another trusted environment.
 export const NEXUS_HOST = "127.0.0.1";
 
-// Port range for auto-election
-export const PORT_RANGE_START = 5688;
-export const PORT_RANGE_END = 5800;
-
-// Timeouts (milliseconds)
-export const HANDSHAKE_TIMEOUT = 200;
-export const HEARTBEAT_INTERVAL = 30000;
+// Default daemon port
+export const NEXUS_PORT = 5688;
 
 // HTTP request body limit for the daemon (base64 asset uploads are the largest payload)
 export const MAX_BODY_BYTES = 16 * 1024 * 1024;
@@ -28,4 +21,3 @@ export const TASK_CLEANUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // File I/O
 export const FILE_ENCODING = "utf-8" as const;
-export const PACKAGE_JSON = "package.json";

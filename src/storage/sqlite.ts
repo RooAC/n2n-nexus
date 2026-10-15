@@ -1,5 +1,4 @@
 import Database from "better-sqlite3";
-import { createRequire } from "module";
 import { NexusPaths } from "./paths.js";
 
 let db: Database.Database | null = null;
@@ -169,16 +168,5 @@ export function closeDatabase(): void {
         db.close();
         db = null;
         console.error("[Nexus] SQLite database closed");
-    }
-}
-
-export function isSqliteAvailable(): boolean {
-    const require = createRequire(import.meta.url);
-    try {
-        // Try to load better-sqlite3
-        require("better-sqlite3");
-        return true;
-    } catch {
-        return false;
     }
 }

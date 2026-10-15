@@ -55,18 +55,6 @@ export interface MeetingSession {
     summary?: string;               // Optional summary on close
 }
 
-export interface MeetingState {
-    activeMeetings: string[];       // Stack of active meeting IDs
-    defaultMeetingId: string | null; // Most recent active meeting (for auto-routing)
-}
-
-export interface HubConfig {
-    instanceId: string;
-    isHost: boolean;
-    rootStorage: string;
-    port: number;
-}
-
 export interface Registry {
     projects: Record<string, {
         name?: string;
@@ -82,13 +70,3 @@ export interface GlobalDocEntry {
 }
 
 export type GlobalDocIndex = Record<string, GlobalDocEntry>;
-
-export interface ToolContext {
-    currentProject: string | null;
-    setCurrentProject: (id: string) => void;
-    notifyResourceUpdate: (uri: string) => void;
-    requestId?: string | number;
-    isGuest?: boolean;
-    endpoint?: string;
-    instanceId?: string;
-}

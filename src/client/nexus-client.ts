@@ -95,10 +95,6 @@ export class NexusClient {
         });
     }
 
-    async health(): Promise<{ ok: boolean; version: string }> {
-        return this.request("GET", "/health");
-    }
-
     async fetchTools(): Promise<ToolDefinition[]> {
         const res = await this.request<{ tools: ToolDefinition[] }>("GET", "/api/tools");
         return res.tools;

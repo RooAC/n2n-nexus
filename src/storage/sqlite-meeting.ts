@@ -162,7 +162,7 @@ export class SqliteMeetingStore {
     /**
      * End a meeting
      */
-    static endMeeting(meetingId: string, summary?: string, callerId?: string): { meeting: MeetingSession; suggestedSyncTargets: string[] } {
+    static endMeeting(meetingId: string, summary?: string, callerId?: string): MeetingSession {
         const db = getDatabase();
         const now = new Date().toISOString();
 
@@ -188,15 +188,7 @@ export class SqliteMeetingStore {
         this.updateState("active_meetings", JSON.stringify(activeMeetings));
         this.updateState("default_meeting", activeMeetings.length > 0 ? activeMeetings[activeMeetings.length - 1] : "");
 
-        // Refresh meeting data
-        const updatedMeeting = this.getMeeting(meetingId)!;
-        
-        // Suggest sync targets based on participants
-        const suggestedSyncTargets = updatedMeeting.participants
-            .map(p => p.split("@")[1])
-            .filter((v, i, a) => v && v !== "Global" && a.indexOf(v) === i);
-
-        return { meeting: updatedMeeting, suggestedSyncTargets };
+        return this.getMeeting(meetingId)!;
     }
 
     /**

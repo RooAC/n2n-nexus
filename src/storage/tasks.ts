@@ -70,15 +70,7 @@ export function createTask(input: CreateTaskInput = {}): Task {
     return getTask(id)!;
 }
 
-/**
- * Get a task by ID
- */
-export function getTask(id: string): Task | null {
-    const db = getDatabase();
-    const row = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-
-    if (!row) return null;
-
+function rowToTask(row: Record<string, unknown>): Task {
     return {
         id: row.id as string,
         status: row.status as TaskStatus,
@@ -91,6 +83,14 @@ export function getTask(id: string): Task | null {
         updated_at: row.updated_at as string,
         ttl: (row.ttl as number) || null
     };
+}
+
+/**
+ * Get a task by ID
+ */
+export function getTask(id: string): Task | null {
+    const row = getDatabase().prepare("SELECT * FROM tasks WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return row ? rowToTask(row) : null;
 }
 
 /**
@@ -150,42 +150,7 @@ export function listTasks(status?: TaskStatus, limit: number = 50): Task[] {
     params.push(limit);
 
     const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
-
-    return rows.map(row => ({
-        id: row.id as string,
-        status: row.status as TaskStatus,
-        progress: row.progress as number,
-        source_meeting_id: (row.source_meeting_id as string) || null,
-        metadata: row.metadata ? JSON.parse(row.metadata as string) : {},
-        result_uri: (row.result_uri as string) || null,
-        error_message: (row.error_message as string) || null,
-        created_at: row.created_at as string,
-        updated_at: row.updated_at as string,
-        ttl: (row.ttl as number) || null
-    }));
-}
-
-/**
- * Get tasks by meeting ID
- */
-export function getTasksByMeeting(meetingId: string): Task[] {
-    const db = getDatabase();
-    const rows = db.prepare(`
-        SELECT * FROM tasks WHERE source_meeting_id = ? ORDER BY created_at DESC
-    `).all(meetingId) as Record<string, unknown>[];
-
-    return rows.map(row => ({
-        id: row.id as string,
-        status: row.status as TaskStatus,
-        progress: row.progress as number,
-        source_meeting_id: (row.source_meeting_id as string) || null,
-        metadata: row.metadata ? JSON.parse(row.metadata as string) : {},
-        result_uri: (row.result_uri as string) || null,
-        error_message: (row.error_message as string) || null,
-        created_at: row.created_at as string,
-        updated_at: row.updated_at as string,
-        ttl: (row.ttl as number) || null
-    }));
+    return rows.map(rowToTask);
 }
 
 /**
@@ -214,15 +179,4 @@ export function cleanupTasks(maxAgeMs: number = TASK_CLEANUP_MAX_AGE_MS): number
     `).run(cutoff);
 
     return result.changes;
-}
-
-/**
- * Get active (pending/running) task count
- */
-export function getActiveTaskCount(): number {
-    const db = getDatabase();
-    const row = db.prepare(`
-        SELECT COUNT(*) as count FROM tasks WHERE status IN ('pending', 'running')
-    `).get() as { count: number };
-    return row.count;
 }

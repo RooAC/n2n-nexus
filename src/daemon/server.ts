@@ -158,9 +158,9 @@ async function toolEndMeeting(args: ToolArgs<"end_meeting">, instanceId: string)
     const id = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
     if (!id) throw new Error("No active meeting found to end.");
 
-    const result = SqliteMeetingStore.endMeeting(id, args.summary, instanceId);
-    EventStore.record(instanceId, "meeting.end", id, { topic: result.meeting.topic, summary: args.summary });
-    return { ok: true, meetingId: id, status: "closed", summary: result.meeting.summary };
+    const meeting = SqliteMeetingStore.endMeeting(id, args.summary, instanceId);
+    EventStore.record(instanceId, "meeting.end", id, { topic: meeting.topic, summary: args.summary });
+    return { ok: true, meetingId: id, status: "closed", summary: meeting.summary };
 }
 
 async function toolArchiveMeeting(args: ToolArgs<"archive_meeting">, instanceId: string) {

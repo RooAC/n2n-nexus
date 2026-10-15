@@ -16,7 +16,6 @@ export class StorageManager {
     static get globalBlueprint() { return NexusPaths.globalBlueprint; }
     static get projectsRoot() { return NexusPaths.projectsRoot; }
     static get registryFile() { return NexusPaths.registryFile; }
-    static get archivesDir() { return NexusPaths.archivesDir; }
 
     static async init() {
         if (this.initialized) return;
@@ -24,7 +23,6 @@ export class StorageManager {
         await fs.mkdir(NexusPaths.root, { recursive: true });
         await fs.mkdir(this.globalDir, { recursive: true });
         await fs.mkdir(this.projectsRoot, { recursive: true });
-        await fs.mkdir(this.archivesDir, { recursive: true });
 
         // Self-healing initialization for critical files
         await this.loadJsonSafe(this.registryFile, { projects: {} });
