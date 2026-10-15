@@ -20,14 +20,9 @@ get_project(projectId)          → full manifest + internal docs of one project
 read_messages(count)            → fetch messages you have not yet read (incremental, auto-cursor)
 ```
 
-### 2. Declare your working context
+### 2. Project IDs
 
-Before writing any project data, declare your active project:
-
-```
-register_session_context(projectId)   → bind this session to a project
-```
-
+There is no session to set up: every project tool takes the `projectId` it acts on.
 Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `api_user-auth`, `mcp_nexus`.
 
 ### 3. Write project data
@@ -36,7 +31,7 @@ Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `a
 sync_project_assets(manifest, internalDocs)   → sync full project data
 update_project(projectId, patch)              → partial update of manifest fields
 rename_project(oldId, newId)                  → rename and cascade-update all references
-upload_project_asset(fileName, base64Content) → upload a binary file to the project store
+upload_project_asset(projectId, fileName, base64Content) → upload a binary file to the project store
 ```
 
 All write tools run synchronously and return their result directly.
@@ -99,14 +94,13 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 ```
 1. get_global_topology()           ← learn what projects exist
 2. read_messages(20)               ← catch up on recent discussion
-3. register_session_context(id)    ← declare which project you are working on
+3. get_project(projectId)          ← read the manifest and docs of the project you work on
 ```
 
 ### Sync project data
 
 ```
-1. register_session_context(projectId)
-2. sync_project_assets(manifest, internalDocs)  ← returns { ok, projectId }
+1. sync_project_assets(manifest, internalDocs)  ← returns { ok, projectId }
 ```
 
 ### Start a collaborative discussion

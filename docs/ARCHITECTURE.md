@@ -154,7 +154,6 @@ GET  /health                 Health status + version
 
 ### Session & Projects
 ```
-POST /api/session/register
 POST /api/projects/sync
 POST /api/projects/update
 POST /api/projects/rename

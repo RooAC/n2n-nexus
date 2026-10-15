@@ -28,18 +28,16 @@ describe("Project tools through /api/tools/call", () => {
         expect(byName.payload.result?.results[0].id).toBe("api_auth");
     });
 
-    it("uploads an asset into the registered project only", async () => {
+    it("uploads an asset into an existing project named by projectId", async () => {
         const content = Buffer.from("png-bytes");
-        const noSession = await daemon.callTool("upload_project_asset", { fileName: "logo.png", base64Content: content.toString("base64") }, "ide-u");
-        expect(noSession.status).toBe(400);
-        expect(noSession.payload.error).toContain("register_session_context");
+        const noProject = await daemon.callTool("upload_project_asset", { projectId: "web_assets", fileName: "logo.png", base64Content: content.toString("base64") }, "ide-u");
+        expect(noProject.status).toBe(400);
+        expect(noProject.payload.error).toContain("not found");
 
         await daemon.callTool("sync_project_assets", { manifest: manifest("web_assets", "Assets", "d"), internalDocs: "" }, "ide-u");
-        const registered = await daemon.callTool<{ ok: boolean }>("register_session_context", { projectId: "web_assets" }, "ide-u");
-        expect(registered.payload.result?.ok).toBe(true);
 
         const upload = await daemon.callTool<{ ok: boolean; message: string }>(
-            "upload_project_asset", { fileName: "../etc/../logo v2.png", base64Content: content.toString("base64") }, "ide-u"
+            "upload_project_asset", { projectId: "web_assets", fileName: "../etc/../logo v2.png", base64Content: content.toString("base64") }, "ide-u"
         );
         expect(upload.status).toBe(200);
         const assetsDir = path.join(daemon.root, "projects", "web_assets", "assets");

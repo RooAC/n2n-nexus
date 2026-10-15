@@ -24,30 +24,8 @@ async function initializeStorage(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Per-instance session context (in-memory)
-// ---------------------------------------------------------------------------
-
-type SessionCtx = { currentProject: string | null };
-const sessions = new Map<string, SessionCtx>();
-
-function getSession(instanceId: string): SessionCtx {
-    if (!sessions.has(instanceId)) sessions.set(instanceId, { currentProject: null });
-    return sessions.get(instanceId)!;
-}
-
-// ---------------------------------------------------------------------------
 // Tool handlers
 // ---------------------------------------------------------------------------
-
-async function toolRegisterSessionContext(args: ToolArgs<"register_session_context">, instanceId: string) {
-    const manifest = await StorageManager.getProjectManifest(args.projectId);
-    if (!manifest) {
-        return { ok: false, message: `Project '${args.projectId}' not found in registry.` };
-    }
-    getSession(instanceId).currentProject = args.projectId;
-    EventStore.record(instanceId, "session.register", args.projectId);
-    return { ok: true, message: `Session context registered for project: ${args.projectId}.` };
-}
 
 async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, instanceId: string) {
     const m = { ...args.manifest, lastUpdated: args.manifest.lastUpdated ?? new Date().toISOString() };
@@ -58,13 +36,12 @@ async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, inst
 }
 
 async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceId: string) {
-    const session = getSession(instanceId);
-    if (!session.currentProject) throw new Error("No active project. Call register_session_context first.");
+    if (!await StorageManager.getProjectManifest(args.projectId)) throw new Error(`Project '${args.projectId}' not found.`);
     const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const buf = Buffer.from(args.base64Content, "base64");
-    await StorageManager.saveAsset(session.currentProject, sanitized, buf);
-    EventStore.record(instanceId, "project.asset", session.currentProject, { fileName: sanitized, bytes: buf.length });
-    return { ok: true, message: `Asset '${sanitized}' saved to project '${session.currentProject}'.` };
+    await StorageManager.saveAsset(args.projectId, sanitized, buf);
+    EventStore.record(instanceId, "project.asset", args.projectId, { fileName: sanitized, bytes: buf.length });
+    return { ok: true, projectId: args.projectId, fileName: sanitized, message: `Asset '${sanitized}' saved to project '${args.projectId}'.` };
 }
 
 async function toolUpdateProject(args: ToolArgs<"update_project">, instanceId: string) {
@@ -265,7 +242,6 @@ async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, inst
 
 async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string): Promise<unknown> {
     switch (name) {
-        case "register_session_context":  return toolRegisterSessionContext(parseToolArgs(name, rawArgs), instanceId);
         case "sync_project_assets":       return toolSyncProjectAssets(parseToolArgs(name, rawArgs), instanceId);
         case "upload_project_asset":      return toolUploadAsset(parseToolArgs(name, rawArgs), instanceId);
         case "update_project":            return toolUpdateProject(parseToolArgs(name, rawArgs), instanceId);
@@ -518,13 +494,6 @@ export async function createDaemonServer(options: {
 
             if (method === "GET" && path === "/api/projects/topology") {
                 return jsonResponse(res, 200, await callTool("get_global_topology", queryArgs(url, []), "unknown"));
-            }
-
-            // Session
-            if (method === "POST" && path === "/api/session/register") {
-                const body = await parseBody(req);
-                const result = await callTool("register_session_context", body, actor(body)) as { ok: boolean };
-                return jsonResponse(res, result.ok ? 200 : 404, result);
             }
 
             // Global docs

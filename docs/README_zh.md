@@ -112,16 +112,12 @@ npx n2n-nexus daemon --port 5688
 
 ## 工具集
 
-### 会话和上下文
-
-- `register_session_context`：声明当前活跃项目 ID。
-
 ### 项目资产管理
 
 - `sync_project_assets`：提交项目 Manifest 和内部文档。
 - `update_project`：局部更新项目 Manifest。
 - `rename_project`：重命名项目 ID 并更新关联关系。
-- `upload_project_asset`：上传二进制或文本资产。
+- `upload_project_asset`：向指定项目上传二进制或文本资产。
 - `search_projects`：搜索项目注册表。
 - `get_global_topology`：查看项目拓扑和依赖关系。
 - `get_project`：读取项目完整 Manifest 和内部文档。
@@ -219,7 +215,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | daemon 端口（`--port` 优先） | `5688` |
 | `NEXUS_ALLOWED_HOSTS` | `Host` 头额外允许的域名，逗号分隔（IP、`localhost`、`host.docker.internal` 始终允许） | 空 |
-| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会话上下文、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
+| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
 
 ## 安全和治理说明
 

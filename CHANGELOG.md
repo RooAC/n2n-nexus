@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- `register_session_context` and `POST /api/session/register`. The daemon kept an in-memory "current project" per instance that only `upload_project_asset` used; MCP 2026-07-28 makes protocol sessions go away and recommends passing cross-call state as explicit tool arguments. `upload_project_asset` now takes `projectId` and checks that the project exists.
+
 - Leftovers from the pre-0.5 election architecture and other dead code: unused constants (`PORT_RANGE_*`, `HANDSHAKE_TIMEOUT`, `HEARTBEAT_INTERVAL`), `hasFlag`, `HubConfig`/`ToolContext`/`MeetingState` types, `isSqliteAvailable`, `getTasksByMeeting`, `getActiveTaskCount`, `NexusClient.health`, the never-used `archives/` directory and `tasks.json` path, `suggestedSyncTargets` (parsed a `name@project` instance-id format that no longer exists), the undocumented `NEXUS_PORT` alias of `NEXUS_DAEMON_PORT`, and `migrations/003_add_tasks_table.sql` (the schema lives in `sqlite.ts`). The two `getRootPath` implementations are merged into `config/paths.ts`, so `--root ./relative` and `~` are resolved consistently. `billing` is now preserved on read and patch instead of being dropped.
 
 - JSON meeting-store fallback (`store.ts`, `meetings.ts`) and the `/api/storage/info` endpoint. SQLite is required; the daemon no longer reports a "degraded" storage mode.

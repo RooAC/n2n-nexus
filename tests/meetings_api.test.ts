@@ -36,7 +36,7 @@ describe("Meeting lifecycle through the daemon", () => {
         const started = await daemon.callTool<{ meetingId: string }>("start_meeting", { topic: "Routing" }, "ide-a");
         const meetingId = started.payload.result!.meetingId;
 
-        // No register_session_context needed: an active meeting receives the message.
+        // An active meeting receives messages without any prior setup.
         const toActive = await daemon.callTool<{ sentTo: string; meetingId: string }>("send_message", { message: "hello" }, "ide-b");
         expect(toActive.payload.result).toMatchObject({ sentTo: "meeting", meetingId });
 

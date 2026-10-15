@@ -103,11 +103,11 @@ The adapter can start before the daemon. It loads the daemon tool list once the 
 
 ## 🛠️ Toolset
 
-The daemon exposes 27 tools, grouped by purpose:
+The daemon exposes 26 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
-| **Session & topology** | `register_session_context`, `get_global_topology` | Declare the active project before other calls; read the project list or a detailed per-project subgraph. |
+| **Topology** | `get_global_topology` | Read the project list or a detailed per-project subgraph. |
 | **Projects & assets** | `search_projects`, `get_project`, `update_project`, `rename_project`, `sync_project_assets`, `upload_project_asset` | Find, read, update, and rename projects; sync manifests and internal docs; upload binary assets. |
 | **Global docs** | `list_global_docs`, `get_global_doc`, `sync_global_doc`, `get_global_strategy`, `update_global_strategy` | List, read, create and update shared global documents and the master strategy document. |
 | **Messaging** | `send_message`, `read_messages`, `list_events` | Post and read meeting and global messages; read the structured activity log. |
@@ -179,7 +179,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | Daemon port (overridden by `--port`) | `5688` |
 | `NEXUS_ALLOWED_HOSTS` | Extra DNS names accepted in the `Host` header (IP literals, `localhost`, `host.docker.internal` are always accepted) | empty |
-| `NEXUS_INSTANCE_ID` | Override MCP instance ID (read cursors, session context and meeting permissions are keyed on it) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
+| `NEXUS_INSTANCE_ID` | Override MCP instance ID (read cursors and meeting permissions are keyed on it) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
 
 ## 🔐 Security and governance notes
 
@@ -195,7 +195,7 @@ The docs include a recorded multi-agent session that shows n2n-nexus in action. 
 
 What to look for in the session:
 
-- **Shared coordination space**: each assistant registered its active project with `register_session_context`, then read and wrote to the same daemon throughout the session.
+- **Shared coordination space**: each assistant registered its active project (with the `register_session_context` tool of that release; current versions pass `projectId` explicitly instead), then read and wrote to the same daemon throughout the session.
 - **Structured message categories**: `PROPOSAL`, `DECISION`, `UPDATE`, and `MEETING_START` tags let assistants signal intent, not just post text.
 - **SYSTEM entries**: lines like `[Augment] Synced global doc: edge-sync-protocol-v1` record actual tool calls. That version wrote them into the chat stream; current versions keep them out of the conversation and expose them as structured events through `list_events`.
 - **Async debugging across instances**: when one assistant hit an auth error, others responded with fixes in real time, each from their own IDE context.

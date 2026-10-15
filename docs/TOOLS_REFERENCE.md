@@ -7,10 +7,10 @@ Parameter tables below are derived from the zod contracts in `src/daemon/tools.t
 ## Conventions
 
 - Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint` (may overwrite or delete existing data), `idempotentHint` and `openWorldHint: false` (all tools act only on the local daemon). Read tools are marked read-only; `sync_project_assets`, `update_project`, `upload_project_asset`, `sync_global_doc`, `update_global_strategy`, `host_maintenance` and `host_delete_project` are marked destructive, so clients can ask for confirmation. `read_messages` is not read-only because it advances the unread cursor.
-- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name comes from the MCP initialize handshake). Read cursors, session context and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
+- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name comes from the MCP initialize handshake). Read cursors and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.
-- `upload_project_asset` requires an active session project. Call `register_session_context` first.
+- There is no session state: tools that act on a project take `projectId` explicitly.
 - `host_delete_project` is destructive and irreversible.
 
 ## Shared object shapes
@@ -37,21 +37,6 @@ Used by `sync_project_assets` and partially by `update_project`.
 | `api_versions` | object | no | Optional feature-level API version map. |
 | `feature_tier` | string | no | Optional `standard`, `advanced`, or `team`. |
 
-## Session and context
-
-### `register_session_context`
-
-Declare the active project for this adapter instance.
-
-| Parameter | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `projectId` | string | yes | Project ID with prefix. The project must already exist in the registry. |
-
-Behavior:
-
-- Sets in-memory session context for the current adapter instance.
-- Returns `{ ok: false }` if the project is not found.
-
 ## Project asset management
 
 ### `sync_project_assets`
@@ -70,17 +55,18 @@ Behavior:
 
 ### `upload_project_asset`
 
-Upload a binary or text asset into the active project's asset store.
+Upload a binary or text asset into a project's asset store.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
+| `projectId` | string | yes | Target project. Must exist. |
 | `fileName` | string | yes | Filename only. Unsafe path characters are replaced. |
 | `base64Content` | string | yes | Base64-encoded file content. |
 
 Behavior:
 
-- Requires `register_session_context` first.
-- Saves to the current project's assets directory.
+- Saves to `projects/<projectId>/assets/`, replacing a file with the same name.
+- Returns `{ ok: true, projectId, fileName }` with the sanitized file name.
 
 ### `update_project`
 
@@ -184,7 +170,7 @@ Read the structured activity log.
 
 Behavior:
 
-- Every state change made through the daemon is recorded: `session.register`, `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
+- Every state change made through the daemon is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
 - Each event carries `timestamp`, `actor` (instance ID), `action`, optional `target` and `detail`.
 
 ### `update_global_strategy`

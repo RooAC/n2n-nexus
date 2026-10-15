@@ -22,14 +22,9 @@ get_project(projectId)          → 读取单个项目的完整 Manifest + 内�
 read_messages(count)            → 获取你尚未读取的消息（增量，自动游标）
 ```
 
-### 2. 声明工作上下文
+### 2. 项目 ID
 
-在写入任何项目数据前，必须先声明活跃项目：
-
-```
-register_session_context(projectId)   → 绑定当前会话到指定项目
-```
-
+无需建立会话：每个项目工具都显式传入要操作的 `projectId`。
 项目 ID 格式必须为 `[prefix]_[name]`，例如：`web_datafrog.io`、`api_user-auth`、`mcp_nexus`。
 
 ### 3. 项目数据写入
@@ -38,7 +33,7 @@ register_session_context(projectId)   → 绑定当前会话到指定项目
 sync_project_assets(manifest, internalDocs)   → 同步项目全量数据
 update_project(projectId, patch)              → 部分更新 Manifest 字段
 rename_project(oldId, newId)                  → 重命名并级联更新所有引用
-upload_project_asset(fileName, base64Content) → 上传二进制文件到项目库
+upload_project_asset(projectId, fileName, base64Content) → 上传二进制文件到项目库
 ```
 
 所有写入工具都同步执行并直接返回结果。
@@ -99,13 +94,12 @@ host_delete_project(projectId)    → 永久删除项目（不可逆）
 ```
 1. get_global_topology()           ← 了解有哪些项目
 2. read_messages(20)               ← 了解最近的讨论
-3. register_session_context(id)    ← 声明我在哪个项目工作
+3. get_project(projectId)          ← 读取所负责项目的 Manifest 与文档
 ```
 
 ### 同步项目数据
 ```
-1. register_session_context(projectId)
-2. sync_project_assets(manifest, internalDocs)  ← 返回 { ok, projectId }
+1. sync_project_assets(manifest, internalDocs)  ← 返回 { ok, projectId }
 ```
 
 ### 发起协作讨论

@@ -18,6 +18,8 @@
 
 ### 移除
 
+- `register_session_context` 与 `POST /api/session/register`。守护进程为每个实例在内存里记“当前项目”，只有 `upload_project_asset` 用它；MCP 2026-07-28 取消了协议会话，并建议跨调用状态以显式工具参数传递。`upload_project_asset` 改为接收 `projectId` 并校验项目存在。
+
 - 0.5 之前选举架构的残留与其他死代码：未使用的常量（`PORT_RANGE_*`、`HANDSHAKE_TIMEOUT`、`HEARTBEAT_INTERVAL`）、`hasFlag`、`HubConfig`/`ToolContext`/`MeetingState` 类型、`isSqliteAvailable`、`getTasksByMeeting`、`getActiveTaskCount`、`NexusClient.health`、从未使用的 `archives/` 目录与 `tasks.json` 路径、`suggestedSyncTargets`（解析早已不存在的 `name@project` 实例 ID 格式）、未写入文档的 `NEXUS_PORT`（`NEXUS_DAEMON_PORT` 的别名）以及 `migrations/003_add_tasks_table.sql`（schema 在 `sqlite.ts` 中）。两份 `getRootPath` 实现合并到 `config/paths.ts`，`--root ./relative` 与 `~` 的解析因此一致。`billing` 在读取与 patch 时不再被丢弃。
 
 - 会议存储的 JSON 回退（`store.ts`、`meetings.ts`）与 `/api/storage/info` 端点。SQLite 为必需依赖，daemon 不再报告“degraded”存储模式。

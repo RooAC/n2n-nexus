@@ -45,15 +45,13 @@ const noParams = z.strictObject({});
 export const TASK_STATUSES = ["pending", "running", "completed", "failed", "cancelled"] as const;
 
 export const TOOL_SCHEMAS = {
-    // Session
-    register_session_context: z.object({ projectId: projectIdSchema }),
-
     // Projects
     sync_project_assets: z.object({
         manifest: manifestSchema,
         internalDocs: z.string().describe("Markdown implementation guide")
     }),
     upload_project_asset: z.object({
+        projectId: projectIdSchema,
         fileName: z.string().min(1).describe("Filename only; unsafe characters are replaced"),
         base64Content: z.string().min(1)
     }),
@@ -133,9 +131,8 @@ export type ToolName = keyof typeof TOOL_SCHEMAS;
 export type ToolArgs<N extends ToolName> = z.infer<typeof TOOL_SCHEMAS[N]>;
 
 const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
-    register_session_context: "Declare active project. Format: [prefix]_[name] (e.g. 'web_example.com', 'mcp_nexus').",
     sync_project_assets: "Sync full project manifest + internal docs.",
-    upload_project_asset: "Upload binary file (base64) to active project's asset folder.",
+    upload_project_asset: "Upload a binary file (base64) to a project's asset folder.",
     update_project: "Patch project manifest fields (partial update).",
     rename_project: "Rename project ID with cascading relation updates.",
     search_projects: "Search project registry by name or description.",
@@ -180,7 +177,6 @@ const write = (destructive: boolean, idempotent: boolean): ToolAnnotations =>
     ({ readOnlyHint: false, destructiveHint: destructive, idempotentHint: idempotent, openWorldHint: false });
 
 const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
-    register_session_context: write(false, true),
     sync_project_assets: write(true, true),       // replaces manifest and docs
     upload_project_asset: write(true, true),      // overwrites a same-named asset
     update_project: write(true, true),            // replaces the patched fields

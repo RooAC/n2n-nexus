@@ -5,7 +5,7 @@ import { MESSAGE_CATEGORIES } from "../src/types.js";
 
 describe("Tool contracts", () => {
     it("publishes one JSON Schema per tool, generated from the zod contract", () => {
-        expect(TOOL_DEFINITIONS).toHaveLength(27);
+        expect(TOOL_DEFINITIONS).toHaveLength(26);
         for (const tool of TOOL_DEFINITIONS) {
             expect(tool.inputSchema.type).toBe("object");
             expect(tool.inputSchema).not.toHaveProperty("$schema");
@@ -46,7 +46,7 @@ describe("Argument validation through the daemon", () => {
         expect(badCategory.status).toBe(400);
         expect(badCategory.payload.error).not.toContain("CHECK constraint");
 
-        const traversal = await daemon.callTool("register_session_context", { projectId: "../escape" });
+        const traversal = await daemon.callTool("get_project", { projectId: "../escape" });
         expect(traversal.status).toBe(400);
 
         const idInPatch = await daemon.callTool("update_project", { projectId: "web_x", patch: { id: "web_y" } });

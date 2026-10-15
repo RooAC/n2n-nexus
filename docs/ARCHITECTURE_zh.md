@@ -154,7 +154,6 @@ GET  /health                 健康状态 + 版本信息
 
 ### 会话与项目
 ```
-POST /api/session/register
 POST /api/projects/sync
 POST /api/projects/update
 POST /api/projects/rename

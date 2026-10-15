@@ -13,8 +13,8 @@ describe("Ids that collide with Object.prototype keys", () => {
 
     it("does not treat 'constructor' or 'toString' as existing projects", async () => {
         for (const id of ["constructor", "toString", "hasOwnProperty"]) {
-            const reg = await daemon.callTool<{ ok: boolean }>("register_session_context", { projectId: id });
-            expect(reg.payload.result?.ok, id).toBe(false);
+            const get = await daemon.callTool("get_project", { projectId: id });
+            expect(get.status, id).toBe(400);
             const del = await daemon.callTool("host_delete_project", { projectId: id });
             expect(del.status, id).toBe(400);
         }
@@ -24,8 +24,8 @@ describe("Ids that collide with Object.prototype keys", () => {
         for (const id of ["constructor", "__proto__"]) {
             const sync = await daemon.callTool("sync_project_assets", { manifest: manifest(id), internalDocs: "" });
             expect(sync.status, id).toBe(200);
-            const reg = await daemon.callTool<{ ok: boolean }>("register_session_context", { projectId: id });
-            expect(reg.payload.result?.ok, id).toBe(true);
+            const got = await daemon.callTool<{ manifest: { id: string } }>("get_project", { projectId: id });
+            expect(got.payload.result?.manifest.id, id).toBe(id);
 
             const doc = await daemon.callTool("sync_global_doc", { docId: id, title: `T ${id}`, content: "# c" });
             expect(doc.status, id).toBe(200);
