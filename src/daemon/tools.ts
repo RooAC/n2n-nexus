@@ -172,7 +172,12 @@ export type ToolAnnotations = {
 };
 
 const readOnly: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
-/** Changes state; `destructive` = may overwrite or remove existing data; `idempotent` = repeating the same call has no further effect. */
+/**
+ * Changes state. `destructive` follows the MCP definition: false only when the
+ * tool makes purely additive updates; anything that rewrites or removes
+ * existing state (status changes included) is destructive. `idempotent` =
+ * repeating the same call has no further effect.
+ */
 const write = (destructive: boolean, idempotent: boolean): ToolAnnotations =>
     ({ readOnlyHint: false, destructiveHint: destructive, idempotentHint: idempotent, openWorldHint: false });
 
@@ -180,12 +185,12 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
     sync_project_assets: write(true, true),       // replaces manifest and docs
     upload_project_asset: write(true, true),      // overwrites a same-named asset
     update_project: write(true, true),            // replaces the patched fields
-    rename_project: write(false, false),
+    rename_project: write(true, false),           // removes the old id, rewrites relations
     search_projects: readOnly,
     get_global_topology: readOnly,
     get_project: readOnly,
     send_message: write(false, false),
-    read_messages: write(false, false),           // advances this instance's unread cursor
+    read_messages: write(false, false),           // only advances this instance's own unread cursor (bookkeeping, not shared data)
     list_events: readOnly,
     get_global_strategy: readOnly,
     update_global_strategy: write(true, true),    // overwrites the document
@@ -194,13 +199,13 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
     sync_global_doc: write(true, true),           // overwrites the document
     list_meetings: readOnly,
     start_meeting: write(false, false),
-    end_meeting: write(false, false),
-    archive_meeting: write(false, false),
-    reopen_meeting: write(false, false),
+    end_meeting: write(true, false),              // closes the meeting, sets summary
+    archive_meeting: write(true, false),          // changes status
+    reopen_meeting: write(true, false),           // changes status
     create_task: write(false, false),
     get_task: readOnly,
     list_tasks: readOnly,
-    cancel_task: write(false, true),
+    cancel_task: write(true, true),               // irreversible status change
     host_maintenance: write(true, false),         // deletes chat messages
     host_delete_project: write(true, true)        // irreversible
 };

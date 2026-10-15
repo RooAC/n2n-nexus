@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `rename_project`, `cancel_task`, `end_meeting`, `archive_meeting` and `reopen_meeting` were annotated `destructiveHint: false`, which MCP reserves for purely additive tools; clients could run them without asking the user. They are now marked destructive.
+
 - When the daemon reported a tool as unknown (for example after an upgrade the adapter did not notice), the adapter returned `-32602` but kept offering the tool in `tools/list`. It now re-fetches the tool list and sends `list_changed` if it differs.
 
 - The adapter fetched the daemon tool list before it began reading stdin. A daemon that accepted connections but never answered held `server/discover` and `initialize` for the 5-second client timeout, long enough for probing clients to misclassify the server as legacy, and delayed exit after stdin closed. The adapter now serves immediately and fetches in the background.

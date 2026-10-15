@@ -21,6 +21,13 @@ describe("Tool contracts", () => {
         // read_messages moves the unread cursor, so it is not read-only.
         expect(byName.read_messages.annotations.readOnlyHint).toBe(false);
         expect(byName.send_message.annotations.destructiveHint).toBe(false);
+        // Only purely additive tools may be non-destructive.
+        for (const name of ["rename_project", "cancel_task", "end_meeting", "archive_meeting", "reopen_meeting"]) {
+            expect(byName[name].annotations.destructiveHint, name).toBe(true);
+        }
+        for (const name of ["send_message", "start_meeting", "create_task"]) {
+            expect(byName[name].annotations.destructiveHint, name).toBe(false);
+        }
 
         for (const name of ["get_global_strategy", "list_global_docs"]) {
             expect(byName[name].inputSchema, name).toEqual({ type: "object", properties: {}, additionalProperties: false });

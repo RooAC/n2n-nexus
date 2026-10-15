@@ -26,6 +26,8 @@
 
 ### 修复
 
+- `rename_project`、`cancel_task`、`end_meeting`、`archive_meeting`、`reopen_meeting` 此前标注为 `destructiveHint: false`，而 MCP 规定该值只用于纯追加式工具，客户端可能不经用户确认就执行它们。现在标为破坏性。
+
 - 守护进程报告工具不存在时（例如升级后适配器未察觉），适配器虽返回 `-32602`，`tools/list` 却仍列出该工具。现在会重新拉取工具列表，有变化时发送 `list_changed`。
 
 - 适配器此前先拉取守护进程工具列表、再开始读 stdin。守护进程接受连接却不回应时，`server/discover` 与 `initialize` 要等 5 秒客户端超时，足以让探测型客户端把它误判为旧版服务器，stdin 关闭后也迟迟不退出。现在适配器立即开始服务，在后台拉取。
