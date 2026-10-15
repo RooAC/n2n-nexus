@@ -266,7 +266,11 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
 
 function jsonResponse(res: http.ServerResponse, status: number, body: unknown) {
     const payload = JSON.stringify(body);
-    res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) });
+    res.writeHead(status, {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        ...(status === 413 ? { Connection: "close" } : {})
+    });
     res.end(payload);
 }
 
@@ -310,16 +314,20 @@ async function parseRequestBody(req: http.IncomingMessage, maxBytes: number): Pr
     return new Promise((resolve, reject) => {
         const chunks: Buffer[] = [];
         let received = 0;
+        let tooLarge = false;
         req.on("data", (chunk: Buffer) => {
+            if (tooLarge) return;
             received += chunk.length;
             if (received > maxBytes) {
-                reject(new HttpError(413, `Request body exceeds ${maxBytes} bytes`));
-                req.destroy();
+                // Keep draining so the 413 can still be written; the response closes the connection.
+                tooLarge = true;
+                chunks.length = 0;
                 return;
             }
             chunks.push(chunk);
         });
         req.on("end", () => {
+            if (tooLarge) return reject(new HttpError(413, `Request body exceeds ${maxBytes} bytes`));
             if (received === 0) return resolve({});
             try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { reject(new HttpError(400, "Invalid JSON")); }
         });

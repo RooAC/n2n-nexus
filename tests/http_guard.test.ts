@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { AddressInfo } from "node:net";
+import http from "node:http";
 
 import { createDaemonServer } from "../src/daemon/server.js";
 import { closeDatabase } from "../src/storage/sqlite.js";
@@ -57,6 +58,22 @@ describe("Daemon HTTP guards", () => {
         const big = { ...call, args: { message: "x".repeat(MAX_BODY * 2) } };
         const res = await requestJson<{ error: string }>(port, "POST", "/api/tools/call", big);
         expect(res.status).toBe(413);
+    });
+
+    it("answers 413 for an oversized chunked body too", async () => {
+        const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+            const req = http.request(
+                { method: "POST", hostname: "127.0.0.1", port, path: "/api/tools/call",
+                  headers: { "Content-Type": "application/json", "Transfer-Encoding": "chunked" } },
+                (r) => { let body = ""; r.on("data", (c) => (body += c)); r.on("end", () => resolve({ status: r.statusCode || 0, body })); }
+            );
+            req.on("error", reject);
+            req.write("{\"tool\":\"send_message\",\"args\":{\"message\":\"");
+            req.write("x".repeat(MAX_BODY * 2));
+            req.end("\"}}");
+        });
+        expect(res.status).toBe(413);
+        expect(JSON.parse(res.body).error).toContain("exceeds");
     });
 
     it("still serves plain JSON clients", async () => {
