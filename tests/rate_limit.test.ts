@@ -24,6 +24,17 @@ describe("RateLimiter", () => {
     });
 
     it("is disabled with a limit of 0 and reads its defaults from the environment", () => {
+        // burst below one call still allows one call per refill instead of rejecting forever,
+        // and burst 0 does not silently disable limiting.
+        let t = 0;
+        const tiny = new RateLimiter(1, 0.5, () => t);
+        expect(tiny.enabled).toBe(true);
+        expect(tiny.take("k")).toBe(0);
+        expect(tiny.take("k")).toBe(1);
+        t += 1000;
+        expect(tiny.take("k")).toBe(0);
+        expect(new RateLimiter(5, 0).enabled).toBe(true);
+
         const off = new RateLimiter(0, 0);
         for (let i = 0; i < 1000; i++) expect(off.take("x")).toBe(0);
         expect(rateLimitFromEnv({})).toEqual({ perSecond: 20, burst: 60 });

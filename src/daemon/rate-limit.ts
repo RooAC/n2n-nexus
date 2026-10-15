@@ -1,19 +1,24 @@
 /**
  * Token-bucket rate limiter keyed by caller. Each key may make `burst`
- * calls at once and refills at `perSecond`. A limit of 0 disables it.
+ * calls at once and refills at `perSecond`. Only `perSecond` = 0 disables
+ * it; `burst` is at least 1 (a bucket smaller than one call would reject
+ * every call forever).
  */
 export class RateLimiter {
     private buckets = new Map<string, { tokens: number; updated: number }>();
     private lastSweep = 0;
+    private readonly burst: number;
 
     constructor(
         private readonly perSecond: number,
-        private readonly burst: number,
+        burst: number,
         private readonly now: () => number = Date.now
-    ) { }
+    ) {
+        this.burst = Math.max(1, burst);
+    }
 
     get enabled(): boolean {
-        return this.perSecond > 0 && this.burst > 0;
+        return this.perSecond > 0;
     }
 
     /** Take one token for `key`. Returns 0 when allowed, otherwise seconds until a token is available. */

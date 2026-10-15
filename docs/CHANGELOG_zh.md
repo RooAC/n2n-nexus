@@ -32,6 +32,8 @@
 
 ### 修复
 
+- `NEXUS_RATE_BURST` 取 0 到 1 之间的值会让所有调用永远返回 429，取 0 则静默关闭限流。现在突发数至少为 1，只有 `NEXUS_RATE_LIMIT=0` 才关闭限流。
+
 - 旧版本（其 `update_project` 未经校验就写盘）写入的 manifest 中，relations、endpoints、apiSpec 等嵌套项可能缺字段或带多余字段，导致 `get_project` 与 `get_global_topology` 在 2026-07-28 客户端上通不过 outputSchema 校验。现在读取时规范化：丢弃无效项，缺失的字符串补为空，未知关系类型按 `related` 处理；不改写磁盘文件。
 
 - 结果契约此前只靠 TypeScript 约束，而 TypeScript 不检查返回变量里的多余字段，存储数据新增字段就可能以违反已发布 `outputSchema` 的 structuredContent 到达客户端。现在每个结果出守护进程前都经过 zod 契约：剥掉未声明字段，无法满足契约的结果变为服务端错误。
