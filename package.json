@@ -67,7 +67,7 @@
     "node": "^22.14.0 || >=23.6.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"fs.rmSync('build', { recursive: true, force: true })\" && tsc",
     "start": "node build/index.js",
     "daemon": "node build/index.js daemon",
     "dev": "tsc -w",

@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `npm run build` now clears `build/` first. `tsc` alone left compiled files of deleted sources behind (for example `build/storage/store.js`), and `npm publish` would have shipped them.
+
 - `ttl` on tasks was stored but never enforced and `cleanupTasks` was never scheduled, so the tasks table grew forever. The daemon now runs task maintenance at startup and hourly: pending/running tasks past their TTL are marked `failed` (`TTL expired`) and finished tasks older than 7 days are purged. The `tasks_updated_at` trigger is dropped: it overwrote the ISO 8601 `updated_at` written by `updateTask` with `datetime('now')` in a different format, so age comparisons mixed two timestamp formats.
 
 - `update_global_strategy` wrote `global/docs/strategy.md` while the documentation described `global/blueprint.md` as the master strategy document, and two initializers created `blueprint.md` with different placeholder text. The tool now writes `blueprint.md`; `GET /api/global/strategy` reads it.

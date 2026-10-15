@@ -16,6 +16,8 @@
 
 ### 修复
 
+- `npm run build` 现在先清空 `build/`。单独的 `tsc` 会留下已删除源码的编译产物（例如 `build/storage/store.js`），`npm publish` 会把它们一起发布。
+
 - 任务的 `ttl` 只存不用，`cleanupTasks` 也从未被调度，tasks 表无限增长。daemon 现在在启动时和每小时执行任务维护：超过 TTL 的 pending/running 任务标记为 `failed`（`TTL expired`），完成超过 7 天的任务被清除。同时删除 `tasks_updated_at` 触发器：它会用另一种格式的 `datetime('now')` 覆盖 `updateTask` 写入的 ISO 8601 `updated_at`，使时间比较混用两种格式。
 
 - `update_global_strategy` 写的是 `global/docs/strategy.md`，而文档把 `global/blueprint.md` 描述为主战略文档，且两处初始化用不同占位文案各创建一次 `blueprint.md`。现在该工具写入 `blueprint.md`，`GET /api/global/strategy` 读取它。
