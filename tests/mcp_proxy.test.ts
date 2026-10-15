@@ -64,4 +64,17 @@ describe("MCP proxy", () => {
         expect(JSON.parse(text)).toMatchObject({ ok: true, sentTo: "global" });
         await client.close();
     });
+
+    it("derives the instance id from the IDE name when none is pinned", async () => {
+        delete process.env.NEXUS_INSTANCE_ID;
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await new NexusServer().run(serverSide);
+        const client = new Client({ name: "Fancy IDE", version: "1.0" });
+        await client.connect(clientSide);
+        await client.callTool({ name: "send_message", arguments: { message: "from ide" } });
+        const recent = await daemon.callTool<{ messages: { from: string }[] }>("read_messages", { count: 5 }, "observer");
+        expect(recent.payload.result?.messages[0].from).toMatch(/^mcp-.+-[0-9a-f]{8}-fancy-ide$/);
+        await client.close();
+    });
 });

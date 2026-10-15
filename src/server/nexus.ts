@@ -16,14 +16,13 @@ const SERVICE_NAME = "n2n-nexus";
 export class NexusServer {
     private server: Server;
     private client: NexusClient;
-    private instanceId: string;
+    private instanceId: string | null = null;
     private cachedTools: ToolDefinition[] = [];
     private retryTimer: NodeJS.Timeout | null = null;
     private connected = false;
 
     constructor() {
         const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-        this.instanceId = resolveInstanceId();
         this.client = new NexusClient({ endpoint, timeoutMs: 5000 });
 
         this.server = new Server(
@@ -51,7 +50,7 @@ export class NexusServer {
                 const result = await this.client.callTool(
                     request.params.name,
                     request.params.arguments,
-                    this.instanceId
+                    this.getInstanceId()
                 );
                 return {
                     content: [{
@@ -78,6 +77,14 @@ export class NexusServer {
                 };
             }
         });
+    }
+
+    /** Resolved on first use so the IDE's name from the MCP initialize handshake is available. */
+    private getInstanceId(): string {
+        if (!this.instanceId) {
+            this.instanceId = resolveInstanceId(process.env, process.argv, process.cwd(), this.server.getClientVersion()?.name);
+        }
+        return this.instanceId;
     }
 
     private async tryConnect(): Promise<boolean> {

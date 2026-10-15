@@ -20,7 +20,7 @@ OPTIONS:
   --root <path>      Storage directory for daemon (default: ~/.n2n-nexus)
   --port <port>      HTTP port for daemon (default: 5688)
   --host <host>      Host address for daemon (default: 127.0.0.1)
-  --id <id>          Instance ID for MCP proxy (default: mcp-<hostname>-<cwd hash>)
+  --id <id>          Instance ID for MCP proxy (default: mcp-<hostname>-<cwd hash>-<IDE name>)
   --version, -v      Show version
   --help, -h         Show this help
 

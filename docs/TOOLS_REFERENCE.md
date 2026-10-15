@@ -6,7 +6,7 @@ Parameter tables below are derived from the zod contracts in `src/daemon/tools.t
 
 ## Conventions
 
-- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>` by default). Read cursors, session context and meeting initiator permissions are keyed on it, so it stays the same across IDE restarts in the same workspace.
+- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name comes from the MCP initialize handshake). Read cursors, session context and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.
 - `upload_project_asset` requires an active session project. Call `register_session_context` first.

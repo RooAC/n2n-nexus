@@ -214,7 +214,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | daemon 端口（`--port` 优先） | `5688` |
 | `NEXUS_ALLOWED_HOSTS` | `Host` 头额外允许的域名，逗号分隔（IP、`localhost`、`host.docker.internal` 始终允许） | 空 |
-| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会话上下文、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>` |
+| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会话上下文、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
 
 ## 安全和治理说明
 

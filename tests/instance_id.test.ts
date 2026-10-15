@@ -16,4 +16,12 @@ describe("resolveInstanceId", () => {
         expect(a).not.toBe(c);
         expect(a.startsWith(`mcp-${os.hostname()}-`)).toBe(true);
     });
+
+    it("keeps two IDEs on the same workspace apart by client name", () => {
+        const vscode = resolveInstanceId({}, ["node", "x"], "/w", "Visual Studio Code");
+        const cli = resolveInstanceId({}, ["node", "x"], "/w", "claude-code");
+        expect(vscode).not.toBe(cli);
+        expect(vscode.endsWith("-visual-studio-code")).toBe(true);
+        expect(resolveInstanceId({ NEXUS_INSTANCE_ID: "pinned" }, ["node", "x"], "/w", "ide")).toBe("pinned");
+    });
 });
