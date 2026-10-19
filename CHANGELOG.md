@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-10-20
+
+### Added
+
+- Session discovery with `list_sessions` and `update_session`: each MCP connection has a distinct session ID, a display name, optional project association, an incoming-message policy and heartbeat-based presence. Connections sharing an instance ID have separate inboxes.
+- Direct messages through `send_message(to, replyTo?, ttlMs?)`, plus `read_inbox`, `get_message` and `acknowledge_message`. Receipts distinguish accepted, fetched, acknowledged, replied, refused and expired messages. Unacknowledged fetched messages remain retrievable, and replies link back to the original message.
+
+### Changed
+
+- MCP adapters register their connection identity and maintain it with heartbeats. Stable instance IDs continue to identify legacy shared-message cursors and meeting permissions.
+- Updated compatible runtime and development dependencies, including Zod, ESLint, typescript-eslint, Vitest and Lefthook.
+
+### Fixed
+
+- Strategy migration now records completion and preserves conflicting documents, preventing later user documents from being mistaken for legacy data and deleted on restart.
+- Interrupted HTTP responses now reject the pending request instead of leaving connection attempts, tool calls or shutdown waiting indefinitely.
+- Malformed Host headers and request URLs return HTTP 400 without terminating the daemon; existing browser and Host restrictions remain in effect.
+- Concurrent attempts to rename one project to different destinations no longer both report success or record a rename that did not happen.
+- MCP adapters can connect to IPv6 daemon endpoints without treating the address brackets as part of a DNS hostname.
+- Task expiry preserves timestamp milliseconds so maintenance does not fail tasks before their TTL has elapsed.
+
+### Upgrade notes
+
+- Upgrade the daemon first, then restart the MCP adapters on 0.7.0. New adapters require the daemon's session registration endpoints before executing tools. Existing meeting and global-message operations remain available with the upgraded daemon.
+- Inboxes are per MCP connection. Host chats sharing one connection share its inbox, and restarting the adapter creates a new session rather than inheriting the previous inbox.
+- Incoming messages require an explicit `read_inbox` call; this release does not automatically wake models. Online presence indicates a recent heartbeat, fetching does not prove processing, and acknowledgement confirms receipt rather than completion of work.
+
 ## [0.6.0] - 2026-10-16
 
 ### Added
