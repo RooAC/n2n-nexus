@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { createTask, updateTask, getTask, cancelTask, runTaskMaintenance } from "../src/storage/tasks.js";
+import { createTask, updateTask, getTask, cancelTask, expireTasks, runTaskMaintenance } from "../src/storage/tasks.js";
 import { closeDatabase, initDatabase, getDatabase } from "../src/storage/sqlite.js";
 import { TASK_CLEANUP_MAX_AGE_MS } from "../src/constants.js";
 
@@ -25,6 +25,20 @@ describe("Task lifecycle", () => {
         expect(getTask(task.id)?.status).toBe("cancelled");
         expect(cancelTask(task.id)).toBe(false);
         expect(cancelTask("missing")).toBe(false);
+    });
+
+    it("preserves milliseconds when checking the TTL boundary", () => {
+        const createdAt = Date.parse("2026-10-20T12:00:00.900Z");
+        const task = createTask({ ttl: 1000 });
+        getDatabase().prepare("UPDATE tasks SET created_at = ? WHERE id = ?")
+            .run(new Date(createdAt).toISOString(), task.id);
+
+        for (const elapsed of [200, 999, 1000]) {
+            expect(expireTasks(createdAt + elapsed)).toBe(0);
+            expect(getTask(task.id)?.status).toBe("pending");
+        }
+        expect(expireTasks(createdAt + 1001)).toBe(1);
+        expect(getTask(task.id)?.status).toBe("failed");
     });
 
     it("marks tasks past their TTL as failed and purges old finished tasks", () => {

@@ -15,6 +15,21 @@ import { TASK_STATUSES } from "../storage/tasks.js";
 
 const ack = { ok: z.literal(true), message: z.string() };
 
+const sessionSchema = z.object({
+    sessionId: z.string(), instanceId: z.string(), name: z.string(),
+    clientName: z.string(), workspace: z.string(), projectId: z.string().nullable(),
+    inbound: z.enum(["accept", "refuse"]), reception: z.literal("pull"),
+    online: z.boolean(), createdAt: z.string(), lastSeenAt: z.string()
+});
+const deliveryStatus = z.enum(["accepted", "fetched", "acknowledged", "replied", "refused", "expired"]);
+const directMessageSchema = z.object({
+    messageId: z.string(), from: z.string(), to: z.string(), text: z.string(),
+    category: z.enum(MESSAGE_CATEGORIES).optional(), replyTo: z.string().nullable(),
+    status: deliveryStatus, createdAt: z.string(), expiresAt: z.string(),
+    fetchedAt: z.string().nullable(), acknowledgedAt: z.string().nullable(),
+    repliedAt: z.string().nullable(), reason: z.string().nullable()
+});
+
 const messageSchema = z.object({
     id: z.number().int().optional(),
     from: z.string(),
@@ -88,11 +103,19 @@ export const TOOL_OUTPUT_SCHEMAS = {
         manifest: storedManifest,
         internalDocs: z.string().optional()
     }),
+    list_sessions: z.object({ self: sessionSchema.nullable(), sessions: z.array(sessionSchema), count: z.number().int() }),
+    update_session: z.object({ session: sessionSchema }),
+    read_inbox: z.object({ sessionId: z.string(), messages: z.array(directMessageSchema), count: z.number().int() }),
+    get_message: z.object({ message: directMessageSchema }),
+    acknowledge_message: z.object({ message: directMessageSchema }),
     send_message: z.object({
         ...ack,
-        sentTo: z.enum(["meeting", "global"]),
+        sentTo: z.enum(["meeting", "global", "session"]),
         meetingId: z.string().optional(),
-        messageId: z.number().int().optional()
+        messageId: z.union([z.number().int(), z.string()]).optional(),
+        status: deliveryStatus.optional(),
+        to: z.string().optional(),
+        replyTo: z.string().nullable().optional()
     }),
     read_messages: z.object({
         source: z.enum(["meeting", "global"]),

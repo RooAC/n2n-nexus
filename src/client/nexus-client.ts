@@ -56,12 +56,9 @@ export class NexusClient {
 
         return new Promise((resolve, reject) => {
             const req = transport.request(
+                url,
                 {
                     method,
-                    protocol: url.protocol,
-                    hostname: url.hostname,
-                    port: url.port,
-                    path: `${url.pathname}${url.search}`,
                     headers: {
                         "Content-Type": "application/json",
                         ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {})
@@ -70,6 +67,10 @@ export class NexusClient {
                 },
                 (res) => {
                     let data = "";
+                    const interrupted = () => reject(new NexusTransportError("Response from daemon ended before completion"));
+                    res.on("aborted", interrupted);
+                    res.on("error", (error) => reject(new NexusTransportError(error.message)));
+                    res.on("close", () => { if (!res.complete) interrupted(); });
                     res.on("data", chunk => { data += chunk; });
                     res.on("end", () => {
                         let parsed: { error?: string };
@@ -101,10 +102,18 @@ export class NexusClient {
         return res.tools;
     }
 
-    async callTool(name: string, args: unknown, instanceId?: string): Promise<unknown> {
+    async registerSession(session: { sessionId: string; instanceId: string; clientName?: string; workspace?: string }): Promise<void> {
+        await this.request("POST", "/api/sessions/register", session);
+    }
+
+    async disconnectSession(sessionId: string, instanceId: string): Promise<void> {
+        await this.request("POST", "/api/sessions/disconnect", { sessionId, instanceId });
+    }
+
+    async callTool(name: string, args: unknown, instanceId?: string, sessionId?: string): Promise<unknown> {
         const res = await this.request<{ ok: boolean; result: unknown; error?: string }>(
             "POST", "/api/tools/call",
-            { tool: name, args: args || {}, instanceId: instanceId || "unknown" }
+            { tool: name, args: args || {}, instanceId: instanceId || "unknown", ...(sessionId ? { sessionId } : {}) }
         );
         if (!res.ok) throw new NexusToolError(res.error || "Tool call failed", 200);
         return res.result;

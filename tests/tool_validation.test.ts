@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startTestDaemon, DaemonHarness } from "./helpers/daemon.js";
-import { TOOL_DEFINITIONS } from "../src/daemon/tools.js";
+import { TOOL_DEFINITIONS, TOOL_SCHEMAS } from "../src/daemon/tools.js";
 import { MESSAGE_CATEGORIES } from "../src/types.js";
 
 describe("Tool contracts", () => {
     it("publishes one JSON Schema per tool, generated from the zod contract", () => {
-        expect(TOOL_DEFINITIONS).toHaveLength(26);
+        expect(TOOL_DEFINITIONS.map(tool => tool.name).sort()).toEqual(Object.keys(TOOL_SCHEMAS).sort());
         for (const tool of TOOL_DEFINITIONS) {
             expect(tool.inputSchema.type).toBe("object");
             expect(tool.inputSchema).not.toHaveProperty("$schema");
@@ -22,12 +22,13 @@ describe("Tool contracts", () => {
         }
         // read_messages moves the unread cursor, so it is not read-only.
         expect(byName.read_messages.annotations.readOnlyHint).toBe(false);
-        expect(byName.send_message.annotations.destructiveHint).toBe(false);
+        // Direct replies also update the original receipt.
+        expect(byName.send_message.annotations.destructiveHint).toBe(true);
         // Only purely additive tools may be non-destructive.
         for (const name of ["rename_project", "cancel_task", "end_meeting", "archive_meeting", "reopen_meeting"]) {
             expect(byName[name].annotations.destructiveHint, name).toBe(true);
         }
-        for (const name of ["send_message", "start_meeting", "create_task"]) {
+        for (const name of ["start_meeting", "create_task"]) {
             expect(byName[name].annotations.destructiveHint, name).toBe(false);
         }
 

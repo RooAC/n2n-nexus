@@ -10,8 +10,7 @@ import { FILE_ENCODING } from "../constants.js";
 
 /**
  * One-time upgrades of data written by earlier releases. Each step is
- * idempotent: it runs only while the legacy artifact is present and the
- * new location is still empty, then renames the artifact out of the way.
+ * idempotent: migrated artifacts are retired or completion is persisted.
  */
 
 /** 0.5.0 kept the global chat in global/discussion.json; import it into SQLite. */
@@ -62,23 +61,32 @@ export async function importLegacyDiscussion(): Promise<number> {
 
 /** Title 0.5.0's update_global_strategy gave the doc it wrote; a user doc with another title is left alone. */
 export const LEGACY_STRATEGY_TITLE = "Global Collaboration Strategy";
+const LEGACY_STRATEGY_MIGRATION = "migration:legacy_strategy";
 
 /**
  * 0.5.0's update_global_strategy saved the strategy as the global doc
  * "strategy"; it now lives in global/blueprint.md. Move it there unless the
- * blueprint has already been written.
+ * blueprint has already been written. Record completion even when there
+ * is nothing to move, so later user documents cannot become legacy data.
  */
 export async function importLegacyStrategy(): Promise<boolean> {
+    const db = getDatabase();
+    if (db.prepare("SELECT 1 FROM meeting_state WHERE key = ?").get(LEGACY_STRATEGY_MIGRATION)) return false;
+
     const docs = await DocStorage.listDocs();
-    if (docs.strategy?.title !== LEGACY_STRATEGY_TITLE) return false;
-    const legacy = await DocStorage.getDoc("strategy");
-    const current = await DocStorage.getBlueprint();
-    if (legacy && (!current || current === BLUEPRINT_PLACEHOLDER)) {
-        await DocStorage.saveBlueprint(legacy);
+    let moved = false;
+    if (docs.strategy?.title === LEGACY_STRATEGY_TITLE) {
+        const legacy = await DocStorage.getDoc("strategy");
+        const current = await DocStorage.getBlueprint();
+        if (legacy && (!current || current === BLUEPRINT_PLACEHOLDER)) {
+            await DocStorage.saveBlueprint(legacy);
+            await DocStorage.deleteDoc("strategy");
+            moved = true;
+            console.error("[n2n-nexus] Moved legacy global doc 'strategy' into global/blueprint.md");
+        }
     }
-    await DocStorage.deleteDoc("strategy");
-    console.error("[n2n-nexus] Moved legacy global doc 'strategy' into global/blueprint.md");
-    return true;
+    db.prepare("INSERT INTO meeting_state (key, value) VALUES (?, ?)").run(LEGACY_STRATEGY_MIGRATION, "complete");
+    return moved;
 }
 
 export async function runMigrations(): Promise<void> {

@@ -71,9 +71,28 @@ export const TOOL_SCHEMAS = {
     }),
 
     // Messaging
+    list_sessions: z.object({
+        onlineOnly: z.boolean().default(true),
+        projectId: projectIdSchema.optional(),
+        limit: positiveInt(500).default(100)
+    }),
+    update_session: z.object({
+        name: z.string().min(1).optional(),
+        projectId: projectIdSchema.nullable().optional(),
+        inbound: z.enum(["accept", "refuse"]).optional()
+    }),
+    read_inbox: z.object({ count: positiveInt(500).default(10) }),
+    get_message: z.object({ messageId: z.string().min(1) }),
+    acknowledge_message: z.object({
+        messageId: z.string().min(1),
+        outcome: z.enum(["acknowledged", "refused"]).default("acknowledged")
+    }),
     send_message: z.object({
         message: z.string().min(1),
         category: z.enum(MESSAGE_CATEGORIES).optional(),
+        to: z.string().min(1).optional().describe("Exact sessionId from list_sessions; mutually exclusive with meetingId"),
+        replyTo: z.string().min(1).optional().describe("Direct message being answered; requires to = original sender"),
+        ttlMs: positiveInt(Number.MAX_SAFE_INTEGER).optional().describe("Direct-message expiry in milliseconds; defaults to 24 hours"),
         meetingId: z.string().min(1).optional().describe("Target meeting. Defaults to the active meeting, or global chat when none is active.")
     }),
     read_messages: z.object({
@@ -139,7 +158,12 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     search_projects: "Search project registry by name or description.",
     get_global_topology: "Default: project list + stats. With projectId: detailed subgraph.",
     get_project: "Read a project's full manifest and, by default, its internal docs.",
-    send_message: "Post a message. Goes to meetingId if given, else to the active meeting, else to global chat.",
+    list_sessions: "Discover MCP connections and your own session. Online means a recent connection heartbeat, not model readiness. Delivery is pull-only.",
+    update_session: "Set your session name, project association or incoming-message policy. Refusing also rejects pending inbox messages.",
+    read_inbox: "Fetch your pending direct messages, oldest first. Unacknowledged messages remain retrievable; fetching does not confirm processing.",
+    get_message: "Read a direct message and its receipt status; only the sender and recipient may query it.",
+    acknowledge_message: "Explicitly acknowledge or refuse a fetched direct message. Acknowledgement confirms receipt, not completed work.",
+    send_message: "Send directly to an exact sessionId using to, optionally replying with replyTo. Otherwise post to meetingId, the active meeting, or global chat. Direct accepted means stored, not read or a woken model.",
     read_messages: "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
     list_events: "Activity log: structured records of state changes (project.sync, project.rename, meeting.end, ...), newest first.",
     get_global_strategy: "Read the master strategy document (global/blueprint.md).",
@@ -170,6 +194,11 @@ const TOOL_TITLES: Record<ToolName, string> = {
     get_global_topology: "Project Topology",
     get_project: "Read Project",
     send_message: "Send Message",
+    list_sessions: "List Sessions",
+    update_session: "Update My Session",
+    read_inbox: "Read My Inbox",
+    get_message: "Read Message Receipt",
+    acknowledge_message: "Acknowledge Message",
     read_messages: "Read Messages",
     list_events: "Activity Log",
     get_global_strategy: "Read Strategy",
@@ -220,7 +249,12 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
     search_projects: readOnly,
     get_global_topology: readOnly,
     get_project: readOnly,
-    send_message: write(false, false),
+    send_message: write(true, false),            // a direct reply also updates the original message's receipt
+    list_sessions: readOnly,
+    update_session: write(true, true),
+    read_inbox: write(false, true),
+    get_message: readOnly,
+    acknowledge_message: write(true, true),
     read_messages: write(false, false),           // only advances this instance's own unread cursor (bookkeeping, not shared data)
     list_events: readOnly,
     get_global_strategy: readOnly,
@@ -278,7 +312,7 @@ export const TOOL_NAMES = Object.keys(TOOL_SCHEMAS) as ToolName[];
  */
 const PUBLISHED_OUTPUT_SCHEMAS = new Set<ToolName>([
     "search_projects", "get_global_topology", "get_project",
-    "read_messages", "list_events",
+    "read_messages", "list_events", "list_sessions", "update_session", "read_inbox", "get_message", "acknowledge_message",
     "get_global_strategy", "list_global_docs", "get_global_doc",
     "list_meetings", "get_task", "list_tasks"
 ]);
@@ -307,8 +341,25 @@ export class ToolValidationError extends Error {
 export function parseToolArgs<N extends ToolName>(name: N, args: unknown): ToolArgs<N> {
     const result = TOOL_SCHEMAS[name].safeParse(args ?? {});
     if (!result.success) throw new ToolValidationError(name, z.prettifyError(result.error));
+    if (name === "send_message") {
+        const message = result.data as ToolArgs<"send_message">;
+        if (message.to !== undefined && message.meetingId !== undefined) {
+            throw new ToolValidationError(name, "to and meetingId are mutually exclusive");
+        }
+        if (message.to === undefined && (message.replyTo !== undefined || message.ttlMs !== undefined)) {
+            throw new ToolValidationError(name, "replyTo and ttlMs require a direct recipient (to)");
+        }
+    }
     return result.data as ToolArgs<N>;
 }
+
+export const sessionRegistrationSchema = z.object({
+    sessionId: z.string().min(1),
+    instanceId: z.string().min(1),
+    clientName: z.string().optional(),
+    workspace: z.string().optional()
+});
+export const sessionDisconnectSchema = sessionRegistrationSchema.pick({ sessionId: true, instanceId: true });
 
 /** Schema for POST /api/tasks/:id/update (not an MCP tool). */
 export const taskUpdateSchema = z.object({

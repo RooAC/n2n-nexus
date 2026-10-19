@@ -47,19 +47,48 @@ describe("Legacy data migrations", () => {
         expect(await importLegacyStrategy()).toBe(false);
     });
 
-    it("moves the legacy 'strategy' global doc into blueprint.md unless a real blueprint exists", async () => {
+    it("moves a legacy strategy once and preserves later documents across restarts", async () => {
         await DocStorage.saveBlueprint(BLUEPRINT_PLACEHOLDER);
         await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Real strategy", "ide-a");
         expect(await importLegacyStrategy()).toBe(true);
         expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
         expect((await DocStorage.listDocs()).strategy).toBeUndefined();
 
-        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Older strategy", "ide-a");
-        expect(await importLegacyStrategy()).toBe(true);
+        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# New user document", "ide-a");
+        closeDatabase();
+        initDatabase();
+        expect(await importLegacyStrategy()).toBe(false);
         expect(await DocStorage.getBlueprint()).toBe("# Real strategy");
-        expect((await DocStorage.listDocs()).strategy).toBeUndefined();
+        expect(await DocStorage.getDoc("strategy")).toBe("# New user document");
+    });
 
-        // A doc a user created under the same id with their own title is not a legacy artifact.
+    it("preserves a conflicting legacy strategy and the existing blueprint", async () => {
+        await DocStorage.saveBlueprint("# Current blueprint");
+        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Older strategy", "ide-a");
+        expect(await importLegacyStrategy()).toBe(false);
+        expect(await DocStorage.getBlueprint()).toBe("# Current blueprint");
+        expect(await DocStorage.getDoc("strategy")).toBe("# Older strategy");
+        expect((await DocStorage.listDocs()).strategy?.title).toBe(LEGACY_STRATEGY_TITLE);
+
+        await DocStorage.saveBlueprint(BLUEPRINT_PLACEHOLDER);
+        closeDatabase();
+        initDatabase();
+        expect(await importLegacyStrategy()).toBe(false);
+        expect(await DocStorage.getDoc("strategy")).toBe("# Older strategy");
+    });
+
+    it("records an absent legacy strategy so new documents are not migrated on restart", async () => {
+        expect(await importLegacyStrategy()).toBe(false);
+        await DocStorage.saveBlueprint(BLUEPRINT_PLACEHOLDER);
+        await DocStorage.saveDoc("strategy", LEGACY_STRATEGY_TITLE, "# Current API document", "ide-a");
+        closeDatabase();
+        initDatabase();
+        expect(await importLegacyStrategy()).toBe(false);
+        expect(await DocStorage.getBlueprint()).toBe(BLUEPRINT_PLACEHOLDER);
+        expect(await DocStorage.getDoc("strategy")).toBe("# Current API document");
+    });
+
+    it("preserves a user strategy with a different title", async () => {
         await DocStorage.saveDoc("strategy", "Team strategy notes", "# Mine", "ide-b");
         expect(await importLegacyStrategy()).toBe(false);
         expect((await DocStorage.listDocs()).strategy?.title).toBe("Team strategy notes");

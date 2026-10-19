@@ -47,6 +47,40 @@ describe("Project tools through /api/tools/call", () => {
         expect(await fs.readFile(path.join(assetsDir, files[0]))).toEqual(content);
     });
 
+    it("reports only the successful concurrent rename and records its event", async () => {
+        await daemon.callTool("sync_project_assets", {
+            manifest: manifest("original", "Original", "rename source"), internalDocs: "# Preserved docs"
+        });
+        const outcomes = await Promise.all(["target_a", "target_b"].map((newId) =>
+            daemon.callTool<{ newId: string }>("rename_project", { oldId: "original", newId })
+        ));
+        expect(outcomes.map((result) => result.status).sort()).toEqual([200, 400]);
+        const winner = outcomes.find((result) => result.status === 200)!.payload.result!.newId;
+        const loser = winner === "target_a" ? "target_b" : "target_a";
+        const project = await daemon.callTool<{ internalDocs: string }>("get_project", { projectId: winner });
+        expect(project.payload.result?.internalDocs).toBe("# Preserved docs");
+        expect((await daemon.callTool("get_project", { projectId: "original" })).status).toBe(400);
+        expect((await daemon.callTool("get_project", { projectId: loser })).status).toBe(400);
+        const events = await daemon.callTool<{ events: { target: string }[] }>("list_events", { action: "project.rename" });
+        expect(events.payload.result?.events).toHaveLength(1);
+        expect(events.payload.result?.events[0].target).toBe(winner);
+    });
+
+    it("fails a rename without source files and restores the registry", async () => {
+        await daemon.callTool("sync_project_assets", {
+            manifest: manifest("missing_files", "Missing files", "registered source"), internalDocs: ""
+        });
+        await fs.rm(path.join(daemon.root, "projects", "missing_files"), { recursive: true });
+
+        const result = await daemon.callTool("rename_project", { oldId: "missing_files", newId: "destination" });
+        expect(result.status).toBe(400);
+        expect(result.payload.error).toContain("could not be renamed");
+        expect((await daemon.callTool("get_project", { projectId: "missing_files" })).status).toBe(200);
+        expect((await daemon.callTool("get_project", { projectId: "destination" })).status).toBe(400);
+        const events = await daemon.callTool<{ events: unknown[] }>("list_events", { action: "project.rename" });
+        expect(events.payload.result?.events).toEqual([]);
+    });
+
     it("returns a focused topology and tracks a managed task", async () => {
         await daemon.callTool("sync_project_assets", { manifest: { ...manifest("web_a", "A", "d"), relations: [{ targetId: "web_b", type: "dependency" }] }, internalDocs: "" });
         await daemon.callTool("sync_project_assets", { manifest: manifest("web_b", "B", "d"), internalDocs: "" });

@@ -93,12 +93,12 @@ export class StorageManager {
     }
     static renameProject(oldId: string, newId: string) {
         return this.write(async () => {
-            await RegistryStorage.renameProject(oldId, newId);
+            if (!await RegistryStorage.getProjectManifest(oldId)) throw new Error(`Project '${oldId}' not found.`);
+            const renamed = await RegistryStorage.renameProject(oldId, newId);
+            if (renamed === 0) throw new Error(`Project '${oldId}' could not be renamed.`);
             try {
                 const result = await ProjectStorage.renameProject(oldId, newId);
-                if (result === 0) {
-                    await RegistryStorage.renameProject(newId, oldId);
-                }
+                if (result === 0) throw new Error(`Project '${oldId}' could not be renamed.`);
                 return result;
             } catch (error) {
                 await RegistryStorage.renameProject(newId, oldId).catch(() => { });

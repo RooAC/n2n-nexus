@@ -38,6 +38,15 @@ upload_project_asset(projectId, fileName, base64Content) → 上传二进制文�
 
 所有写入工具都同步执行并直接返回结果。
 
+### 定向会话
+
+1. 用 `list_sessions` 找到目标的精确 `sessionId`；用 `update_session` 设置自己的名称和项目关联。
+2. 调用 `send_message({ to: sessionId, message: "请评审这次改动" })`。检查 `status`：accepted 是已存储，refused 是被拒收。
+3. 收件方调用 `read_inbox`，再用 `acknowledge_message({ messageId })` 明确确认收到，或传 `outcome: "refused"` 拒绝。
+4. 回复使用 `send_message({ to: original.from, replyTo: original.messageId, message: "评审结果……" })`。原发送方可用 `get_message({ messageId })` 查询回执。
+
+未确认的消息会重复出现，可用消息 ID 识别重试。确认收到不等于任务完成。收件箱依赖主动拉取，不自动唤醒模型；连接重启会产生新会话 ID，需要重新发现目标。多个聊天共用一条 MCP 连接时也共用收件箱。精确状态定义见[工具参考](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes)。
+
 ### 4. 消息与协作
 
 ```

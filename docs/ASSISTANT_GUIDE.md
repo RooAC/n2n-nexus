@@ -22,7 +22,7 @@ read_messages(count)            → fetch messages you have not yet read (increm
 
 ### 2. Project IDs
 
-There is no session to set up: every project tool takes the `projectId` it acts on.
+Project operations need no implicit project context: every project tool takes the `projectId` it acts on.
 Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `api_user-auth`, `mcp_nexus`.
 
 ### 3. Write project data
@@ -35,6 +35,15 @@ upload_project_asset(projectId, fileName, base64Content) → upload a binary fil
 ```
 
 All write tools run synchronously and return their result directly.
+
+### Direct conversations
+
+1. Call `list_sessions` to find the exact destination `sessionId`; use `update_session` to set your name and project association.
+2. Send `send_message({ to: sessionId, message: "Please review this change" })`. Inspect `status`: accepted means stored, refused means rejected.
+3. The recipient calls `read_inbox`, then `acknowledge_message({ messageId })` to confirm receipt or passes `outcome: "refused"` to decline.
+4. Reply with `send_message({ to: original.from, replyTo: original.messageId, message: "Review result..." })`. The sender can query `get_message({ messageId })` for the original receipt.
+
+Unconfirmed fetched messages can appear again; use their IDs to recognize retries. Acknowledgement does not mean work is complete. The inbox is pull-only: there is no automatic model wakeup. Connection restarts create new session IDs; discover the destination again. See [receipt and session contracts](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes).
 
 ### 4. Messages and collaboration
 

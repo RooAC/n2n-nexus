@@ -6,14 +6,14 @@ Parameter tables below are derived from the zod contracts in `src/daemon/tools.t
 
 ## Conventions
 
-- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`) also publish an `outputSchema`; write tools return a short acknowledgement and do not publish one, to keep `tools/list` small. The result shapes are defined in `src/daemon/tool-outputs.ts`.
+- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`, and the session/inbox tools) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are defined in `src/daemon/tool-outputs.ts`.
 - Calls are rate limited per instance (default 20 per second, burst 60). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
-- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the local daemon). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `send_message`, `start_meeting` and `create_task` only add data and are non-destructive. `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` is not read-only because it advances the caller's own unread cursor, but it is non-destructive since no shared data changes.
+- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the local daemon). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting` and `create_task` only add data and are non-destructive. `send_message` (replies update the original receipt), `update_session`, `acknowledge_message`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` is not read-only because it advances the caller's own unread cursor, but it is non-destructive since no shared data changes.
 - Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). Read cursors and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.
-- There is no session state: tools that act on a project take `projectId` explicitly.
+- Project tools take `projectId` explicitly; a session's project association only helps directory filtering.
 - `host_delete_project` is destructive and irreversible.
 
 ## Shared object shapes
@@ -132,22 +132,54 @@ Behavior:
 
 ## Messaging and collaboration
 
+### Session directory and direct inboxes
+
+Each MCP connection registers its own `sessionId`. The stable `instanceId` still keys legacy read cursors and meeting permissions. Two connections may share an instance ID while retaining separate inboxes. Chats sharing one MCP connection share one inbox; an adapter restart creates a new session and does not inherit the old inbox.
+
+| Tool | Parameters | Result and behavior |
+| --- | --- | --- |
+| `list_sessions` | `onlineOnly?: boolean = true`, `projectId?: string`, `limit?: integer = 100` (1–500) | `{ self: Session \| null, sessions: Session[], count }`; discover exact destination IDs. HTTP callers without a session receive `self: null`. |
+| `update_session` | `name?: string`, `projectId?: string \| null`, `inbound?: "accept" \| "refuse"` | `{ session }`; update your own session. Refuse also rejects existing pending messages; changing back does not resurrect them. |
+| `read_inbox` | `count?: integer = 10` (1–500) | `{ sessionId, messages, count }`; returns accepted/fetched messages oldest first, marking newly returned rows fetched. Unconfirmed rows remain retrievable after a lost response. |
+| `get_message` | `messageId: string` | `{ message }`; only the sender or recipient may inspect a direct message. |
+| `acknowledge_message` | `messageId: string`, `outcome?: "acknowledged" \| "refused" = "acknowledged"` | `{ message }`; recipient explicitly acknowledges or refuses a fetched message. Repeating the same outcome is idempotent; terminal states cannot regress. |
+
+`Session` contains `sessionId`, `instanceId`, `name`, `clientName`, `workspace`, nullable `projectId`, `inbound`, `reception: "pull"`, `online`, `createdAt` and `lastSeenAt`. Online indicates a recent connection heartbeat, not whether a model is idle or ready. Names are labels, not routing keys. No tool automatically wakes a model or injects a turn.
+
+Direct messages contain a UUID `messageId`, session IDs `from` / `to`, `text`, optional `category`, nullable `replyTo`, `status`, `createdAt`, `expiresAt`, nullable `fetchedAt` / `acknowledgedAt` / `repliedAt`, and nullable `reason`.
+
+| Status | Meaning |
+| --- | --- |
+| `accepted` | Persisted for the recipient, including when offline. No evidence of receipt yet. |
+| `fetched` | Selected for an inbox response. Does not prove network delivery or model processing. |
+| `acknowledged` | Recipient explicitly confirmed receipt, not completion of the requested work. |
+| `replied` | Recipient submitted an accepted reply linked to this message. Does not prove the reply was read. |
+| `refused` | Recipient policy or explicit action rejected the message. It is absent from the pending inbox. |
+| `expired` | TTL elapsed while accepted/fetched. Checked on message operations; acknowledged/replied messages do not expire. |
+
+Direct tools require registered `sessionId` and matching `instanceId` in the HTTP envelope, outside `args`. The MCP adapter supplies them automatically. HTTP clients use `POST /api/sessions/register` with `{ sessionId, instanceId, clientName?, workspace? }` (returns `{ ok: true, session }`), refresh within the 60-second lease, then call `POST /api/tools/call` with `{ tool, args, instanceId, sessionId }`. `POST /api/sessions/disconnect` takes `{ sessionId, instanceId }` and returns `{ ok: true }`. These IDs provide routing and ownership consistency within the trusted daemon; they are not credentials or authentication.
+
 ### `send_message`
 
-Post a message to a meeting or to global chat.
+Send a direct message, or post to a meeting or global chat.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `message` | string | yes | Message body. |
 | `category` | string | no | One of `MEETING_START`, `PROPOSAL`, `DECISION`, `UPDATE`, or `CHAT`. |
 | `meetingId` | string | no | Target meeting. Must be active. |
+| `to` | string | no | Exact registered session ID. Mutually exclusive with `meetingId`. |
+| `replyTo` | string | no | Original direct-message ID; requires `to` to be its sender. |
+| `ttlMs` | positive integer | no | Direct messages only; defaults to 24 hours. |
 
 Behavior:
 
-- With `meetingId`, the message goes to that meeting.
+- With `to`, the message goes only to that session. Missing/invalid recipients fail rather than falling back to broadcast. Offline sessions can receive queued messages; refusing sessions produce a persisted refused receipt.
+- `replyTo` requires an original message received by this session with fetched/acknowledged/replied status. Only an accepted reply marks that original as replied; a refused reply does not.
+- Without `to`, with `meetingId`, the message goes to that meeting.
 - Otherwise, if a meeting is active, the message goes to it.
 - Otherwise it is written to global chat.
-- Returns `{ ok, sentTo: "meeting" | "global", meetingId?, messageId? }`.
+- Direct result: `{ ok: true, sentTo: "session", messageId, status, to, replyTo, message }`. `ok` means the operation was recorded; inspect `status` for refusal. Legacy result retains `{ ok, sentTo: "meeting" | "global", meetingId?, messageId?, message }`; legacy global IDs are numbers, direct IDs are UUID strings.
 
 ### `read_messages`
 

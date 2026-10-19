@@ -31,7 +31,7 @@ n2n-nexus 是一个开源的 Model Context Protocol (MCP) 协同服务器，适�
 - AI 助手项目注册表
 - 编码 agent 会议和任务协同
 
-n2n-nexus 面向这些场景设计：共享 daemon 状态、无状态 MCP 适配器、项目感知协作、本地存储和跨环境 IDE 工作流。
+n2n-nexus 面向这些场景设计：共享 daemon 状态、轻量 MCP 适配器、项目感知协作、本地存储和跨环境 IDE 工作流。
 
 ## n2n-nexus 是什么？
 
@@ -66,11 +66,11 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
        ▼       ▼       ▼
     MCP-A   MCP-B   MCP-C
    (Win)   (WSL)   (SSH/VM)
-  每个 IDE 一个无状态适配器
+  每条 MCP 连接一个轻量适配器
 ```
 
 - **Daemon 是唯一数据源**：启动一次并保持运行。
-- **MCP 适配器无状态**：每个 IDE 通过 `npx` 启动适配器，然后把工具调用转发给 daemon。
+- **MCP 适配器只维护连接身份**：每个 IDE 通过 `npx` 启动适配器，然后把工具调用转发给 daemon；会话目录和收件箱保存在 daemon。
 - **跨环境协作**：通过 `NEXUS_ENDPOINT` 让不同机器或 shell 指向同一个 daemon。daemon 默认只监听本机；只有在可信网络中才使用 `--host 0.0.0.0`。
 
 ## 快速开始
@@ -124,7 +124,10 @@ npx n2n-nexus daemon --port 5688
 
 ### 消息和协作
 
-- `send_message`：发送会议消息或全局消息。
+- `send_message`：向精确会话 ID 发送定向消息，也保留会议消息和全局消息。
+- `list_sessions` / `update_session`：发现连接，设置自己的名称、项目关联和接收策略。
+- `read_inbox` / `acknowledge_message`：取回个人消息并明确确认或拒绝。
+- `get_message`：查询自己发送或接收的消息状态和回复关联。
 - `read_messages`：增量读取未读消息（全局或指定会议）。
 - `list_events`：读取结构化活动日志（项目同步、重命名、会议结束等）。
 - `get_global_strategy`：读取主策略文档。
@@ -132,6 +135,8 @@ npx n2n-nexus daemon --port 5688
 - `list_global_docs`：列出共享文档。
 - `get_global_doc`：读取共享文档。
 - `sync_global_doc`：创建或更新共享文档。
+
+每条 MCP 连接有独立会话 ID；多个聊天若共用连接，仍视为一个会话。在线仅表示近期心跳，消息采用主动拉取，不自动唤醒模型。已存储、已取回、已确认和已回复是不同状态，确认收件不等于任务完成。使用流程见[助手指南](ASSISTANT_GUIDE_zh.md)，精确契约见[工具参考](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes)。
 
 ### 会议管理
 

@@ -35,8 +35,12 @@ const ERAS = {
 
 describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegotiation) => {
     let daemon: DaemonHarness;
+    const proxies: NexusServer[] = [];
     beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy"); });
-    afterEach(async () => { await daemon.close(); });
+    afterEach(async () => {
+        await Promise.all(proxies.splice(0).map((proxy) => proxy.shutdown()));
+        await daemon.close();
+    });
 
     const newClient = (name: string) => new Client({ name, version: "1.0" }, versionNegotiation ? { versionNegotiation } : {});
 
@@ -45,6 +49,7 @@ describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegoti
         process.env.NEXUS_INSTANCE_ID = "proxy-test";
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
         const proxy = new NexusServer();
+        proxies.push(proxy);
         await proxy.run({ transport: serverSide });
         const client = newClient("test-ide");
         await client.connect(clientSide);
@@ -90,7 +95,9 @@ describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegoti
         delete process.env.NEXUS_INSTANCE_ID;
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-        await new NexusServer().run({ transport: serverSide });
+        const proxy = new NexusServer();
+        proxies.push(proxy);
+        await proxy.run({ transport: serverSide });
         const client = newClient("Fancy IDE");
         await client.connect(clientSide);
         await client.callTool({ name: "send_message", arguments: { message: "from ide" } });
@@ -121,14 +128,16 @@ describe("MCP proxy lifecycle", () => {
 
 describe("MCP proxy instance id on 2026-07-28 connections", () => {
     let daemon: DaemonHarness;
+    let proxy: NexusServer | undefined;
     beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy-raw"); });
-    afterEach(async () => { await daemon.close(); });
+    afterEach(async () => { await proxy?.shutdown(); await daemon.close(); });
 
     it("keeps one instance id when later requests omit clientInfo", async () => {
         delete process.env.NEXUS_INSTANCE_ID;
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${daemon.port}`;
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-        await new NexusServer().run({ transport: serverSide });
+        proxy = new NexusServer();
+        await proxy.run({ transport: serverSide });
 
         const responses = new Map<number, unknown>();
         clientSide.onmessage = (m) => { const msg = m as { id?: number }; if (msg.id !== undefined) responses.set(msg.id, msg); };
@@ -151,6 +160,7 @@ describe("MCP proxy instance id on 2026-07-28 connections", () => {
         expect([...senders]).toHaveLength(1);
         expect([...senders][0]).toMatch(/-fancy-ide$/);
         await clientSide.close();
+        await proxy.shutdown();
     });
 });
 
@@ -196,6 +206,7 @@ describe("MCP proxy when the daemon drops a tool", () => {
         const fake = http.createServer((req, res) => {
             const send = (status: number, body: unknown) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
             if (req.url === "/api/tools") return send(200, { tools });
+            if (req.url?.startsWith("/api/sessions/")) return send(200, { ok: true });
             req.resume();
             req.on("end", () => send(404, { ok: false, error: "Unknown tool: 'old_tool'" }));
         });
@@ -204,7 +215,8 @@ describe("MCP proxy when the daemon drops a tool", () => {
         process.env.NEXUS_INSTANCE_ID = "drop-test";
 
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-        await new NexusServer().run({ transport: serverSide });
+        const proxy = new NexusServer();
+        await proxy.run({ transport: serverSide });
         const client = new Client({ name: "ide", version: "1" });
         let changed = 0;
         client.setNotificationHandler("notifications/tools/list_changed", () => { changed++; });
@@ -217,6 +229,7 @@ describe("MCP proxy when the daemon drops a tool", () => {
         expect(changed).toBeGreaterThan(0);
 
         await client.close();
+        await proxy.shutdown();
         await new Promise((r) => fake.close(r));
     });
 });
@@ -262,6 +275,7 @@ describe("MCP proxy reconnect race", () => {
         const fake = http.createServer((req, res) => {
             if (req.url === "/api/tools") { res.end(JSON.stringify({ tools })); return; }
             if (drop) { req.socket.destroy(); return; }
+            if (req.url?.startsWith("/api/sessions/")) { res.end(JSON.stringify({ ok: true })); return; }
             req.resume();
             req.on("end", () => res.end(JSON.stringify({ ok: true, result: { pong: true } })));
         });
@@ -296,6 +310,7 @@ describe("MCP proxy reconnect race", () => {
 
         input.resume(); input.end();
         await client.close();
+        await proxy.shutdown();
         await new Promise((r) => fake.close(r));
     });
 });

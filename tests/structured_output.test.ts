@@ -58,6 +58,13 @@ describe.each(Object.entries(ERAS))("structuredContent for every tool, %s client
         await call("get_project", { projectId: "web_a", includeDocs: false });
         await call("send_message", { message: "global hi", category: "UPDATE" });
         await call("read_messages", { count: 5 });
+        const directory = await call("list_sessions");
+        const self = directory.self as { sessionId: string };
+        await call("update_session", { name: "contract-test", projectId: "web_a" });
+        const direct = await call("send_message", { to: self.sessionId, message: "direct hi" });
+        await call("read_inbox");
+        await call("get_message", { messageId: direct.messageId });
+        await call("acknowledge_message", { messageId: direct.messageId });
         const meeting = await call("start_meeting", { topic: "Plan" });
         await call("send_message", { message: "in meeting", category: "DECISION" });
         await call("read_messages", { meetingId: meeting.meetingId, count: 5 });

@@ -20,16 +20,16 @@
    ▼      ▼      ▼
 MCP-A  MCP-B  MCP-C
 (Win)  (WSL)  (VM)
-Stateless protocol adapter, one per IDE
+Lightweight protocol adapter, one per MCP connection
 ```
 
 ### Core Principles
 
 1. **Daemon is the single source of truth** — all reads/writes, business logic, and tool definitions live in the daemon.
-2. **MCP is a stateless protocol adapter** — no tool definitions, no hardcoded names, no local data.
-3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup; any daemon upgrade is immediately visible to all connected MCPs.
+2. **MCP holds connection identity only** — no hardcoded tool names or local persistent data; sessions and inboxes live in the daemon.
+3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup and reconnect. Session inboxes require both the session-aware adapter and daemon; legacy clients can continue using the existing shared-message APIs.
 4. **No local fallback** — if the daemon is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation. A tool call the daemon rejects (validation, not found, permission) is returned to the IDE as an error result (`isError: true`) and does not affect the connection; an unknown tool name is a JSON-RPC `-32602` error.
-5. **Plain HTTP between MCP and daemon** — no SSE; AI is request-driven and doesn't need push.
+5. **Plain HTTP between MCP and daemon** — inboxes are pulled explicitly; heartbeats maintain presence but do not wake the model.
 
 ### MCP Startup Flow
 
@@ -50,6 +50,8 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
 ```
 
 The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
+
+Each MCP connection also gets a random session ID, registered on its first tool request and refreshed every 20 seconds with a 60-second presence lease. Disconnect marks it offline; an adapter restart creates a new session, so pending messages for the old session are not transferred. Multiple host chats sharing a connection share its inbox. Project association is directory metadata, not an implicit target for project tools. Registration and disconnect use `POST /api/sessions/register` and `POST /api/sessions/disconnect`; direct tools receive session identity outside their model-supplied arguments. This remains a trusted local daemon, not an authentication boundary. See [tool reference](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes).
 
 ---
 
@@ -145,7 +147,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 ### Tool capability (MCP-facing)
 ```
 GET  /api/tools              Return full tool definition list (JSON Schema)
-POST /api/tools/call         Execute tool call { tool, args, instanceId }
+POST /api/tools/call         Execute tool call { tool, args, instanceId, sessionId? }
 ```
 
 ### System

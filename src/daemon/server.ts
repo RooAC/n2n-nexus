@@ -5,6 +5,8 @@ import { URL } from "node:url";
 import { StorageManager } from "../storage/index.js";
 import { SqliteMeetingStore } from "../storage/sqlite-meeting.js";
 import { GlobalMessageStore } from "../storage/global-messages.js";
+import { SessionStore } from "../storage/sessions.js";
+import { DirectMessageStore } from "../storage/direct-messages.js";
 import { EventStore } from "../storage/events.js";
 import { runMigrations } from "../storage/migrations.js";
 import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
@@ -12,7 +14,7 @@ import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
 import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } from "./rate-limit.js";
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
-import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, ToolValidationError } from "./tools.js";
+import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, sessionRegistrationSchema, sessionDisconnectSchema, ToolValidationError } from "./tools.js";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -93,7 +95,20 @@ async function toolGetProject(args: ToolArgs<"get_project">): Promise<ToolResult
         : { manifest };
 }
 
-async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string): Promise<ToolResult<"send_message">> {
+function requireSession(sessionId: string | undefined, instanceId: string) {
+    if (!sessionId) throw new Error("A registered sessionId is required");
+    return SessionStore.require(sessionId, instanceId);
+}
+
+async function toolSendMessage(args: ToolArgs<"send_message">, instanceId: string, sessionId?: string): Promise<ToolResult<"send_message">> {
+    if (args.to !== undefined) {
+        const sender = requireSession(sessionId, instanceId);
+        const saved = DirectMessageStore.send(sender.sessionId, { ...args, to: args.to });
+        return {
+            ok: true, sentTo: "session", messageId: saved.messageId, status: saved.status,
+            to: saved.to, replyTo: saved.replyTo, message: `Direct message ${saved.status}.`
+        };
+    }
     const meetingId = args.meetingId ?? SqliteMeetingStore.getActiveMeetingId();
 
     if (meetingId) {
@@ -242,8 +257,32 @@ async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, inst
 // Tool dispatcher
 // ---------------------------------------------------------------------------
 
-async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string): Promise<unknown> {
+async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string, sessionId?: string): Promise<unknown> {
     switch (name) {
+        case "list_sessions": {
+            const args = parseToolArgs(name, rawArgs);
+            const self = sessionId ? requireSession(sessionId, instanceId) : null;
+            const sessions = SessionStore.list(args);
+            return { self, sessions, count: sessions.length };
+        }
+        case "update_session": {
+            const args = parseToolArgs(name, rawArgs);
+            return { session: SessionStore.update(requireSession(sessionId, instanceId).sessionId, args) };
+        }
+        case "read_inbox": {
+            const args = parseToolArgs(name, rawArgs);
+            const self = requireSession(sessionId, instanceId);
+            const messages = DirectMessageStore.readInbox(self.sessionId, args.count);
+            return { sessionId: self.sessionId, messages, count: messages.length };
+        }
+        case "get_message": {
+            const args = parseToolArgs(name, rawArgs);
+            return { message: DirectMessageStore.get(args.messageId, requireSession(sessionId, instanceId).sessionId) };
+        }
+        case "acknowledge_message": {
+            const args = parseToolArgs(name, rawArgs);
+            return { message: DirectMessageStore.acknowledge(args.messageId, requireSession(sessionId, instanceId).sessionId, args.outcome) };
+        }
         case "sync_project_assets":       return toolSyncProjectAssets(parseToolArgs(name, rawArgs), instanceId);
         case "upload_project_asset":      return toolUploadAsset(parseToolArgs(name, rawArgs), instanceId);
         case "update_project":            return toolUpdateProject(parseToolArgs(name, rawArgs), instanceId);
@@ -251,7 +290,7 @@ async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string
         case "search_projects":           return toolSearchProjects(parseToolArgs(name, rawArgs));
         case "get_global_topology":       return toolGetGlobalTopology(parseToolArgs(name, rawArgs));
         case "get_project":               return toolGetProject(parseToolArgs(name, rawArgs));
-        case "send_message":              return toolSendMessage(parseToolArgs(name, rawArgs), instanceId);
+        case "send_message":              return toolSendMessage(parseToolArgs(name, rawArgs), instanceId, sessionId);
         case "read_messages":             return toolReadMessages(parseToolArgs(name, rawArgs), instanceId);
         case "list_events":               return toolListEvents(parseToolArgs(name, rawArgs));
         case "get_global_strategy":       parseToolArgs(name, rawArgs); return toolGetGlobalStrategy();
@@ -302,9 +341,9 @@ function rateLimited(retryAfterSec: number, scope: string): HttpError {
  * Run a tool for an HTTP request. Validation failures and handler rejections
  * are the caller's fault and surface as 400, not as daemon errors.
  */
-async function callTool(name: ToolName, args: unknown, instanceId: string): Promise<unknown> {
+async function callTool(name: ToolName, args: unknown, instanceId: string, sessionId?: string): Promise<unknown> {
     try {
-        return finalizeResult(name, await dispatchTool(name, args, instanceId));
+        return finalizeResult(name, await dispatchTool(name, args, instanceId, sessionId));
     } catch (e) {
         if (e instanceof HttpError) throw e;
         if (e instanceof ResultContractError) {
@@ -321,6 +360,10 @@ const UNKNOWN_INSTANCE = "unknown";
 
 function actor(body: Record<string, unknown>): string {
     return typeof body.instanceId === "string" && body.instanceId ? body.instanceId : UNKNOWN_INSTANCE;
+}
+
+function sessionActor(body: Record<string, unknown>): string | undefined {
+    return z.string().min(1).optional().parse(body.sessionId);
 }
 
 /** Query-string parameters as tool arguments; `numeric` names are converted to numbers. */
@@ -438,21 +481,27 @@ export async function createDaemonServer(options: {
      * Requests that name no instance ("unknown") are only limited per address:
      * pooling them in one shared bucket let any client exhaust it for all others.
      */
-    const call = (name: ToolName, args: unknown, instanceId: string) => {
+    const call = (name: ToolName, args: unknown, instanceId: string, sessionId?: string) => {
         if (instanceId !== UNKNOWN_INSTANCE) {
             const wait = instanceLimiter.take(`instance:${instanceId}`);
             if (wait) throw rateLimited(wait, `instance '${instanceId}'`);
         }
-        return callTool(name, args, instanceId);
+        return callTool(name, args, instanceId, sessionId);
     };
 
     const server = http.createServer(async (req, res) => {
         const method = req.method || "GET";
-        const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
-        const path = url.pathname;
         const parseBody = (r: http.IncomingMessage) => parseRequestBody(r, maxBodyBytes);
 
         try {
+            let url: URL;
+            try {
+                url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
+            } catch {
+                req.resume();
+                throw new HttpError(400, "Invalid request URL or Host header");
+            }
+            const path = url.pathname;
             const guard = rejectBrowserRequest(req, allowedHosts);
             if (guard) {
                 req.resume();
@@ -480,24 +529,45 @@ export async function createDaemonServer(options: {
                 return jsonResponse(res, 200, { tools: TOOL_DEFINITIONS });
             }
 
+            if (method === "POST" && path === "/api/sessions/register") {
+                const input = sessionRegistrationSchema.parse(await parseBody(req));
+                let session;
+                try {
+                    session = SessionStore.register(input);
+                } catch (e) {
+                    throw new HttpError(400, e instanceof Error ? e.message : String(e));
+                }
+                return jsonResponse(res, 200, { ok: true, session });
+            }
+
+            if (method === "POST" && path === "/api/sessions/disconnect") {
+                const input = sessionDisconnectSchema.parse(await parseBody(req));
+                try {
+                    SessionStore.disconnect(input.sessionId, input.instanceId);
+                } catch (e) {
+                    throw new HttpError(400, e instanceof Error ? e.message : String(e));
+                }
+                return jsonResponse(res, 200, { ok: true });
+            }
+
             // Tool call dispatcher  ← core endpoint
             if (method === "POST" && path === "/api/tools/call") {
                 const body = await parseBody(req);
                 const toolName = body.tool as string;
                 const args = (body.args || {}) as Record<string, unknown>;
-                const instanceId = (body.instanceId as string) || UNKNOWN_INSTANCE;
+                const instanceId = actor(body);
 
                 if (!toolName) return jsonResponse(res, 400, { ok: false, error: "tool is required" });
                 if (!isToolName(toolName)) {
                     return jsonResponse(res, 404, { ok: false, error: `Unknown tool: '${toolName}'` });
                 }
-                return jsonResponse(res, 200, { ok: true, result: await call(toolName, args, instanceId) });
+                return jsonResponse(res, 200, { ok: true, result: await call(toolName, args, instanceId, sessionActor(body)) });
             }
 
             // Messages
             if (method === "POST" && path === "/api/messages/send") {
                 const body = await parseBody(req);
-                return jsonResponse(res, 200, await call("send_message", body, actor(body)));
+                return jsonResponse(res, 200, await call("send_message", body, actor(body), sessionActor(body)));
             }
 
             if (method === "GET" && path === "/api/messages/unread") {

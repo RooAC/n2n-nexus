@@ -61,7 +61,7 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 ```
 
 - **Daemon is the source of truth**: start it once and keep it running.
-- **MCP adapters are stateless**: each IDE starts an adapter through `npx`, then forwards tool calls to the daemon.
+- **MCP adapters hold connection identity only**: each IDE starts an adapter through `npx`, then forwards tool calls to the daemon, which stores the session directory and inboxes.
 - **Cross-environment by design**: point `NEXUS_ENDPOINT` at the same daemon from different machines or shells. The daemon binds to localhost by default; use `--host 0.0.0.0` only on a trusted network.
 
 ## 🚀 Quick start
@@ -103,17 +103,20 @@ The adapter can start before the daemon. It loads the daemon tool list once the 
 
 ## 🛠️ Toolset
 
-The daemon exposes 26 tools, grouped by purpose:
+The daemon exposes 31 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
 | **Topology** | `get_global_topology` | Read the project list or a detailed per-project subgraph. |
 | **Projects & assets** | `search_projects`, `get_project`, `update_project`, `rename_project`, `sync_project_assets`, `upload_project_asset` | Find, read, update, and rename projects; sync manifests and internal docs; upload binary assets. |
 | **Global docs** | `list_global_docs`, `get_global_doc`, `sync_global_doc`, `get_global_strategy`, `update_global_strategy` | List, read, create and update shared global documents and the master strategy document. |
-| **Messaging** | `send_message`, `read_messages`, `list_events` | Post and read meeting and global messages; read the structured activity log. |
+| **Messaging** | `send_message`, `read_messages`, `list_events` | Send direct, meeting or global messages; read shared messages and the activity log. |
+| **Sessions and inboxes** | `list_sessions`, `update_session`, `read_inbox`, `get_message`, `acknowledge_message` | Discover connections, receive direct messages, and inspect explicit receipts and replies. |
 | **Meetings** | `list_meetings`, `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | List, open, close, archive, and reopen meeting sessions. |
 | **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and track tasks that assistants manage themselves. |
 | **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear the global chat stream; delete a project. |
+
+Direct inboxes are per MCP connection and require explicit reads; messages do not automatically wake models. Chats sharing one connection share its inbox. Receipt states distinguish storage, fetching, acknowledgement and replies; acknowledgement does not mean the requested work is complete. See the [assistant workflow](docs/ASSISTANT_GUIDE.md#direct-conversations).
 
 See [Tools reference](./docs/TOOLS_REFERENCE.md) for parameter schemas and call examples.
 

@@ -20,16 +20,16 @@
    ▼      ▼      ▼
 MCP-A  MCP-B  MCP-C
 (Win)  (WSL)  (VM)
-无状态协议适配器，每个 IDE 一个
+轻量协议适配器，每条 MCP 连接一个
 ```
 
 ### 核心原则
 
 1. **Daemon 是唯一的真相来源** — 所有读写、业务逻辑和工具定义都在 daemon 侧。
-2. **MCP 是无状态协议适配器** — 不含工具定义、不含 hardcode 工具名、不存本地数据。
-3. **Daemon 决定工具能力** — MCP 启动时拉取 `GET /api/tools`；daemon 升级新工具后，所有已连接 MCP 立即获得新能力，无需更新。
+2. **MCP 只维护连接身份** — 不含 hardcode 工具名、不存本地持久化数据；会话目录和收件箱在 daemon。
+3. **Daemon 决定工具能力** — MCP 启动和重连时拉取 `GET /api/tools`。个人收件箱需要适配器和 daemon 都支持会话身份；旧客户端仍可使用原有共享消息接口。
 4. **无本地降级** — daemon 不可达时，MCP 每 3 秒重试并报告错误，不做本地 fallback（避免数据分裂）。daemon 拒绝的工具调用（校验失败、不存在、无权限）作为错误结果（`isError: true`）返回给 IDE，不影响连接；未知工具名返回 JSON-RPC `-32602` 错误。
-5. **MCP ↔ Daemon 全部走普通 HTTP** — 不使用 SSE；AI 是请求驱动模型，不需要推送。
+5. **MCP ↔ Daemon 全部走普通 HTTP** — 收件箱由助手主动拉取；心跳只维护在线状态，不唤醒模型。
 
 ### MCP 启动流程
 
@@ -50,6 +50,8 @@ MCP-A  MCP-B  MCP-C
 ```
 
 适配器的实例 ID（未读游标、会议权限以它为键）取自该连接上第一次见到的客户端名，来源是请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代），`NEXUS_INSTANCE_ID` / `--id` 可固定。
+
+每条 MCP 连接还会生成随机会话 ID，在首次工具请求时注册，每 20 秒刷新一次心跳，在线租约为 60 秒。断连后标记离线；适配器重启会创建新会话，旧会话的待收消息不会转移。宿主多个聊天共用连接时也共用收件箱。项目关联仅用于目录筛选，不作为项目工具的隐式操作目标。注册和断连分别使用 `POST /api/sessions/register` 与 `POST /api/sessions/disconnect`，工具请求的会话身份放在模型参数之外。系统仍采用可信本地 daemon 边界，这不是身份认证机制。精确契约见[工具参考](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes)。
 
 ---
 
@@ -113,7 +115,7 @@ n2n-nexus
   │
   ├─ n2n-nexus daemon    用户手动启动一次，持续运行，持有所有数据。
   │
-  └─ n2n-nexus mcp       IDE 通过 npx 自动启动，无状态代理。
+  └─ n2n-nexus mcp       IDE 通过 npx 自动启动，维护连接身份。
 ```
 
 **Daemon**（用户手动启动）：
@@ -145,7 +147,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 ### 工具能力（MCP 对接）
 ```
 GET  /api/tools              返回完整工具定义列表（JSON Schema）
-POST /api/tools/call         执行工具调用 { tool, args, instanceId }
+POST /api/tools/call         执行工具调用 { tool, args, instanceId, sessionId? }
 ```
 
 ### 系统

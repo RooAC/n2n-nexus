@@ -175,7 +175,7 @@ export function expireTasks(now: number = Date.now()): number {
         SET status = 'failed', error_message = 'TTL expired', updated_at = ?
         WHERE status IN ('pending', 'running')
           AND ttl IS NOT NULL
-          AND strftime('%s', created_at) * 1000 + ttl < ?
+          AND ROUND(unixepoch(created_at, 'subsec') * 1000) + ttl < ?
     `).run(new Date(now).toISOString(), now).changes;
 }
 

@@ -31,6 +31,27 @@ describe("Daemon HTTP guards", () => {
 
     const call = { tool: "send_message", args: { message: "x" }, instanceId: "t" };
 
+    it.each(["[", "localhost:bad", "[::1]:65536"])("rejects malformed Host %s and continues serving", async (host) => {
+        const res = await requestJson<{ error: string }>(port, "GET", "/health", undefined, { Host: host });
+        expect(res.status).toBe(400);
+        expect(res.payload.error).toContain("Invalid request URL or Host header");
+        expect((await requestJson(port, "GET", "/health")).status).toBe(200);
+    });
+
+    it.each(["http://[", "//["])("rejects malformed request target %s and continues serving", async (target) => {
+        const res = await requestJson(port, "GET", target);
+        expect(res.status).toBe(400);
+        expect((await requestJson(port, "GET", "/health")).status).toBe(200);
+    });
+
+    it("preserves query parameters for valid requests", async () => {
+        await requestJson(port, "POST", "/api/tools/call", call);
+        await requestJson(port, "POST", "/api/tools/call", call);
+        const res = await requestJson<{ count: number }>(port, "GET", "/api/messages/unread?count=1&instanceId=reader");
+        expect(res.status).toBe(200);
+        expect(res.payload.count).toBe(1);
+    });
+
     it("rejects requests that carry a browser Origin header", async () => {
         const res = await requestJson<{ error: string }>(port, "POST", "/api/tools/call", call, { Origin: "https://evil.example" });
         expect(res.status).toBe(403);
