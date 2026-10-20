@@ -63,6 +63,8 @@ export class NexusServer {
     private readonly workspace = process.cwd();
     /** Error code of the last failed connection attempt, e.g. "ECONNREFUSED". */
     private lastConnectError: string | undefined;
+    /** A daemon start was attempted during the current outage; reset once connected. */
+    private autostartTried = false;
     private shutdownPromise: Promise<void> | null = null;
     private connected = false;
     private stopped = false;
@@ -116,7 +118,17 @@ export class NexusServer {
                 if (this.stopped) throw new NexusTransportError("MCP connection is closed");
                 callingTool = true;
                 const caller = this.callerOf(request.params._meta);
-                const result = await this.client.callTool(request.params.name, request.params.arguments, this.instanceId, caller);
+                const call = () => this.client.callTool(request.params.name, request.params.arguments, this.instanceId, caller);
+                let result: unknown;
+                try {
+                    result = await call();
+                } catch (e) {
+                    // The local daemon is gone: start one and repeat the call once.
+                    if (!(e instanceof NexusTransportError && e.code === "ECONNREFUSED")) throw e;
+                    this.lastConnectError = e.code;
+                    if (!await this.connectOrStart(true)) throw e;
+                    result = await call();
+                }
                 // Every daemon result is a JSON object, so it goes out as structuredContent
                 // (data tools also publish an outputSchema for it; write tools do not). The
                 // JSON text keeps clients that only read content working (the spec's
@@ -197,6 +209,18 @@ export class NexusServer {
         }
     }
 
+    /**
+     * Connect; when nothing listens at a local endpoint, start a daemon once per
+     * outage and connect again. `refused` skips the first attempt when the caller
+     * has just seen ECONNREFUSED.
+     */
+    private async connectOrStart(refused = false): Promise<boolean> {
+        if (!refused && await this.tryConnect()) return true;
+        if (!this.autostart || this.stopped || this.autostartTried || this.lastConnectError !== "ECONNREFUSED") return false;
+        this.autostartTried = true;
+        return await startLocalDaemon(this.endpoint) && await this.tryConnect();
+    }
+
     private async tryConnect(): Promise<boolean> {
         try {
             const tools = await this.client.fetchTools();
@@ -204,6 +228,7 @@ export class NexusServer {
             // JSON Schema produced by the daemon; the SDK models it as JSON values.
             this.cachedTools = tools as unknown as Tool[];
             this.connected = true;
+            this.autostartTried = false;
             console.error(`[n2n-nexus] Connected to daemon. ${tools.length} tools loaded.`);
             await this.notifyToolsChanged();
             return true;
@@ -243,7 +268,7 @@ export class NexusServer {
         const next = () => {
             this.retryTimer = setTimeout(async () => {
                 console.error(`[n2n-nexus] Waiting for daemon at ${this.endpoint}...`);
-                const ok = await this.tryConnect();
+                const ok = await this.connectOrStart();
                 if (!this.retrying) return;           // stopped while the attempt was in flight
                 // A tools/call may have lost the daemon again while this attempt was still
                 // notifying the client; only stop if the connection is still up.
@@ -284,12 +309,8 @@ export class NexusServer {
             void this.shutdown();
         };
 
-        this.initialFetch = (async () => {
-            if (await this.tryConnect()) return true;
-            // Nothing listening at a local endpoint: start a daemon instead of waiting for one.
-            if (!this.autostart || this.stopped || this.lastConnectError !== "ECONNREFUSED") return false;
-            return await startLocalDaemon(this.endpoint) && await this.tryConnect();
-        })();
+        // Nothing listening at a local endpoint: start a daemon instead of waiting for one.
+        this.initialFetch = this.connectOrStart();
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
             console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. Will retry every ${this.retryIntervalMs / 1000}s...`);

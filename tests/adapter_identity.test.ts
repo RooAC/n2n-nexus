@@ -4,9 +4,9 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
-const autostart = vi.hoisted(() => ({ calls: [] as string[] }));
+const autostart = vi.hoisted(() => ({ calls: [] as string[], start: undefined as undefined | ((endpoint: string) => Promise<boolean>) }));
 vi.mock("../src/cli/autostart.js", () => ({
-    startLocalDaemon: async (endpoint: string) => { autostart.calls.push(endpoint); return false; }
+    startLocalDaemon: async (endpoint: string) => { autostart.calls.push(endpoint); return autostart.start ? autostart.start(endpoint) : false; }
 }));
 
 import { NexusServer } from "../src/server/nexus.js";
@@ -18,6 +18,7 @@ const servers: http.Server[] = [];
 
 beforeEach(() => {
     autostart.calls.length = 0;
+    autostart.start = undefined;
     process.env.NEXUS_INSTANCE_ID = "identity-test";
 });
 
@@ -28,7 +29,7 @@ afterEach(async () => {
 });
 
 /** Daemon stand-in that records every request and echoes tool calls back. */
-async function fakeDaemon() {
+async function fakeDaemon(port = 0) {
     const requests: Recorded[] = [];
     const server = http.createServer((req, res) => {
         let data = "";
@@ -44,7 +45,7 @@ async function fakeDaemon() {
         });
     });
     servers.push(server);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve));
     process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     return requests;
 }
@@ -126,6 +127,46 @@ describe("Daemon autostart from the adapter", () => {
         const endpoint = `http://127.0.0.1:${await closedPort()}`;
         await runAgainst(endpoint);
         expect(autostart.calls).toEqual([endpoint]);
+    });
+
+    it("tries again once per outage when the daemon goes away while connected", async () => {
+        await fakeDaemon();
+        const endpoint = process.env.NEXUS_ENDPOINT!;
+        const proxy = new NexusServer({ retryIntervalMs: 50 });
+        proxies.push(proxy);
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await proxy.run({ transport: serverSide, input: new PassThrough(), onExit: () => { } });
+        const client = new Client({ name: "Cursor", version: "1" });
+        clients.push(client);
+        await client.connect(clientSide);
+        await client.listTools();
+        expect(autostart.calls).toEqual([]);
+
+        const daemon = servers.pop()!;
+        daemon.closeAllConnections();
+        await new Promise<void>((resolve) => daemon.close(() => resolve()));
+        const failed = await client.callTool({ name: "echo", arguments: {} });
+        expect(failed.isError).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 400));     // several retry intervals
+        expect(autostart.calls).toEqual([endpoint]);
+    });
+
+    it("repeats the failed call once when the started daemon comes up", async () => {
+        await fakeDaemon();
+        const port = Number(new URL(process.env.NEXUS_ENDPOINT!).port);
+        const client = await connect("Cursor", false);
+        await client.listTools();
+        const daemon = servers.pop()!;
+        daemon.closeAllConnections();
+        await new Promise<void>((resolve) => daemon.close(() => resolve()));
+
+        await new Promise((resolve) => setTimeout(resolve, 50));   // let the client see its pooled socket close
+        let restarted: Recorded[] = [];
+        autostart.start = async () => { restarted = await fakeDaemon(port); return true; };
+        const result = await client.callTool({ name: "echo", arguments: { n: 1 } });
+        expect(result.isError, JSON.stringify(result.content)).toBeFalsy();
+        expect(autostart.calls).toHaveLength(1);
+        expect(restarted.filter((r) => r.url === "/api/tools/call").map((r) => r.body.args)).toEqual([{ n: 1 }]);
     });
 
     it("does not start one when autostart is off", async () => {
