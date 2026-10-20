@@ -310,6 +310,9 @@ describe("n2n-nexus hook, no daemon", () => {
 
         expect(results).toEqual([true, true]);
         expect(await waitFor(() => (readLog(home).match(/Fatal error/g) ?? []).length === 1, 5000)).toBe(true);
+        // The loser gets as far as listen(): storage initialisation tolerates a concurrent first start.
+        expect(readLog(home)).toContain("EADDRINUSE");
+        expect(readLog(home)).not.toContain("SqliteError");
         expect(readLog(home).match(/listening on/g)).toHaveLength(1);
         expect(await waitFor(() => ownDaemonChildren(port).length === 1, 5000)).toBe(true);
         expect(ownDaemonChildren(port)).toEqual([listenerPid(port)]);
