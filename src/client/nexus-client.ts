@@ -2,6 +2,8 @@ import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
 
+import type { Caller, HookRequest, HookResponse } from "../daemon/hook-contract.js";
+
 export type ToolDefinition = {
     name: string;
     description: string;
@@ -20,7 +22,8 @@ export type NexusClientOptions = {
 
 /** The daemon could not be reached or answered with something that is not JSON. */
 export class NexusTransportError extends Error {
-    constructor(message: string) {
+    /** System error code when the connection itself failed, e.g. "ECONNREFUSED". */
+    constructor(message: string, public readonly code?: string) {
         super(message);
         this.name = "NexusTransportError";
     }
@@ -49,7 +52,7 @@ export class NexusClient {
         this.timeoutMs = options.timeoutMs ?? 5000;
     }
 
-    private request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    private request<T>(method: string, path: string, body?: unknown, timeoutMs = this.timeoutMs): Promise<T> {
         const url = new URL(path, this.endpoint);
         const payload = body !== undefined ? JSON.stringify(body) : undefined;
         const transport = url.protocol === "https:" ? https : http;
@@ -63,7 +66,7 @@ export class NexusClient {
                         "Content-Type": "application/json",
                         ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {})
                     },
-                    timeout: this.timeoutMs
+                    timeout: timeoutMs
                 },
                 (res) => {
                     let data = "";
@@ -90,8 +93,8 @@ export class NexusClient {
                 }
             );
 
-            req.on("error", (e) => reject(e instanceof NexusTransportError ? e : new NexusTransportError(e.message)));
-            req.on("timeout", () => req.destroy(new NexusTransportError(`Request to ${this.endpoint} timed out after ${this.timeoutMs} ms`)));
+            req.on("error", (e: NodeJS.ErrnoException) => reject(e instanceof NexusTransportError ? e : new NexusTransportError(e.message, e.code)));
+            req.on("timeout", () => req.destroy(new NexusTransportError(`Request to ${this.endpoint} timed out after ${timeoutMs} ms`)));
             if (payload) req.write(payload);
             req.end();
         });
@@ -102,18 +105,15 @@ export class NexusClient {
         return res.tools;
     }
 
-    async registerSession(session: { sessionId: string; instanceId: string; clientName?: string; workspace?: string }): Promise<void> {
-        await this.request("POST", "/api/sessions/register", session);
+    /** Forward a client hook event; `timeoutMs` overrides the client timeout (a listening Stop waits long). */
+    async hook(request: HookRequest, timeoutMs?: number): Promise<HookResponse> {
+        return this.request<HookResponse>("POST", "/api/hook", request, timeoutMs);
     }
 
-    async disconnectSession(sessionId: string, instanceId: string): Promise<void> {
-        await this.request("POST", "/api/sessions/disconnect", { sessionId, instanceId });
-    }
-
-    async callTool(name: string, args: unknown, instanceId?: string, sessionId?: string): Promise<unknown> {
+    async callTool(name: string, args: unknown, instanceId?: string, caller?: Caller): Promise<unknown> {
         const res = await this.request<{ ok: boolean; result: unknown; error?: string }>(
             "POST", "/api/tools/call",
-            { tool: name, args: args || {}, instanceId: instanceId || "unknown", ...(sessionId ? { sessionId } : {}) }
+            { tool: name, args: args || {}, instanceId: instanceId || "unknown", ...(caller ? { caller } : {}) }
         );
         if (!res.ok) throw new NexusToolError(res.error || "Tool call failed", 200);
         return res.result;

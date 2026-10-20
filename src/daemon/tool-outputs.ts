@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MESSAGE_CATEGORIES } from "../types.js";
 import { TASK_STATUSES } from "../storage/tasks.js";
+import { AGENT_STATUSES, HOOK_CLIENTS } from "./hook-contract.js";
 
 /**
  * Result contracts, one per tool. Every result passes through its contract on
@@ -15,19 +16,14 @@ import { TASK_STATUSES } from "../storage/tasks.js";
 
 const ack = { ok: z.literal(true), message: z.string() };
 
-const sessionSchema = z.object({
-    sessionId: z.string(), instanceId: z.string(), name: z.string(),
-    clientName: z.string(), workspace: z.string(), projectId: z.string().nullable(),
-    inbound: z.enum(["accept", "refuse"]), reception: z.literal("pull"),
-    online: z.boolean(), createdAt: z.string(), lastSeenAt: z.string()
+const agentStatus = z.enum(AGENT_STATUSES);
+const agentProfileSchema = z.object({
+    id: z.string(), name: z.string(), client: z.enum(HOOK_CLIENTS), cwd: z.string(),
+    note: z.string(), status: agentStatus, lastActiveAt: z.string()
 });
-const deliveryStatus = z.enum(["accepted", "fetched", "acknowledged", "replied", "refused", "expired"]);
-const directMessageSchema = z.object({
-    messageId: z.string(), from: z.string(), to: z.string(), text: z.string(),
-    category: z.enum(MESSAGE_CATEGORIES).optional(), replyTo: z.string().nullable(),
-    status: deliveryStatus, createdAt: z.string(), expiresAt: z.string(),
-    fetchedAt: z.string().nullable(), acknowledgedAt: z.string().nullable(),
-    repliedAt: z.string().nullable(), reason: z.string().nullable()
+const sentDirectSchema = z.object({
+    messageId: z.string(),
+    to: z.object({ id: z.string(), name: z.string(), status: agentStatus })
 });
 
 const messageSchema = z.object({
@@ -103,19 +99,26 @@ export const TOOL_OUTPUT_SCHEMAS = {
         manifest: storedManifest,
         internalDocs: z.string().optional()
     }),
-    list_sessions: z.object({ self: sessionSchema.nullable(), sessions: z.array(sessionSchema), count: z.number().int() }),
-    update_session: z.object({ session: sessionSchema }),
-    read_inbox: z.object({ sessionId: z.string(), messages: z.array(directMessageSchema), count: z.number().int() }),
-    get_message: z.object({ message: directMessageSchema }),
-    acknowledge_message: z.object({ message: directMessageSchema }),
+    peers: z.object({ self: agentProfileSchema, peers: z.array(agentProfileSchema) }),
+    send: sentDirectSchema,
+    read: z.object({
+        messages: z.array(z.object({
+            messageId: z.string(),
+            from: z.object({ id: z.string(), name: z.string() }),
+            replyTo: z.string().nullable(),
+            text: z.string(),
+            createdAt: z.string()
+        })),
+        remaining: z.number().int().describe("Unread messages left after this batch")
+    }),
+    reply: sentDirectSchema,
+    listen: z.object({ listening: z.boolean() }),
+    set_profile: z.object({ profile: agentProfileSchema }),
     send_message: z.object({
         ...ack,
-        sentTo: z.enum(["meeting", "global", "session"]),
+        sentTo: z.enum(["meeting", "global"]),
         meetingId: z.string().optional(),
-        messageId: z.union([z.number().int(), z.string()]).optional(),
-        status: deliveryStatus.optional(),
-        to: z.string().optional(),
-        replyTo: z.string().nullable().optional()
+        messageId: z.number().int().optional()
     }),
     read_messages: z.object({
         source: z.enum(["meeting", "global"]),

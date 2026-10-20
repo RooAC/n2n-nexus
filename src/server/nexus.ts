@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
     CLIENT_INFO_META_KEY,
     ProtocolError,
@@ -9,11 +8,12 @@ import type { Tool, Transport } from "@modelcontextprotocol/server";
 import { serveStdio, StdioServerTransport, type StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
 import { NexusClient, NexusToolError, NexusTransportError } from "../client/nexus-client.js";
+import { startLocalDaemon } from "../cli/autostart.js";
 import { pkg } from "../config/index.js";
+import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, type Caller } from "../daemon/hook-contract.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
-const HEARTBEAT_INTERVAL_MS = 20_000;
 /** How long the first tools/list waits for the startup daemon fetch before answering with what it has. */
 const INITIAL_LIST_WAIT_MS = 1000;
 const SERVICE_NAME = "n2n-nexus";
@@ -34,12 +34,12 @@ export type NexusServerOptions = {
     retryIntervalMs?: number;
     /** Per-request timeout towards the daemon. */
     requestTimeoutMs?: number;
-    /** Pause between session heartbeat attempts. */
-    heartbeatIntervalMs?: number;
 };
 
 /**
- * MCP adapter in front of the daemon, with one addressable session per connection.
+ * MCP adapter in front of the daemon. It holds no session of its own: each
+ * tool call carries the caller the client named in the request's `_meta`
+ * (see hook-contract.ts), so one adapter can serve several conversations.
  *
  * Served through the v2 SDK's serveStdio entry, which answers both
  * protocol eras on one connection: 2026-07-28 clients (per-request `_meta`
@@ -55,13 +55,11 @@ export class NexusServer {
     /** True while a reconnect loop is active (waiting or attempting). */
     private retrying = false;
     private readonly retryIntervalMs: number;
-    private readonly heartbeatIntervalMs: number;
-    private readonly sessionId = randomUUID();
+    private readonly endpoint: string;
     private instanceId: string | undefined;
     private readonly workspace = process.cwd();
-    private heartbeatTimer: NodeJS.Timeout | null = null;
-    private registration: Promise<void> | null = null;
-    private registrationAttempted = false;
+    /** Error code of the last failed connection attempt, e.g. "ECONNREFUSED". */
+    private lastConnectError: string | undefined;
     private shutdownPromise: Promise<void> | null = null;
     private connected = false;
     private stopped = false;
@@ -75,10 +73,9 @@ export class NexusServer {
     private initialFetch: Promise<boolean> | null = null;
 
     constructor(options: NexusServerOptions = {}) {
-        const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
+        this.endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
         this.retryIntervalMs = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
-        this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS;
-        this.client = new NexusClient({ endpoint, timeoutMs: options.requestTimeoutMs ?? 5000 });
+        this.client = new NexusClient({ endpoint: this.endpoint, timeoutMs: options.requestTimeoutMs ?? 5000 });
     }
 
     /** Builds the MCP server instance serveStdio pins for the connection. */
@@ -93,13 +90,6 @@ export class NexusServer {
             // Give a local daemon a moment so the first list is complete; never block on a hung one.
             if (!this.connected && this.initialFetch) {
                 await Promise.race([this.initialFetch, new Promise((r) => setTimeout(r, INITIAL_LIST_WAIT_MS))]);
-            }
-            if (this.connected) {
-                try { await this.registerSession(); }
-                catch (e) {
-                    if (e instanceof NexusTransportError) await this.daemonUnavailable();
-                    else throw e;
-                }
             }
             return { tools: this.cachedTools };
         });
@@ -119,10 +109,10 @@ export class NexusServer {
 
             let callingTool = false;
             try {
-                await this.registerSession();
                 if (this.stopped) throw new NexusTransportError("MCP connection is closed");
                 callingTool = true;
-                const result = await this.client.callTool(request.params.name, request.params.arguments, this.instanceId, this.sessionId);
+                const caller = this.callerOf(request.params._meta);
+                const result = await this.client.callTool(request.params.name, request.params.arguments, this.instanceId, caller);
                 // Every daemon result is a JSON object, so it goes out as structuredContent
                 // (data tools also publish an outputSchema for it; write tools do not). The
                 // JSON text keeps clients that only read content working (the spec's
@@ -163,6 +153,20 @@ export class NexusServer {
         this.instanceId = resolveInstanceId(process.env, process.argv, this.workspace, this.clientName);
     }
 
+    /** The conversation behind a tool call, from the `_meta` its client attaches (verified for Claude Code and Codex). */
+    private callerOf(meta: unknown): Caller | undefined {
+        const fields = meta as Record<string, unknown> | undefined;
+        if (this.clientName === CLIENT_INFO_NAMES.claude) {
+            const toolUseId = fields?.[CLAUDE_TOOL_USE_META_KEY];
+            return typeof toolUseId === "string" && toolUseId ? { client: "claude", toolUseId } : undefined;
+        }
+        if (this.clientName === CLIENT_INFO_NAMES.codex) {
+            const sessionId = fields?.[CODEX_SESSION_META_KEY];
+            return typeof sessionId === "string" && sessionId ? { client: "codex", sessionId } : undefined;
+        }
+        return undefined;
+    }
+
     private async daemonUnavailable(): Promise<void> {
         if (this.connected) {
             this.connected = false;
@@ -170,32 +174,6 @@ export class NexusServer {
             await this.notifyToolsChanged();
         }
         this.scheduleRetry();
-    }
-
-    /** Coalesce requests so heartbeats and tool calls cannot stack registrations. */
-    private registerSession(): Promise<void> {
-        if (this.stopped || !this.instanceId) return Promise.resolve();
-        if (this.registration) return this.registration;
-        this.registrationAttempted = true;
-        this.registration = this.client.registerSession({
-            sessionId: this.sessionId, instanceId: this.instanceId,
-            clientName: this.clientName, workspace: this.workspace
-        }).finally(() => {
-            this.registration = null;
-            this.scheduleHeartbeat();
-        });
-        return this.registration;
-    }
-
-    private scheduleHeartbeat(): void {
-        if (this.stopped || this.heartbeatTimer) return;
-        this.heartbeatTimer = setTimeout(async () => {
-            this.heartbeatTimer = null;
-            try { await this.registerSession(); }
-            catch (e) {
-                if (e instanceof NexusTransportError) await this.daemonUnavailable();
-            }
-        }, this.heartbeatIntervalMs);
     }
 
     /** Delivered unsolicited on 2025-era connections and via subscriptions/listen on 2026-07-28 ones. */
@@ -219,15 +197,14 @@ export class NexusServer {
         try {
             const tools = await this.client.fetchTools();
             if (this.stopped) return false;
-            if (this.instanceId) await this.registerSession();
-            if (this.stopped) return false;
             // JSON Schema produced by the daemon; the SDK models it as JSON values.
             this.cachedTools = tools as unknown as Tool[];
             this.connected = true;
             console.error(`[n2n-nexus] Connected to daemon. ${tools.length} tools loaded.`);
             await this.notifyToolsChanged();
             return true;
-        } catch {
+        } catch (e) {
+            this.lastConnectError = e instanceof NexusTransportError ? e.code : undefined;
             return false;
         }
     }
@@ -245,13 +222,7 @@ export class NexusServer {
         if (this.shutdownPromise) return this.shutdownPromise;
         this.stopped = true;
         this.stopRetry();
-        if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer);
-        this.heartbeatTimer = null;
         this.shutdownPromise = (async () => {
-            await this.registration?.catch(() => { });
-            if (this.registrationAttempted && this.instanceId) {
-                await this.client.disconnectSession(this.sessionId, this.instanceId).catch(() => { });
-            }
             await this.handle?.close().catch(() => { });
         })();
         return this.shutdownPromise;
@@ -265,10 +236,9 @@ export class NexusServer {
     private scheduleRetry() {
         if (this.retrying || this.stopped) return;
         this.retrying = true;
-        const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
         const next = () => {
             this.retryTimer = setTimeout(async () => {
-                console.error(`[n2n-nexus] Waiting for daemon at ${endpoint}...`);
+                console.error(`[n2n-nexus] Waiting for daemon at ${this.endpoint}...`);
                 const ok = await this.tryConnect();
                 if (!this.retrying) return;           // stopped while the attempt was in flight
                 // A tools/call may have lost the daemon again while this attempt was still
@@ -310,11 +280,15 @@ export class NexusServer {
             void this.shutdown();
         };
 
-        this.initialFetch = this.tryConnect();
+        this.initialFetch = (async () => {
+            if (await this.tryConnect()) return true;
+            // Nothing listening at a local endpoint: start a daemon instead of waiting for one.
+            if (this.stopped || this.lastConnectError !== "ECONNREFUSED") return false;
+            return await startLocalDaemon(this.endpoint) && await this.tryConnect();
+        })();
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
-            const endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
-            console.error(`[n2n-nexus] Daemon not available at ${endpoint}. Will retry every ${this.retryIntervalMs / 1000}s...`);
+            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. Will retry every ${this.retryIntervalMs / 1000}s...`);
             this.scheduleRetry();
         }
     }
