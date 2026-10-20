@@ -324,6 +324,21 @@ describe("POST /api/hook: listen mode", () => {
         await until(() => status("claude:r") === "idle", LISTEN_MS / 2);
     });
 
+    it("ends the wait when the conversation ends, and a later message leaves it offline", async () => {
+        await start({ listenWaitMs: 60_000 });
+        await hook("claude", "SessionStart", "se");
+        await hook("codex", "SessionStart", "sender");
+        await claudeTool("se", "listen", { on: true });
+        const waiting = openHook("claude", "Stop", "se");
+        await until(() => status("claude:se") === "listening");
+        expect(await hook("claude", "SessionEnd", "se")).toBeNull();
+        expect((await waiting.response).payload).toEqual({ output: null });
+        await send("sender", "claude:se", "after the end");
+        expect(status("claude:se")).toBe("offline");
+        const row = getDatabase().prepare("SELECT notified_at FROM agent_messages WHERE to_id = ?").get("claude:se") as { notified_at: string | null };
+        expect(row.notified_at).toBeNull();
+    });
+
     it("lets the daemon shut down without waiting for a listening Stop hook", async () => {
         await start({ listenWaitMs: 60_000 });
         await hook("claude", "SessionStart", "sd");

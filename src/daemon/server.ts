@@ -396,6 +396,8 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
         };
         function check() {
             if (done) return;
+            // SessionEnd (or listen off) during the wait: nobody will act on a block any more.
+            if (!AgentStore.get(sessionId)?.listening) return finish(null);
             const text = notifyFresh(sessionId);
             if (text === null) return;
             AgentStore.setStatus(sessionId, "working");
@@ -453,7 +455,7 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
         case "SessionEnd":
             AgentStore.setStatus(id, "offline");
             AgentStore.setListening(id, false);
-            wake(AgentStore.fireIdle(id, "offline"));
+            wake([id, ...AgentStore.fireIdle(id, "offline")]);
             return null;
         default:
             return null;
