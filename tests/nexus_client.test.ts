@@ -63,7 +63,7 @@ describe("NexusClient HTTP transport", () => {
         });
     });
 
-    it("preserves session payloads, tool results, and HTTP error classification", async () => {
+    it("preserves caller and hook payloads, tool results, and HTTP error classification", async () => {
         const received: Array<{ path: string | undefined; body: unknown }> = [];
         const endpoint = await listen((req, res) => {
             let body = "";
@@ -79,21 +79,35 @@ describe("NexusClient HTTP transport", () => {
                         res.end(JSON.stringify({ ok: true, result: { count: 0 } }));
                     }
                 } else {
-                    res.end(JSON.stringify({ ok: true }));
+                    res.end(JSON.stringify({ output: { decision: "block", reason: "r" } }));
                 }
             });
         });
         const client = new NexusClient({ endpoint });
-        const session = { sessionId: "session", instanceId: "instance", clientName: "IDE", workspace: "/project" };
-        await client.registerSession(session);
-        await expect(client.callTool("read_inbox", {}, "instance", "session")).resolves.toEqual({ count: 0 });
-        await client.disconnectSession("session", "instance");
+        const caller = { client: "codex", sessionId: "thread" } as const;
+        await expect(client.callTool("read", {}, "instance", caller)).resolves.toEqual({ count: 0 });
+        await expect(client.callTool("peers", {}, "instance")).resolves.toEqual({ count: 0 });
+        const hook = { client: "claude", input: { hook_event_name: "Stop", session_id: "s" } } as const;
+        await expect(client.hook(hook)).resolves.toEqual({ output: { decision: "block", reason: "r" } });
         await expect(client.callTool("missing", {})).rejects.toBeInstanceOf(NexusToolError);
         expect(received.slice(0, 3)).toEqual([
-            { path: "/api/sessions/register", body: session },
-            { path: "/api/tools/call", body: { tool: "read_inbox", args: {}, instanceId: "instance", sessionId: "session" } },
-            { path: "/api/sessions/disconnect", body: { sessionId: "session", instanceId: "instance" } }
+            { path: "/api/tools/call", body: { tool: "read", args: {}, instanceId: "instance", caller } },
+            { path: "/api/tools/call", body: { tool: "peers", args: {}, instanceId: "instance" } },
+            { path: "/api/hook", body: hook }
         ]);
+    });
+
+    it("lets a hook request outlast the client timeout and reports connection errors with their code", async () => {
+        const endpoint = await listen((req, res) => {
+            req.resume();
+            req.on("end", () => setTimeout(() => res.end(JSON.stringify({ output: null })), 150));
+        });
+        const client = new NexusClient({ endpoint, timeoutMs: 50 });
+        await expect(client.hook({ client: "codex", input: {} })).rejects.toMatchObject({ message: expect.stringContaining("timed out after 50 ms") });
+        await expect(client.hook({ client: "codex", input: {} }, 1000)).resolves.toEqual({ output: null });
+
+        const refused = new NexusClient({ endpoint: "http://127.0.0.1:1", timeoutMs: 500 });
+        await expect(refused.fetchTools()).rejects.toMatchObject({ name: "NexusTransportError", code: "ECONNREFUSED" });
     });
 
     it("connects to an IPv6 loopback endpoint", async (context) => {

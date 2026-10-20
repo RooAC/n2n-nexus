@@ -34,6 +34,8 @@ export type NexusServerOptions = {
     retryIntervalMs?: number;
     /** Per-request timeout towards the daemon. */
     requestTimeoutMs?: number;
+    /** Start a daemon when none is listening at a local endpoint (default true). */
+    autostart?: boolean;
 };
 
 /**
@@ -56,6 +58,7 @@ export class NexusServer {
     private retrying = false;
     private readonly retryIntervalMs: number;
     private readonly endpoint: string;
+    private readonly autostart: boolean;
     private instanceId: string | undefined;
     private readonly workspace = process.cwd();
     /** Error code of the last failed connection attempt, e.g. "ECONNREFUSED". */
@@ -75,6 +78,7 @@ export class NexusServer {
     constructor(options: NexusServerOptions = {}) {
         this.endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
         this.retryIntervalMs = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
+        this.autostart = options.autostart ?? true;
         this.client = new NexusClient({ endpoint: this.endpoint, timeoutMs: options.requestTimeoutMs ?? 5000 });
     }
 
@@ -283,7 +287,7 @@ export class NexusServer {
         this.initialFetch = (async () => {
             if (await this.tryConnect()) return true;
             // Nothing listening at a local endpoint: start a daemon instead of waiting for one.
-            if (this.stopped || this.lastConnectError !== "ECONNREFUSED") return false;
+            if (!this.autostart || this.stopped || this.lastConnectError !== "ECONNREFUSED") return false;
             return await startLocalDaemon(this.endpoint) && await this.tryConnect();
         })();
         const ok = await this.initialFetch;
