@@ -2,6 +2,30 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [Unreleased]
+
+### 新增
+
+- 每个 Claude Code 和 Codex 对话都是一个独立会话，ID 为 `claude:<id>` 或 `codex:<id>`，直接使用客户端分配的 ID。恢复对话、重启适配器、子代理都沿用同一身份。
+- 直接消息工具 `peers`、`send`、`read`、`reply`、`listen`、`set_profile`。工具调用通过 MCP 请求的 `_meta` 标明所属对话（Claude Code 是 `claudecode/toolUseId`，由 PreToolUse hook 绑定；Codex 是 `sessionId`），不经过参数。
+- `n2n-nexus hook <claude|codex>` 与 `POST /api/hook`：客户端 hooks 维护每个对话的状态（working、idle、listening、offline），并在用户发来新消息时、每次工具调用后、本轮结束前一次通知新消息。通知只带发送方和第一行，正文通过 `read` 以工具结果的形式读取。
+- `listen`：对话结束一轮后继续等待最多 590 秒，消息一到就接着处理。`send(notifyWhenIdle)` 在收件方下一次结束一轮或离线时通知一次。未读消息 24 小时后过期，并通知发送方。
+- `n2n-nexus install <claude|codex> [--endpoint <url>]` 与 `uninstall`：在客户端的用户级配置里写入或删除 hooks 和 MCP 服务，与已有设置合并。Codex 的 hooks 需要先用 `/hooks` 信任一次。
+- 本机地址（`127.0.0.1` 或 `localhost`）上没有 daemon 时，适配器和 hooks 会在后台拉起一个，日志在 `~/.n2n-nexus/daemon.log`。
+
+### 移除
+
+- `list_sessions`、`update_session`、`read_inbox`、`get_message`、`acknowledge_message`，`send_message` 的 `to`、`replyTo`、`ttlMs` 参数，`POST /api/sessions/register` 与 `POST /api/sessions/disconnect`，以及适配器的随机会话 ID 和心跳。`send_message` 现在只发到会议和全局聊天。
+
+### 修复
+
+- 两个 daemon 在全新的存储目录上同时启动时，后一个不再在战略文档迁移里崩溃，而是因 `EADDRINUSE` 退出。
+
+### 升级说明
+
+- 升级后执行 `n2n-nexus install claude` 和 / 或 `n2n-nexus install codex`；直接消息依赖这些 hooks。其他 MCP 客户端仍可使用除直接消息以外的全部工具。
+- 0.7.0 的会话和直接消息不做迁移，旧表不再读取。
+
 ## [0.6.0] - 2026-10-16
 
 ### 新增

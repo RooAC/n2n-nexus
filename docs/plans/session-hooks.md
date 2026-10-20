@@ -134,7 +134,7 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
   - 合并写入 `${CODEX_HOME:-~/.codex}/hooks.json`：SessionStart、SessionEnd、UserPromptSubmit、PostToolUse、Stop，超时设置同上。
   - MCP：先 `codex mcp remove n2n-nexus`（失败忽略），再 `codex mcp add n2n-nexus [--env NEXUS_ENDPOINT=<url>] -- <node> <脚本> mcp`。
   - 安装完打印提示：打开 Codex 执行 `/hooks` 信任这些 hooks。
-- 识别自己写入的 hook 条目：命令里含 `<入口脚本> hook <client>`。重复安装时替换这些条目，其他条目原样保留；`uninstall` 只删这些条目，再执行对应的 `mcp remove`。
+- 识别自己写入的 hook 条目：命令里同时含 `n2n-nexus` 和 ` hook <client>`（换了安装路径也能认出旧条目）。重复安装时替换这些条目，其他条目原样保留；`uninstall` 只删这些条目，再执行对应的 `mcp remove`。
 - 安装时指定了 `--endpoint`，hook 命令里同样带上 `--endpoint <url>`。
 - `claude` / `codex` 命令不在 PATH 上时，报错退出，不写任何文件。
 
@@ -165,7 +165,8 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 | `tests/hook_cli.test.ts`（新） | 构建后的 CLI：stdin → stdout；daemon 不在时退出码 0、无输出；自动拉起（临时 root 和端口）以及两个进程并发拉起 |
 | `tests/install.test.ts`（新） | 临时的 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`，PATH 上放假的 `claude` / `codex` 记录参数：合并时保留已有条目、重复安装结果不变、`uninstall`、`_npx` 路径拒绝、`--endpoint` 写入、CLI 不在 PATH 时不写文件 |
 | `tests/structured_output.test.ts` | 覆盖新的 6 个工具：用 MCP 客户端带 `_meta` 调用 |
-| `tests/mcp_proxy.test.ts`、`tests/nexus_client.test.ts` | 删掉会话注册和心跳的用例，新增 `caller` 组装的用例（两种协议版本的客户端都跑） |
+| `tests/adapter_identity.test.ts`（新，替代 `session_adapter.test.ts`） | `caller` 组装（两种协议版本的客户端都跑）、不再注册会话、适配器自动拉起的触发条件 |
+| `tests/mcp_proxy.test.ts`、`tests/nexus_client.test.ts` | 删掉会话注册和心跳的用例；`NexusClient` 的 `caller`、`hook()` 和连接错误码 |
 | 删除 | `tests/direct_message_storage.test.ts`、`tests/session_adapter.test.ts`、`tests/session_mcp.test.ts`、`tests/session_messages_api.test.ts` |
 
 ## 6. 执行步骤与分工

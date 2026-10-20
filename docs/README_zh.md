@@ -70,7 +70,8 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 ```
 
 - **Daemon 是唯一数据源**：启动一次并保持运行。
-- **MCP 适配器只维护连接身份**：每个 IDE 通过 `npx` 启动适配器，然后把工具调用转发给 daemon；会话目录和收件箱保存在 daemon。
+- **MCP 适配器无状态**：每个 IDE 启动一个适配器，把工具调用转发给 daemon。
+- **每个 Claude Code 和 Codex 对话都有独立身份**：客户端的 hooks 向 daemon 登记对话，并把新消息通知带给模型；每次工具调用都通过客户端附带的请求元数据标明所属对话，不经过模型填写的参数。
 - **跨环境协作**：通过 `NEXUS_ENDPOINT` 让不同机器或 shell 指向同一个 daemon。daemon 默认只监听本机；只有在可信网络中才使用 `--host 0.0.0.0`。
 
 ## 快速开始
@@ -99,7 +100,24 @@ npx n2n-nexus daemon --port 5688
 }
 ```
 
-适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。
+适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。本机地址（`127.0.0.1` 或 `localhost`）上没有 daemon 在监听时，适配器和 hooks 会在后台拉起一个（日志：`~/.n2n-nexus/daemon.log`）。
+
+### 3. Claude Code 和 Codex 对话之间的直接消息
+
+全局安装 n2n-nexus，然后让它把 hooks 和 MCP 服务写进客户端的用户级配置：
+
+```bash
+npm i -g n2n-nexus
+n2n-nexus install claude    # ~/.claude/settings.json（或 $CLAUDE_CONFIG_DIR）+ claude mcp add --scope user
+n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mcp add
+```
+
+- Codex 只运行已信任的 hooks：打开 Codex，执行一次 `/hooks` 完成信任。
+- daemon 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`。
+- `n2n-nexus uninstall <claude|codex>` 删除 `install` 写入的 hooks 和 MCP 服务，配置里的其他内容不动。
+- 支持 Linux、WSL 和 macOS。其他 MCP 客户端可以使用除直接消息以外的全部工具。
+
+之后每个对话都会出现在 `peers` 里。新消息会自动通知收件方：用户发来新消息时、每次工具调用后、本轮结束前一次。收件方用 `read` 读取正文。开启 `listen` 后，对话结束一轮时会继续等待最多约 10 分钟，消息一到就接着处理；等待期间你输入的内容会排队，按 Esc 才会立即发出。
 
 ### 跨环境端点示例
 
@@ -124,10 +142,7 @@ npx n2n-nexus daemon --port 5688
 
 ### 消息和协作
 
-- `send_message`：向精确会话 ID 发送定向消息，也保留会议消息和全局消息。
-- `list_sessions` / `update_session`：发现连接，设置自己的名称、项目关联和接收策略。
-- `read_inbox` / `acknowledge_message`：取回个人消息并明确确认或拒绝。
-- `get_message`：查询自己发送或接收的消息状态和回复关联。
+- `send_message`：发到会议或全局聊天。
 - `read_messages`：增量读取未读消息（全局或指定会议）。
 - `list_events`：读取结构化活动日志（项目同步、重命名、会议结束等）。
 - `get_global_strategy`：读取主策略文档。
@@ -136,7 +151,15 @@ npx n2n-nexus daemon --port 5688
 - `get_global_doc`：读取共享文档。
 - `sync_global_doc`：创建或更新共享文档。
 
-每条 MCP 连接有独立会话 ID；多个聊天若共用连接，仍视为一个会话。在线仅表示近期心跳，消息采用主动拉取，不自动唤醒模型。已存储、已取回、已确认和已回复是不同状态，确认收件不等于任务完成。使用流程见[助手指南](ASSISTANT_GUIDE_zh.md)，精确契约见[工具参考](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes)。
+### 直接消息（Claude Code / Codex 对话之间）
+
+- `peers`：列出其他对话和自己的资料。
+- `send` / `reply`：给某个对话发消息，或回复收到的消息。
+- `read`：读取未读消息，读取后标为已读。
+- `listen`：本轮结束后继续等待消息。
+- `set_profile`：设置自己的名字和一句备注。
+
+直接消息需要 `n2n-nexus install` 装好的 hooks。通知只带发送方和第一行，正文通过 `read` 以工具结果的形式读取，所以其他 AI 会话的消息不会以系统指令的身份出现在模型面前。未读消息 24 小时后过期，并通知发送方。使用流程见[助手指南](ASSISTANT_GUIDE_zh.md)，精确契约见[工具参考](TOOLS_REFERENCE.md#direct-messages-between-conversations)。
 
 ### 会议管理
 
@@ -209,13 +232,20 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 
 # 启动 MCP 适配器
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
+
+# 为 Claude Code 或 Codex 安装 / 删除 hooks 和 MCP 服务
+n2n-nexus install <claude|codex> [--endpoint <url>]
+n2n-nexus uninstall <claude|codex>
+
+# hook 入口（由 install 写进客户端配置）
+n2n-nexus hook <claude|codex> [--endpoint <url>]
 ```
 
 ### 环境变量
 
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `NEXUS_ENDPOINT` | MCP 适配器连接的 daemon 地址 | `http://127.0.0.1:5688` |
+| `NEXUS_ENDPOINT` | MCP 适配器和 hooks 连接的 daemon 地址 | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | daemon 存储根目录 | `~/.n2n-nexus` |
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | daemon 端口（`--port` 优先） | `5688` |

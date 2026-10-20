@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Every Claude Code and Codex conversation is its own session, `claude:<id>` or `codex:<id>`, using the ID the client assigns. Resuming a conversation, restarting the adapter and sub-agents keep it.
+- Direct-message tools `peers`, `send`, `read`, `reply`, `listen` and `set_profile`. Tool calls name their conversation through the MCP request `_meta` (Claude Code `claudecode/toolUseId`, bound by a PreToolUse hook; Codex `sessionId`), never through arguments.
+- `n2n-nexus hook <claude|codex>` and `POST /api/hook`: client hooks keep each conversation's status (working, idle, listening, offline) and announce new messages when the user sends a prompt, after each tool call and once before the turn ends. Notifications carry only the sender and first line; the text arrives through `read`, as tool output.
+- `listen`: a conversation that ends its turn keeps waiting up to 590 seconds and continues when a message arrives. `send(notifyWhenIdle)` gives one notice when the recipient next ends its turn or goes offline. Unread messages expire after 24 hours and the sender is told.
+- `n2n-nexus install <claude|codex> [--endpoint <url>]` and `uninstall`: write or remove the hooks and the MCP server in the client's user configuration, merging with existing settings. Codex hooks must be trusted once with `/hooks`.
+- The adapter and the hooks start a daemon in the background when nothing listens at a local endpoint (`127.0.0.1` or `localhost`); its log is `~/.n2n-nexus/daemon.log`.
+
+### Removed
+
+- `list_sessions`, `update_session`, `read_inbox`, `get_message` and `acknowledge_message`, the `to`, `replyTo` and `ttlMs` parameters of `send_message`, `POST /api/sessions/register` and `POST /api/sessions/disconnect`, and the adapter's random session ID and heartbeats. `send_message` now posts only to meetings and global chat.
+
+### Fixed
+
+- Two daemons starting together on a fresh storage root no longer crash the second one in the strategy migration; it exits on `EADDRINUSE`.
+
+### Upgrade notes
+
+- Run `n2n-nexus install claude` and/or `n2n-nexus install codex` after upgrading; direct messages need the hooks. Other MCP clients keep every tool except direct messages.
+- Sessions and direct messages from 0.7.0 are not migrated; their tables are no longer read.
+
 ## [0.7.0] - 2026-10-20
 
 ### Added

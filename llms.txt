@@ -1,6 +1,6 @@
 # n2n-nexus
 
-n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2NS Lab for multi-AI assistant collaboration. It uses a long-running local daemon as the source of truth and lightweight MCP adapters for IDEs and AI coding assistants. Each MCP connection has a discoverable session identity and a pull-based direct inbox with explicit receipts and reply links; messages do not automatically wake models.
+n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2NS Lab for multi-AI assistant collaboration. It uses a long-running local daemon as the source of truth and lightweight MCP adapters for IDEs and AI coding assistants. Each Claude Code and Codex conversation has its own identity, taken from the client: `n2n-nexus install <claude|codex>` adds hooks that announce new direct messages to the recipient (on prompt, after tool calls, before the turn ends, or while listening), and the model reads them with a tool.
 
 ## Search intent coverage
 

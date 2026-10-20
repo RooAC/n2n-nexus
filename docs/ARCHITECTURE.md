@@ -5,7 +5,8 @@
 ```
 ┌──────────────────────────────────────────────────┐
 │              n2n-nexus daemon                    │
-│  Standalone HTTP server · User starts manually   │
+│  Standalone HTTP server · started by the user,   │
+│  or in the background by a local hook / adapter  │
 │                                                  │
 │  ┌──────────────┐  ┌──────────────────────────┐  │
 │  │  REST API    │  │  Storage Layer           │  │
@@ -18,18 +19,18 @@
           │ HTTP  (NEXUS_ENDPOINT — cross-env capable)
    ┌──────┼──────┐
    ▼      ▼      ▼
-MCP-A  MCP-B  MCP-C
-(Win)  (WSL)  (VM)
+MCP-A  MCP-B  MCP-C      hooks (Claude Code / Codex)
+(Win)  (WSL)  (VM)       POST /api/hook per client event
 Lightweight protocol adapter, one per MCP connection
 ```
 
 ### Core Principles
 
 1. **Daemon is the single source of truth** — all reads/writes, business logic, and tool definitions live in the daemon.
-2. **MCP holds connection identity only** — no hardcoded tool names or local persistent data; sessions and inboxes live in the daemon.
-3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup and reconnect. Session inboxes require both the session-aware adapter and daemon; legacy clients can continue using the existing shared-message APIs.
+2. **MCP is stateless** — no hardcoded tool names, no local persistent data and no session of its own; conversations and direct messages live in the daemon.
+3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup and reconnect.
 4. **No local fallback** — if the daemon is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation. A tool call the daemon rejects (validation, not found, permission) is returned to the IDE as an error result (`isError: true`) and does not affect the connection; an unknown tool name is a JSON-RPC `-32602` error.
-5. **Plain HTTP between MCP and daemon** — inboxes are pulled explicitly; heartbeats maintain presence but do not wake the model.
+5. **Plain HTTP between MCP, hooks and daemon** — the client's hooks report conversation events and carry new-message notifications back to the model; the model reads the text with a tool.
 
 ### MCP Startup Flow
 
@@ -42,6 +43,8 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │     │  list_changed delivered on subscriptions/listen
   │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
   │
+  ├─ Connection refused at 127.0.0.1 / localhost: start a daemon in the background once
+  │
   ├─ If the daemon was down: retry loop (every 3 s)
   │     └─ GET /api/tools succeeds → cache tool list
   │           → notifications/tools/list_changed → IDE re-fetches
@@ -51,7 +54,20 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
 
 The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
 
-Each MCP connection also gets a random session ID, registered on its first tool request and refreshed every 20 seconds with a 60-second presence lease. Disconnect marks it offline; an adapter restart creates a new session, so pending messages for the old session are not transferred. Multiple host chats sharing a connection share its inbox. Project association is directory metadata, not an implicit target for project tools. Registration and disconnect use `POST /api/sessions/register` and `POST /api/sessions/disconnect`; direct tools receive session identity outside their model-supplied arguments. This remains a trusted local daemon, not an authentication boundary. See [tool reference](TOOLS_REFERENCE.md#session-directory-and-direct-inboxes).
+### Conversations and hooks
+
+Each Claude Code or Codex conversation is one session, `claude:<session id>` or `codex:<session id>`, using the ID the client itself assigns. `n2n-nexus install <claude|codex>` writes hooks that run `n2n-nexus hook <client>` on SessionStart, UserPromptSubmit, PostToolUse, Stop and SessionEnd (and, for Claude Code, PreToolUse on the n2n-nexus tools). The hook command forwards the event's identifying fields to `POST /api/hook` and prints the daemon's answer; on any error it exits 0 without output, so a missing daemon never blocks the client.
+
+```
+Client event ──▶ n2n-nexus hook ──▶ POST /api/hook ──▶ session status, notifications
+                                                        │
+UserPromptSubmit / PostToolUse ◀── additionalContext ◀──┤  "2 unread direct messages ..."
+Stop                           ◀── decision: block   ◀──┘  once per stop, or on arrival while listening
+```
+
+Tool calls name their conversation outside the model's arguments. The adapter reads it from the request's `_meta`: Claude Code sends `claudecode/toolUseId`, which the PreToolUse hook bound to the conversation just before the call (verified: the call waits for the hook); Codex sends `sessionId`. The adapter forwards it as `caller` in `POST /api/tools/call`. Because the identity is the conversation, not the adapter process, an adapter restart, a resumed conversation and a sub-agent all keep it, and one adapter can serve several Codex conversations.
+
+Notifications carry the sender and the first line only; the text reaches the model through `read`, as tool output rather than injected context. A listening Stop hook is held open for up to 590 s and answered as soon as a message arrives; the client killing the hook (the user pressing Esc) or the daemon shutting down ends the wait. This remains a trusted local daemon, not an authentication boundary. See [tool reference](TOOLS_REFERENCE.md#direct-messages-between-conversations).
 
 ---
 
@@ -71,7 +87,7 @@ All data lives under the daemon's storage root (default `~/.n2n-nexus`):
 │       ├── internal_blueprint.md  # Internal technical docs
 │       └── assets/                # Binary assets (images, PDFs)
 ├── registry.json           # Global project index
-└── nexus.db                # SQLite database (meetings, global chat, events, tasks, cursors)
+└── nexus.db                # SQLite database (meetings, global chat, events, tasks, cursors, conversations, direct messages)
 ```
 
 **SQLite WAL mode**: Only the daemon process opens the database. MCP adapters never touch it — they go through HTTP.
@@ -114,11 +130,12 @@ One npm package, two commands:
 n2n-nexus
   │
   ├─ n2n-nexus daemon    Start once, keep running. Owns all data.
-  │
-  └─ n2n-nexus mcp       IDE starts automatically via npx. Stateless proxy.
+  ├─ n2n-nexus mcp       IDE starts automatically via npx. Stateless proxy.
+  ├─ n2n-nexus hook      Run by Claude Code / Codex on each hook event.
+  └─ n2n-nexus install   Write the hooks and MCP server into a client's user configuration.
 ```
 
-**Daemon** (user starts manually):
+**Daemon** (started by the user, or in the background by a hook or adapter when none listens at a local endpoint):
 ```bash
 npx n2n-nexus daemon --port 5688
 # or with explicit root
@@ -147,7 +164,8 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 ### Tool capability (MCP-facing)
 ```
 GET  /api/tools              Return full tool definition list (JSON Schema)
-POST /api/tools/call         Execute tool call { tool, args, instanceId, sessionId? }
+POST /api/tools/call         Execute tool call { tool, args, instanceId, caller? }
+POST /api/hook               Client hook event { client, input } → { output }
 ```
 
 ### System

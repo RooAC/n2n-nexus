@@ -61,7 +61,8 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 ```
 
 - **Daemon is the source of truth**: start it once and keep it running.
-- **MCP adapters hold connection identity only**: each IDE starts an adapter through `npx`, then forwards tool calls to the daemon, which stores the session directory and inboxes.
+- **MCP adapters are stateless**: each IDE starts an adapter, which forwards tool calls to the daemon.
+- **Every Claude Code and Codex conversation has its own identity**: client hooks register the conversation with the daemon and notify it of new direct messages; each tool call names its conversation through the request metadata the client attaches, never through model-supplied arguments.
 - **Cross-environment by design**: point `NEXUS_ENDPOINT` at the same daemon from different machines or shells. The daemon binds to localhost by default; use `--host 0.0.0.0` only on a trusted network.
 
 ## 🚀 Quick start
@@ -90,7 +91,24 @@ npx n2n-nexus daemon --port 5688
 }
 ```
 
-The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable.
+The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable. When nothing listens at a local endpoint (`127.0.0.1` or `localhost`), the adapter and the hooks start a daemon in the background (log: `~/.n2n-nexus/daemon.log`).
+
+### 3. Direct messages between Claude Code and Codex conversations
+
+Install n2n-nexus globally, then let it write the hooks and the MCP server into the client's user configuration:
+
+```bash
+npm i -g n2n-nexus
+n2n-nexus install claude    # ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR) + claude mcp add --scope user
+n2n-nexus install codex     # ~/.codex/hooks.json (or $CODEX_HOME) + codex mcp add
+```
+
+- Codex runs new hooks only after you trust them: open Codex and run `/hooks` once.
+- Pass `--endpoint <url>` to both commands when the daemon is not at `http://127.0.0.1:5688`.
+- `n2n-nexus uninstall <claude|codex>` removes the hooks and the MCP server that `install` added and leaves the rest of the configuration alone.
+- Supported on Linux, WSL and macOS. Other MCP clients can use every tool except direct messages.
+
+Each conversation then appears in `peers`. A new direct message is announced to the recipient automatically: when the user sends a prompt, after each tool call, and once before the turn ends. The recipient reads the text with `read`. With `listen` on, a conversation that finished its turn keeps waiting for up to about 10 minutes and continues when a message arrives; while it waits, input you type is queued until you press Esc.
 
 ### Cross-environment endpoint examples
 
@@ -103,20 +121,20 @@ The adapter can start before the daemon. It loads the daemon tool list once the 
 
 ## 🛠️ Toolset
 
-The daemon exposes 31 tools, grouped by purpose:
+The daemon exposes 32 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
 | **Topology** | `get_global_topology` | Read the project list or a detailed per-project subgraph. |
 | **Projects & assets** | `search_projects`, `get_project`, `update_project`, `rename_project`, `sync_project_assets`, `upload_project_asset` | Find, read, update, and rename projects; sync manifests and internal docs; upload binary assets. |
 | **Global docs** | `list_global_docs`, `get_global_doc`, `sync_global_doc`, `get_global_strategy`, `update_global_strategy` | List, read, create and update shared global documents and the master strategy document. |
-| **Messaging** | `send_message`, `read_messages`, `list_events` | Send direct, meeting or global messages; read shared messages and the activity log. |
-| **Sessions and inboxes** | `list_sessions`, `update_session`, `read_inbox`, `get_message`, `acknowledge_message` | Discover connections, receive direct messages, and inspect explicit receipts and replies. |
+| **Messaging** | `send_message`, `read_messages`, `list_events` | Post meeting or global messages; read them and the activity log. |
+| **Direct messages** | `peers`, `send`, `read`, `reply`, `listen`, `set_profile` | Find other Claude Code / Codex conversations, message them, read and answer what arrives, wait for messages, and name yourself. |
 | **Meetings** | `list_meetings`, `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | List, open, close, archive, and reopen meeting sessions. |
 | **Tasks** | `create_task`, `get_task`, `list_tasks`, `cancel_task` | Create and track tasks that assistants manage themselves. |
 | **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear the global chat stream; delete a project. |
 
-Direct inboxes are per MCP connection and require explicit reads; messages do not automatically wake models. Chats sharing one connection share its inbox. Receipt states distinguish storage, fetching, acknowledgement and replies; acknowledgement does not mean the requested work is complete. See the [assistant workflow](docs/ASSISTANT_GUIDE.md#direct-conversations).
+Direct messages need the hooks from `n2n-nexus install`. Notifications carry only the sender and the first line; the text arrives through `read`, as tool output, so a message from another AI session never reaches the model as a system instruction. Unread messages expire after 24 hours and the sender is told. See the [assistant workflow](docs/ASSISTANT_GUIDE.md#direct-conversations).
 
 See [Tools reference](./docs/TOOLS_REFERENCE.md) for parameter schemas and call examples.
 
@@ -144,7 +162,7 @@ Override with `--root <path>` or `NEXUS_ROOT`.
 │       ├── internal_blueprint.md
 │       └── assets/
 ├── registry.json
-└── nexus.db          # meetings, global chat, events, tasks, read cursors
+└── nexus.db          # meetings, global chat, events, tasks, read cursors, conversations and direct messages
 ```
 
 ## 🏷️ Project ID conventions
@@ -171,13 +189,20 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 
 # Start MCP adapter
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
+
+# Install / remove the hooks and MCP server for Claude Code or Codex
+n2n-nexus install <claude|codex> [--endpoint <url>]
+n2n-nexus uninstall <claude|codex>
+
+# Hook entry point (written into the client configuration by install)
+n2n-nexus hook <claude|codex> [--endpoint <url>]
 ```
 
 ### Environment variables
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `NEXUS_ENDPOINT` | Daemon URL for MCP adapter | `http://127.0.0.1:5688` |
+| `NEXUS_ENDPOINT` | Daemon URL for the MCP adapter and the hooks | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | Storage root for daemon | `~/.n2n-nexus` |
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | Daemon port (overridden by `--port`) | `5688` |

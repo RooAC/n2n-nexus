@@ -27,19 +27,22 @@ Pre-commit runs lint; pre-push runs `build && test` (via lefthook).
 The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CHANGELOG.md` under 0.5.0.
 
 ### Entry point
-`src/index.ts` routes to `runDaemon()` (`src/daemon/`) or `NexusServer().run()` (`src/server/nexus.ts`) based on the first CLI argument (`daemon` or default).
+`src/index.ts` routes to `runDaemon()` (`src/daemon/`), `NexusServer().run()` (`src/server/nexus.ts`, default) or the `hook` / `install` / `uninstall` commands (`src/cli/`) based on the first CLI argument. The hook path is imported dynamically and must stay free of the MCP SDK, zod and SQLite: it runs on every client tool call.
 
 ### Daemon (`src/daemon/`)
 `tools.ts` — zod contract per tool. `TOOL_DEFINITIONS` (JSON Schema for `GET /api/tools`) is generated from these schemas with `z.toJSONSchema`, and `parseToolArgs` validates every call. Add a tool here first, then its result contract in `tool-outputs.ts` (handlers are typed `Promise<ToolResult<"name">>`, and `finalizeResult` validates and strips every result at runtime, since TypeScript only checks object literals), then its handler and dispatcher case in `server.ts`. `tests/structured_output.test.ts` calls every tool through the MCP adapter and must cover a new one.
 
-`server.ts` — plain `http.Server` with all REST endpoints, tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, plus project/message/meeting/task/event/maintenance endpoints.
+`server.ts` — plain `http.Server` with all REST endpoints, tool handler functions and the dispatcher. REST endpoints call the same handlers through `callTool`, so validation is identical on both paths. Routes: `GET /api/tools`, `POST /api/tools/call`, `POST /api/hook`, plus project/message/meeting/task/event/maintenance endpoints.
 
 ### MCP Server (`src/server/nexus.ts`)
-Proxy with per-connection identity on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). On startup: serves stdio through `serveStdio(() => buildServer())` and fetches `GET /api/tools` in the background (the first `tools/list` waits up to 1 s for it). `serveStdio` answers both 2026-07-28 clients (per-request `_meta` envelope, `server/discover`) and 2025-era clients (`initialize`). If the daemon is unreachable, a 3-second retry loop runs; on connect it calls `sendToolListChanged()`. `tools/call` → `POST /api/tools/call`. Exits when stdin closes. No hardcoded tool names. The first tool request fixes instanceId and registers a random sessionId; heartbeats keep the session directory current. Session context travels outside model-supplied arguments. Inboxes are pull-only; see docs/TOOLS_REFERENCE.md for receipt semantics.
+Stateless proxy on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). On startup: serves stdio through `serveStdio(() => buildServer())` and fetches `GET /api/tools` in the background (the first `tools/list` waits up to 1 s for it). `serveStdio` answers both 2026-07-28 clients (per-request `_meta` envelope, `server/discover`) and 2025-era clients (`initialize`). If the daemon is unreachable, a 3-second retry loop runs; on connect it calls `sendToolListChanged()`. `tools/call` → `POST /api/tools/call`. Exits when stdin closes. No hardcoded tool names. The first request fixes instanceId. The adapter holds no session: each `tools/call` forwards a `caller` read from the request `_meta` (Claude Code `claudecode/toolUseId`, Codex `sessionId`), never from model-supplied arguments. When nothing listens at a local endpoint it starts a daemon once (`src/cli/autostart.ts`).
+
+### Conversations and hooks
+`src/daemon/hook-contract.ts` is the shared contract (types and constants only). Every Claude Code / Codex conversation is an agent session `claude:<id>` / `codex:<id>` created by hooks: `n2n-nexus hook <client>` forwards the hook stdin's `HOOK_INPUT_FIELDS` to `POST /api/hook` and prints `output`; on any error it exits 0 silently. The daemon (`server.ts` + `src/storage/agents.ts`) keeps status, sends notifications through `additionalContext` / Stop `block`, binds Claude toolUseIds from PreToolUse, and holds a listening Stop hook open for up to `LISTEN_WAIT_MS`. See docs/TOOLS_REFERENCE.md#direct-messages-between-conversations.
 
 ### Storage layer (`src/storage/`)
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
-- `sqlite.ts` + `sqlite-meeting.ts` / `global-messages.ts` / `events.ts` / `tasks.ts` — SQLite with WAL mode for meetings, global chat, the activity event log, tasks, read cursors (SQLite is required; there is no JSON fallback)
+- `sqlite.ts` + `sqlite-meeting.ts` / `global-messages.ts` / `events.ts` / `tasks.ts` / `agents.ts` — SQLite with WAL mode for meetings, global chat, the activity event log, tasks, read cursors, agent sessions and direct messages (SQLite is required; there is no JSON fallback)
 - `registry.ts` / `projects.ts` / `docs.ts` — file-based storage for projects and global docs; all writes go through `fs-utils.ts` (daemon-wide write lock + atomic temp-file-and-rename)
 - `paths.ts` — all file paths derived from `getRootPath()` which reads `NEXUS_ROOT` env or `~/.n2n-nexus`
 
