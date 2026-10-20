@@ -28,7 +28,7 @@ let port = 0;
 let server: http.Server | null = null;
 const previousRoot = process.env.NEXUS_ROOT;
 
-async function start(options: { rateLimit?: RateLimitConfig } = {}) {
+async function start(options: { rateLimit?: RateLimitConfig; listenWaitMs?: number } = {}) {
     const root = path.join(process.cwd(), "tests", "tmp", "agent-hooks");
     closeDatabase();
     await fs.rm(root, { recursive: true, force: true });
@@ -322,6 +322,19 @@ describe("POST /api/hook: listen mode", () => {
         await until(() => status("claude:r") === "listening");
         waiting.cancel();
         await until(() => status("claude:r") === "idle", LISTEN_MS / 2);
+    });
+
+    it("lets the daemon shut down without waiting for a listening Stop hook", async () => {
+        await start({ listenWaitMs: 60_000 });
+        await hook("claude", "SessionStart", "sd");
+        await claudeTool("sd", "listen", { on: true });
+        const waiting = openHook("claude", "Stop", "sd");
+        await until(() => status("claude:sd") === "listening");
+        const started = Date.now();
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
+        server = null;
+        expect(Date.now() - started).toBeLessThan(1000);
+        expect((await waiting.response).payload).toEqual({ output: null });
     });
 });
 

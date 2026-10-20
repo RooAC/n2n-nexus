@@ -740,12 +740,12 @@ export async function createDaemonServer(options: {
                 const body = await parseBody(req);
                 const hook = hookRequestSchema.safeParse(body);
                 if (!hook.success) return jsonResponse(res, 400, { ok: false, error: `Invalid hook request:\n${z.prettifyError(hook.error)}` });
-                // A listening Stop hook is held open; the client killing the hook cancels the wait.
+                // A listening Stop hook is held open; the client killing the hook or the daemon closing ends the wait.
                 const gone = new AbortController();
                 res.on("close", () => { if (!res.writableEnded) gone.abort(); });
-                const output = await handleHook(hook.data.client, hook.data.input, listenWaitMs, gone.signal);
+                const output = await handleHook(hook.data.client, hook.data.input, listenWaitMs, AbortSignal.any([gone.signal, closing.signal]));
                 if (gone.signal.aborted) return;
-                return jsonResponse(res, 200, { output });
+                return jsonResponse(res, 200, { output }, closing.signal.aborted ? { Connection: "close" } : {});
             }
 
             // Messages
@@ -911,6 +911,15 @@ export async function createDaemonServer(options: {
             jsonResponse(res, 500, { ok: false, error: message });
         }
     });
+
+    // server.close() waits for in-flight requests, and a listening Stop hook stays open
+    // for minutes: release those first so a shutdown is not held up by them.
+    const closing = new AbortController();
+    const close = server.close.bind(server);
+    server.close = (callback) => {
+        closing.abort();
+        return close(callback);
+    };
 
     return { server };
 }
