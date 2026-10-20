@@ -20,15 +20,15 @@ describe("Tool contracts", () => {
         for (const name of ["get_project", "list_global_docs", "list_meetings", "search_projects", "get_task"]) {
             expect(byName[name].annotations.readOnlyHint, name).toBe(true);
         }
-        // read_messages moves the unread cursor, so it is not read-only.
+        // read_messages moves the unread cursor and read marks messages read, so neither is read-only.
         expect(byName.read_messages.annotations.readOnlyHint).toBe(false);
-        // Direct replies also update the original receipt.
-        expect(byName.send_message.annotations.destructiveHint).toBe(true);
+        expect(byName.read.annotations.readOnlyHint).toBe(false);
+        expect(byName.peers.annotations.readOnlyHint).toBe(true);
         // Only purely additive tools may be non-destructive.
         for (const name of ["rename_project", "cancel_task", "end_meeting", "archive_meeting", "reopen_meeting"]) {
             expect(byName[name].annotations.destructiveHint, name).toBe(true);
         }
-        for (const name of ["start_meeting", "create_task"]) {
+        for (const name of ["start_meeting", "create_task", "send_message", "send", "reply"]) {
             expect(byName[name].annotations.destructiveHint, name).toBe(false);
         }
 
