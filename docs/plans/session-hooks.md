@@ -1,6 +1,6 @@
 # 实施方案：会话身份与 hooks 消息投递
 
-状态：待用户确认　｜　日期：2026-10-20
+状态：已实施，随 0.8.0 发布（2026-10-21）　｜　日期：2026-10-20
 
 ## 1. 目标与完成标准
 
@@ -197,7 +197,7 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 - `docs/ASSISTANT_GUIDE.md`、`docs/ASSISTANT_GUIDE_zh.md`
 - `docs/ARCHITECTURE.md`、`docs/ARCHITECTURE_zh.md`
 - `CLAUDE.md`、`llms.txt`
-- `CHANGELOG.md`、`docs/CHANGELOG_zh.md`（Unreleased 条目）
+- `CHANGELOG.md`、`docs/CHANGELOG_zh.md`（0.8.0 条目）
 
 文档里要写清：两家的 `install` 用法；Codex 必须先在 `/hooks` 里信任；待命模式会占住界面，排队的输入要按 Esc 才会立即发出；其他 MCP 客户端不支持直接消息。
 
