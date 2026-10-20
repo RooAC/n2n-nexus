@@ -39,7 +39,16 @@ export const CLIENT_INFO_NAMES: Record<HookClient, string> = {
 export const CLAUDE_TOOL_USE_META_KEY = "claudecode/toolUseId";
 export const CODEX_SESSION_META_KEY = "sessionId";
 
-/** POST /api/hook request: the hook's stdin JSON, forwarded unchanged. */
+/**
+ * Hook stdin fields the daemon uses. The hook command forwards only these:
+ * PostToolUse stdin also carries the whole tool input and response, which can
+ * be large and runs on every tool call.
+ */
+export const HOOK_INPUT_FIELDS = [
+    "hook_event_name", "session_id", "cwd", "stop_hook_active", "tool_use_id", "tool_name", "source", "reason"
+] as const;
+
+/** POST /api/hook request: the HOOK_INPUT_FIELDS present in the hook's stdin JSON. */
 export type HookRequest = { client: HookClient; input: Record<string, unknown> };
 /** POST /api/hook response: `output` is printed to stdout as JSON; null prints nothing. */
 export type HookResponse = { output: Record<string, unknown> | null };

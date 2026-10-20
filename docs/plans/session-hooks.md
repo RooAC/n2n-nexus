@@ -97,7 +97,7 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 
 ### 3.6 HTTP 契约（daemon）
 
-- `POST /api/hook`，请求体 `{"client":"claude"|"codex","input":<hook stdin 原样>}`，返回 `{"output":<要打印到 stdout 的对象>|null}`。Stop 待命时，daemon 最长挂起 590 秒才返回。
+- `POST /api/hook`，请求体 `{"client":"claude"|"codex","input":<hook stdin 中 HOOK_INPUT_FIELDS 列出的字段>}`（PostToolUse 的 stdin 带完整的工具输入和结果，可能很大，不转发），返回 `{"output":<要打印到 stdout 的对象>|null}`。Stop 待命时，daemon 最长挂起 590 秒才返回。
 - `POST /api/tools/call`，请求体里原来的 `sessionId` 改为 `caller`：`{"client":"claude","toolUseId":"..."}` 或 `{"client":"codex","sessionId":"..."}`；其他客户端不带 `caller`。
 - 删除 `/api/sessions/register` 和 `/api/sessions/disconnect`。
 - `/api/hook` 不走按 instance 的限流，只走现有的按地址限流。
@@ -105,10 +105,11 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 ### 3.7 数据表（`src/storage/sqlite.ts` 的 SCHEMA）
 
 - 删除 `sessions`、`direct_messages` 的定义，不写迁移；旧库里残留的旧表不读也不删。
-- 新增四张表：
+- 新增五张表：
   - `agent_sessions`：id, client, name, note, cwd, status, listening, created_at, last_active_at
   - `agent_messages`：id, from_id, to_id, text, reply_to, status, created_at, expires_at, notified_at, read_at
   - `agent_notices`：id, session_id, text, created_at, notified_at
+  - `agent_idle_subscriptions`：subscriber_id, target_id, created_at
   - `tool_use_bindings`：tool_use_id, session_id, created_at
 - 新存储模块是 `src/storage/agents.ts`；删除 `sessions.ts` 和 `direct-messages.ts`。
 
