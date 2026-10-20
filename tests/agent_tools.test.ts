@@ -79,12 +79,13 @@ describe("direct-message tools: identity", () => {
             expect(await codex("missing", tool, args)).toEqual(noSession);                               // Codex without hooks
             expect(await callAs({ client: "claude", toolUseId: "unbound" }, tool, args)).toEqual(noSession);
         }
-        // A malformed caller is a bad request.
-        expect((await callAs({ client: "claude" }, "peers")).status).toBe(400);
-        expect((await callAs({ client: "cursor", sessionId: "x" }, "peers")).status).toBe(400);
-        // Other tools ignore the caller.
+        // A malformed caller names no session.
+        expect(await callAs({ client: "claude" }, "peers")).toEqual(noSession);
+        expect(await callAs({ client: "cursor", sessionId: "x" }, "peers")).toEqual(noSession);
+        // Other tools ignore the caller, malformed or not.
         expect((await callAs(undefined, "list_meetings")).status).toBe(200);
         expect((await callAs({ client: "codex", sessionId: "missing" }, "list_meetings")).status).toBe(200);
+        expect((await callAs({ client: "cursor", sessionId: "x" }, "list_meetings")).status).toBe(200);
     });
 
     it("validates arguments and refreshes the caller's last activity on every call", async () => {

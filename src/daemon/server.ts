@@ -551,8 +551,10 @@ function actor(body: Record<string, unknown>): string {
     return typeof body.instanceId === "string" && body.instanceId ? body.instanceId : UNKNOWN_INSTANCE;
 }
 
+/** A malformed caller names no session: direct-message tools then refuse, every other tool ignores it. */
 function callerOf(body: Record<string, unknown>): Caller | undefined {
-    return body.caller === undefined ? undefined : callerSchema.parse(body.caller);
+    const parsed = callerSchema.safeParse(body.caller);
+    return parsed.success ? parsed.data : undefined;
 }
 
 /** Query-string parameters as tool arguments; `numeric` names are converted to numbers. */
