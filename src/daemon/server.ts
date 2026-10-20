@@ -1,5 +1,6 @@
 import http from "node:http";
 import net from "node:net";
+import { EventEmitter } from "node:events";
 import { URL } from "node:url";
 
 import { StorageManager } from "../storage/index.js";
@@ -8,12 +9,16 @@ import { GlobalMessageStore } from "../storage/global-messages.js";
 import { EventStore } from "../storage/events.js";
 import { runMigrations } from "../storage/migrations.js";
 import { createTask, updateTask, getTask, listTasks, cancelTask } from "../storage/tasks.js";
+import { AgentStore, type AgentMessage, type AgentNotice, type AgentSession, messagePreview } from "../storage/agents.js";
 import { DiscussionMessage } from "../types.js";
 import { MAX_BODY_BYTES } from "../constants.js";
 import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } from "./rate-limit.js";
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
-import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, ToolValidationError } from "./tools.js";
-import type { Caller } from "./hook-contract.js";
+import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
+import {
+    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_LIST_LIMIT,
+    agentSessionId, type Caller, type HookClient
+} from "./hook-contract.js";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -240,19 +245,233 @@ async function toolHostDeleteProject(args: ToolArgs<"host_delete_project">, inst
 }
 
 // ---------------------------------------------------------------------------
+// Agent sessions: direct-message tools
+// ---------------------------------------------------------------------------
+
+/** Wakes a Stop hook waiting in listen mode; the event name is the session id. */
+const agentWake = new EventEmitter();
+agentWake.setMaxListeners(0);
+
+function wake(sessionIds: string[]): void {
+    for (const id of sessionIds) agentWake.emit(id);
+}
+
+/** Expire overdue messages and wake the senders that got a notice. */
+function expireMessages(now: number): void {
+    wake(AgentStore.expireMessages(now));
+}
+
+function profileOf(s: AgentSession): ToolResult<"peers">["self"] {
+    return { id: s.id, name: s.name, client: s.client, cwd: s.cwd, note: s.note, status: s.status, lastActiveAt: s.lastActiveAt };
+}
+
+/**
+ * The agent session behind a direct-message tool call: Claude through the
+ * toolUseId its PreToolUse hook bound, Codex through its session id.
+ */
+function resolveAgent(caller: Caller | undefined): AgentSession {
+    const now = Date.now();
+    let id: string | null = null;
+    if (caller?.client === "claude") id = AgentStore.resolveToolUse(caller.toolUseId, now);
+    else if (caller?.client === "codex") id = agentSessionId("codex", caller.sessionId);
+    if (!id || !AgentStore.get(id)) throw new Error(NO_AGENT_SESSION_ERROR);
+    AgentStore.refresh(id, now);
+    expireMessages(now);
+    return AgentStore.get(id)!;
+}
+
+function deliver(from: AgentSession, to: AgentSession, text: string, replyTo: string | null, notifyWhenIdle: boolean): ToolResult<"send"> {
+    if (to.id === from.id) throw new Error("You cannot send a message to yourself.");
+    const messageId = AgentStore.addMessage(from.id, to.id, text, replyTo);
+    if (notifyWhenIdle) AgentStore.subscribeIdle(from.id, to.id);
+    wake([to.id]);
+    return { messageId, to: { id: to.id, name: to.name, status: to.status } };
+}
+
+async function toolPeers(caller: Caller | undefined): Promise<ToolResult<"peers">> {
+    const self = resolveAgent(caller);
+    return { self: profileOf(self), peers: AgentStore.listPeers(self.id).map(profileOf) };
+}
+
+async function toolSend(args: ToolArgs<"send">, caller: Caller | undefined): Promise<ToolResult<"send">> {
+    const self = resolveAgent(caller);
+    const to = AgentStore.findRecipient(args.to);
+    if (!to) throw new Error(`Unknown recipient '${args.to}'. Call peers for session ids and names.`);
+    return deliver(self, to, args.text, null, args.notifyWhenIdle);
+}
+
+async function toolReply(args: ToolArgs<"reply">, caller: Caller | undefined): Promise<ToolResult<"reply">> {
+    const self = resolveAgent(caller);
+    const original = AgentStore.getMessage(args.messageId);
+    if (!original || original.toId !== self.id) throw new Error(`Message '${args.messageId}' was not sent to you.`);
+    return deliver(self, AgentStore.get(original.fromId)!, args.text, original.id, false);
+}
+
+async function toolRead(args: ToolArgs<"read">, caller: Caller | undefined): Promise<ToolResult<"read">> {
+    const self = resolveAgent(caller);
+    const { messages, remaining } = AgentStore.readUnread(self.id, args.count);
+    return {
+        messages: messages.map(m => ({
+            messageId: m.id, from: { id: m.fromId, name: m.fromName }, replyTo: m.replyTo, text: m.text, createdAt: m.createdAt
+        })),
+        remaining
+    };
+}
+
+async function toolListen(args: ToolArgs<"listen">, caller: Caller | undefined): Promise<ToolResult<"listen">> {
+    const self = resolveAgent(caller);
+    AgentStore.setListening(self.id, args.on);
+    return { listening: args.on };
+}
+
+async function toolSetProfile(args: ToolArgs<"set_profile">, caller: Caller | undefined): Promise<ToolResult<"set_profile">> {
+    const self = resolveAgent(caller);
+    return { profile: profileOf(AgentStore.updateProfile(self.id, args)) };
+}
+
+// ---------------------------------------------------------------------------
+// Agent sessions: hooks
+// ---------------------------------------------------------------------------
+
+type HookOutput = Record<string, unknown> | null;
+
+/** Notification text for messages and notices; marks them notified. */
+function notify(messages: AgentMessage[], notices: AgentNotice[], label: "unread" | "new"): string {
+    const lines: string[] = [];
+    if (messages.length > 0) {
+        const n = messages.length;
+        lines.push(`${NOTICE_PREFIX} ${n} ${label} direct message${n === 1 ? "" : "s"}:`);
+        for (const m of messages.slice(0, NOTIFY_LIST_LIMIT)) {
+            lines.push(`- From ${m.fromName} (${m.fromId}) at ${m.createdAt}: ${messagePreview(m.text)}`);
+        }
+        if (n > NOTIFY_LIST_LIMIT) lines.push(`- ...and ${n - NOTIFY_LIST_LIMIT} more`);
+    }
+    if (notices.length > 0) {
+        lines.push(messages.length > 0 ? "Notices:" : `${NOTICE_PREFIX} Notices:`);
+        for (const notice of notices) lines.push(`- ${notice.text}`);
+    }
+    if (messages.length > 0) lines.push(`${MESSAGE_TRUST_NOTE} Call read to view them.`);
+    AgentStore.markNotified(messages.map(m => m.id), notices.map(n => n.id));
+    return lines.join("\n");
+}
+
+/** Notification for every unread message and pending notice, or null when there are none. */
+function notifyAll(sessionId: string): string | null {
+    const messages = AgentStore.unread(sessionId);
+    const notices = AgentStore.pendingNotices(sessionId);
+    return messages.length || notices.length ? notify(messages, notices, "unread") : null;
+}
+
+/** Notification for what was not notified yet, or null when nothing is new. */
+function notifyFresh(sessionId: string): string | null {
+    const messages = AgentStore.unread(sessionId, true);
+    const notices = AgentStore.pendingNotices(sessionId);
+    return messages.length || notices.length ? notify(messages, notices, "new") : null;
+}
+
+const contextOutput = (hookEventName: string, text: string | null): HookOutput =>
+    text === null ? null : { hookSpecificOutput: { hookEventName, additionalContext: text } };
+
+const blockOutput = (reason: string): HookOutput => ({ decision: "block", reason });
+
+/**
+ * Listen mode: wait until something not notified yet arrives (then block the
+ * stop with it), the wait runs out, or the hook's HTTP client goes away.
+ */
+function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal): Promise<HookOutput> {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (output: HookOutput) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            agentWake.off(sessionId, check);
+            signal.removeEventListener("abort", stopWaiting);
+            resolve(output);
+        };
+        const stopWaiting = () => {
+            if (done) return;
+            AgentStore.setStatusIf(sessionId, "listening", "idle");
+            finish(null);
+        };
+        function check() {
+            if (done) return;
+            const text = notifyFresh(sessionId);
+            if (text === null) return;
+            AgentStore.setStatus(sessionId, "working");
+            finish(blockOutput(text));
+        }
+        const timer = setTimeout(stopWaiting, waitMs);
+        agentWake.on(sessionId, check);
+        signal.addEventListener("abort", stopWaiting, { once: true });
+        if (signal.aborted) stopWaiting();
+        else check();
+    });
+}
+
+async function handleStop(sessionId: string, input: Record<string, unknown>, listenWaitMs: number, signal: AbortSignal): Promise<HookOutput> {
+    if (input.stop_hook_active !== true) {
+        const text = notifyAll(sessionId);
+        if (text !== null) {
+            AgentStore.setStatus(sessionId, "working");
+            return blockOutput(text);
+        }
+    }
+    if (AgentStore.get(sessionId)!.listening) {
+        AgentStore.setStatus(sessionId, "listening");
+        wake(AgentStore.fireIdle(sessionId, "idle"));
+        return waitForMessages(sessionId, listenWaitMs, signal);
+    }
+    AgentStore.setStatus(sessionId, "idle");
+    wake(AgentStore.fireIdle(sessionId, "idle"));
+    return null;
+}
+
+/** One client hook event (POST /api/hook). Returns what the hook prints, or null. */
+async function handleHook(client: HookClient, input: Record<string, unknown>, listenWaitMs: number, signal: AbortSignal): Promise<HookOutput> {
+    if (typeof input.session_id !== "string" || !input.session_id) return null;
+    const id = agentSessionId(client, input.session_id);
+    const now = Date.now();
+    AgentStore.touch(id, client, typeof input.cwd === "string" ? input.cwd : "", now);
+    expireMessages(now);
+
+    switch (input.hook_event_name) {
+        case "SessionStart":
+            AgentStore.setStatus(id, "idle");
+            return null;
+        case "UserPromptSubmit":
+            AgentStore.setStatus(id, "working");
+            return contextOutput("UserPromptSubmit", notifyAll(id));
+        case "PreToolUse":
+            if (typeof input.tool_use_id === "string" && input.tool_use_id) AgentStore.bindToolUse(input.tool_use_id, id, now);
+            return null;
+        case "PostToolUse":
+            AgentStore.setStatus(id, "working");
+            return contextOutput("PostToolUse", notifyFresh(id));
+        case "Stop":
+            return handleStop(id, input, listenWaitMs, signal);
+        case "SessionEnd":
+            AgentStore.setStatus(id, "offline");
+            AgentStore.setListening(id, false);
+            wake(AgentStore.fireIdle(id, "offline"));
+            return null;
+        default:
+            return null;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tool dispatcher
 // ---------------------------------------------------------------------------
 
 async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string, caller?: Caller): Promise<unknown> {
     switch (name) {
-        case "peers":
-        case "send":
-        case "read":
-        case "reply":
-        case "listen":
-        case "set_profile":
-            void caller;
-            throw new Error(`${name} is not implemented yet`);
+        case "peers":                     parseToolArgs(name, rawArgs); return toolPeers(caller);
+        case "send":                      return toolSend(parseToolArgs(name, rawArgs), caller);
+        case "read":                      return toolRead(parseToolArgs(name, rawArgs), caller);
+        case "reply":                     return toolReply(parseToolArgs(name, rawArgs), caller);
+        case "listen":                    return toolListen(parseToolArgs(name, rawArgs), caller);
+        case "set_profile":               return toolSetProfile(parseToolArgs(name, rawArgs), caller);
         case "sync_project_assets":       return toolSyncProjectAssets(parseToolArgs(name, rawArgs), instanceId);
         case "upload_project_asset":      return toolUploadAsset(parseToolArgs(name, rawArgs), instanceId);
         case "update_project":            return toolUpdateProject(parseToolArgs(name, rawArgs), instanceId);
@@ -438,10 +657,13 @@ export async function createDaemonServer(options: {
     allowedHosts?: string[];
     /** Per-instance tool call limit; the per-address limit is ADDRESS_LIMIT_FACTOR times this. */
     rateLimit?: RateLimitConfig;
+    /** Longest a listening session's Stop hook is held open (default LISTEN_WAIT_MS). */
+    listenWaitMs?: number;
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
     const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
     const allowedHosts = options.allowedHosts ?? allowedHostsFromEnv();
+    const listenWaitMs = options.listenWaitMs ?? LISTEN_WAIT_MS;
     const limit = options.rateLimit ?? rateLimitFromEnv();
     const instanceLimiter = new RateLimiter(limit.perSecond, limit.burst);
     const addressLimiter = new RateLimiter(limit.perSecond * ADDRESS_LIMIT_FACTOR, limit.burst * ADDRESS_LIMIT_FACTOR);
@@ -511,6 +733,19 @@ export async function createDaemonServer(options: {
                     return jsonResponse(res, 404, { ok: false, error: `Unknown tool: '${toolName}'` });
                 }
                 return jsonResponse(res, 200, { ok: true, result: await call(toolName, args, instanceId, callerOf(body)) });
+            }
+
+            // Client hook events. Hooks name no instance, so only the per-address limit above applies.
+            if (method === "POST" && path === "/api/hook") {
+                const body = await parseBody(req);
+                const hook = hookRequestSchema.safeParse(body);
+                if (!hook.success) return jsonResponse(res, 400, { ok: false, error: `Invalid hook request:\n${z.prettifyError(hook.error)}` });
+                // A listening Stop hook is held open; the client killing the hook cancels the wait.
+                const gone = new AbortController();
+                res.on("close", () => { if (!res.writableEnded) gone.abort(); });
+                const output = await handleHook(hook.data.client, hook.data.input, listenWaitMs, gone.signal);
+                if (gone.signal.aborted) return;
+                return jsonResponse(res, 200, { output });
             }
 
             // Messages

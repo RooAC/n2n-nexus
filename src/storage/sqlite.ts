@@ -101,37 +101,62 @@ CREATE TABLE IF NOT EXISTS read_cursors (
     PRIMARY KEY (instance_id, context_type, context_id)
 );
 
--- Live MCP connections have separate identities even within one IDE/project.
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id TEXT PRIMARY KEY,
-    instance_id TEXT NOT NULL,
+-- Agent sessions: one per Claude Code / Codex conversation, created by hooks.
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id TEXT PRIMARY KEY,
+    client TEXT NOT NULL CHECK(client IN ('claude', 'codex')),
     name TEXT NOT NULL,
-    client_name TEXT NOT NULL,
-    workspace TEXT NOT NULL,
-    project_id TEXT,
-    inbound TEXT NOT NULL CHECK(inbound IN ('accept', 'refuse')) DEFAULT 'accept',
-    connected INTEGER NOT NULL DEFAULT 1,
+    note TEXT NOT NULL DEFAULT '',
+    cwd TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('working', 'idle', 'listening', 'offline')),
+    listening INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
+    last_active_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_name ON agent_sessions(name);
 
-CREATE TABLE IF NOT EXISTS direct_messages (
-    message_id TEXT PRIMARY KEY,
-    from_session_id TEXT NOT NULL REFERENCES sessions(session_id),
-    to_session_id TEXT NOT NULL REFERENCES sessions(session_id),
+-- Direct messages between agent sessions.
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id TEXT PRIMARY KEY,
+    from_id TEXT NOT NULL REFERENCES agent_sessions(id),
+    to_id TEXT NOT NULL REFERENCES agent_sessions(id),
     text TEXT NOT NULL,
-    category TEXT CHECK(category IN ('MEETING_START', 'PROPOSAL', 'DECISION', 'UPDATE', 'CHAT')),
-    reply_to TEXT REFERENCES direct_messages(message_id),
-    status TEXT NOT NULL CHECK(status IN ('accepted', 'fetched', 'acknowledged', 'replied', 'refused', 'expired')),
+    reply_to TEXT REFERENCES agent_messages(id),
+    status TEXT NOT NULL CHECK(status IN ('unread', 'read', 'expired')),
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    fetched_at TEXT,
-    acknowledged_at TEXT,
-    replied_at TEXT,
-    reason TEXT
+    notified_at TEXT,
+    read_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_direct_messages_inbox ON direct_messages(to_session_id, status);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_inbox ON agent_messages(to_id, status);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_expiry ON agent_messages(status, expires_at);
+
+-- Notices for a session (idle subscriptions, expired messages), delivered by hooks.
+CREATE TABLE IF NOT EXISTS agent_notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id),
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_notices_pending ON agent_notices(session_id, notified_at);
+
+-- One-shot "tell me when the target finishes its turn" subscriptions.
+CREATE TABLE IF NOT EXISTS agent_idle_subscriptions (
+    subscriber_id TEXT NOT NULL REFERENCES agent_sessions(id),
+    target_id TEXT NOT NULL REFERENCES agent_sessions(id),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (subscriber_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_idle_target ON agent_idle_subscriptions(target_id);
+
+-- Claude toolUseId -> session, written by the PreToolUse hook.
+CREATE TABLE IF NOT EXISTS tool_use_bindings (
+    tool_use_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id),
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_use_bindings_created ON tool_use_bindings(created_at);
 `;
 
 /**
