@@ -160,7 +160,7 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 
 Unread messages expire after 24 hours; the sender then gets a notice. Notices also report `notifyWhenIdle` results.
 
-HTTP clients: hooks call `POST /api/hook` with `{ client: "claude" | "codex", input }`, where `input` holds the hook's stdin fields `hook_event_name`, `session_id`, `cwd`, `stop_hook_active`, `tool_use_id`, `tool_name`, `source` and `reason`; the response is `{ output }`, printed by the hook when not null. Tool calls name their session with `caller` beside `tool`, `args` and `instanceId` in `POST /api/tools/call`: `{ client: "claude", toolUseId }` or `{ client: "codex", sessionId }`. These identify conversations within the trusted local daemon; they are not credentials.
+HTTP clients: hooks call `POST /api/hook` with `{ client: "claude" | "codex", input }`, where `input` holds the hook's stdin fields `hook_event_name`, `session_id`, `cwd`, `stop_hook_active`, `tool_use_id`, `tool_name`, `source` and `reason`; the response is `{ output }`, printed by the hook when not null. Tool calls name their session with `caller` beside `tool`, `args` and `instanceId` in `POST /api/tools/call`: `{ client: "claude", toolUseId }` or `{ client: "codex", sessionId }`. These identify conversations within the trusted local daemon; they are not credentials: any process of the same operating-system user can send them (see the local trust model in [SECURITY.md](../SECURITY.md)).
 
 ### `send_message`
 
