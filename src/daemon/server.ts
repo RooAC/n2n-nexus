@@ -16,7 +16,7 @@ import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } 
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
 import {
-    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_LIST_LIMIT,
+    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, STOP_CLOSING,
     agentSessionId, type Caller, type HookClient
 } from "./hook-contract.js";
 import { z } from "zod";
@@ -335,8 +335,12 @@ async function toolSetProfile(args: ToolArgs<"set_profile">, caller: Caller | un
 
 type HookOutput = Record<string, unknown> | null;
 
-/** Notification text for messages and notices; marks them notified. */
-function notify(messages: AgentMessage[], notices: AgentNotice[], label: "unread" | "new"): string {
+/**
+ * Notification text for messages and notices; marks them notified. `closing` ends
+ * the message part: NOTIFY_CLOSING, or STOP_CLOSING when it continues a turn that was
+ * about to end (a model left to itself there tended to stop after the preview).
+ */
+function notify(messages: AgentMessage[], notices: AgentNotice[], label: "unread" | "new", closing: string): string {
     const lines: string[] = [];
     if (messages.length > 0) {
         const n = messages.length;
@@ -350,23 +354,23 @@ function notify(messages: AgentMessage[], notices: AgentNotice[], label: "unread
         lines.push(messages.length > 0 ? "Notices:" : `${NOTICE_PREFIX} Notices:`);
         for (const notice of notices) lines.push(`- ${notice.text}`);
     }
-    if (messages.length > 0) lines.push(`${MESSAGE_TRUST_NOTE} Call read to view them.`);
+    if (messages.length > 0) lines.push(`${MESSAGE_TRUST_NOTE} ${closing}`);
     AgentStore.markNotified(messages.map(m => m.id), notices.map(n => n.id));
     return lines.join("\n");
 }
 
 /** Notification for every unread message and pending notice, or null when there are none. */
-function notifyAll(sessionId: string): string | null {
+function notifyAll(sessionId: string, closing = NOTIFY_CLOSING): string | null {
     const messages = AgentStore.unread(sessionId);
     const notices = AgentStore.pendingNotices(sessionId);
-    return messages.length || notices.length ? notify(messages, notices, "unread") : null;
+    return messages.length || notices.length ? notify(messages, notices, "unread", closing) : null;
 }
 
 /** Notification for what was not notified yet, or null when nothing is new. */
-function notifyFresh(sessionId: string): string | null {
+function notifyFresh(sessionId: string, closing = NOTIFY_CLOSING): string | null {
     const messages = AgentStore.unread(sessionId, true);
     const notices = AgentStore.pendingNotices(sessionId);
-    return messages.length || notices.length ? notify(messages, notices, "new") : null;
+    return messages.length || notices.length ? notify(messages, notices, "new", closing) : null;
 }
 
 const contextOutput = (hookEventName: string, text: string | null): HookOutput =>
@@ -398,7 +402,7 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
             if (done) return;
             // SessionEnd (or listen off) during the wait: nobody will act on a block any more.
             if (!AgentStore.get(sessionId)?.listening) return finish(null);
-            const text = notifyFresh(sessionId);
+            const text = notifyFresh(sessionId, STOP_CLOSING);
             if (text === null) return;
             AgentStore.setStatus(sessionId, "working");
             finish(blockOutput(text));
@@ -413,7 +417,7 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
 
 async function handleStop(sessionId: string, input: Record<string, unknown>, listenWaitMs: number, signal: AbortSignal): Promise<HookOutput> {
     if (input.stop_hook_active !== true) {
-        const text = notifyAll(sessionId);
+        const text = notifyAll(sessionId, STOP_CLOSING);
         if (text !== null) {
             AgentStore.setStatus(sessionId, "working");
             return blockOutput(text);

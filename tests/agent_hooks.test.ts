@@ -10,7 +10,7 @@ import { StorageManager } from "../src/storage/index.js";
 import { AgentStore } from "../src/storage/agents.js";
 import { RateLimitConfig } from "../src/daemon/rate-limit.js";
 import {
-    IDLE_SUBSCRIPTION_TTL_MS, MESSAGE_TRUST_NOTE, MESSAGE_TTL_MS, NOTICE_PREFIX, NO_AGENT_SESSION_ERROR,
+    IDLE_SUBSCRIPTION_TTL_MS, MESSAGE_TRUST_NOTE, MESSAGE_TTL_MS, NOTICE_PREFIX, NOTIFY_CLOSING, NO_AGENT_SESSION_ERROR, STOP_CLOSING,
     PREVIEW_CHARS, TOOL_USE_BINDING_TTL_MS, type HookClient
 } from "../src/daemon/hook-contract.js";
 import { requestJson } from "./helpers/daemon.js";
@@ -190,7 +190,7 @@ describe("POST /api/hook: notifications", () => {
         expect(text).toContain("message 5");
         expect(text).not.toContain("message 6");
         expect(text).toContain("...and 2 more");
-        expect(text).toContain(`${MESSAGE_TRUST_NOTE} Call read to view them.`);
+        expect(text).toContain(`${MESSAGE_TRUST_NOTE} ${NOTIFY_CLOSING}`);
         expect(status("claude:rcv")).toBe("working");
 
         // Every unread message was marked notified, so a tool call adds nothing.
@@ -244,6 +244,8 @@ describe("POST /api/hook: notifications", () => {
         expect(blocked?.decision).toBe("block");
         expect(blocked?.reason?.startsWith(`${NOTICE_PREFIX} 1 unread direct message:`)).toBe(true);
         expect(blocked?.reason).toContain("please look");
+        // Continuing a turn that was about to end asks for read and reply, not just a look.
+        expect(blocked?.reason?.endsWith(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}`)).toBe(true);
         expect(status("claude:r")).toBe("working");
 
         expect(await hook("claude", "Stop", "r", { stop_hook_active: true })).toBeNull();

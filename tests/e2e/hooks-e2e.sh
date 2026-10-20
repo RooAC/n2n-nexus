@@ -74,7 +74,8 @@ B=$(sed -n 's/^session id: //p' "$DIR/b1.log" | head -1)
 A=$(claude_run "$DIR/work-a" "Use the n2n-nexus send tool to send the session codex:$B the text 'Hello from Claude. Please reply with the word PONG.'")
 [ "$(query "SELECT COUNT(*) AS n FROM agent_messages WHERE from_id = 'claude:$A' AND to_id = 'codex:$B'")" = '[{"n":1}]' ] \
     || fail "Claude's message was not stored under its own identity"
-codex_run b2.log resume "$B" "Please answer Claude's message the way it asks, using the n2n-nexus reply tool."
+# An unrelated prompt: Codex learns of the message only from the notification, and replies on its own.
+codex_run b2.log resume "$B" "What is 17 times 3?"
 [ "$(query "SELECT status FROM agent_messages WHERE to_id = 'codex:$B'")" = '[{"status":"read"}]' ] || fail "Codex did not read the message"
 [ "$(query "SELECT COUNT(*) AS n FROM agent_messages WHERE from_id = 'codex:$B' AND reply_to IS NOT NULL")" = '[{"n":1}]' ] \
     || fail "Codex did not reply"
