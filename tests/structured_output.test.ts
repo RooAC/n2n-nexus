@@ -27,14 +27,19 @@ describe.each(Object.entries(ERAS))("structuredContent for every tool, %s client
         process.env.NEXUS_INSTANCE_ID = "structured";
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
         await new NexusServer().run({ transport: serverSide });
-        const client = new Client({ name: "ide", version: "1" }, versionNegotiation ? { versionNegotiation } : {});
+        // A Codex client: direct-message tools resolve the caller from _meta.sessionId.
+        const client = new Client({ name: "codex-mcp-client", version: "1" }, versionNegotiation ? { versionNegotiation } : {});
         await client.connect(clientSide);
         // After listTools the SDK client validates structuredContent against each published outputSchema.
         await client.listTools();
+        for (const session of ["me", "peer"]) {
+            const hook = await daemon.request("POST", "/api/hook", { client: "codex", input: { hook_event_name: "SessionStart", session_id: session, cwd: "/work" } });
+            expect(hook.status).toBe(200);
+        }
 
         const called = new Set<string>();
-        const call = async (name: string, args: Record<string, unknown> = {}) => {
-            const res = await client.callTool({ name, arguments: args });
+        const call = async (name: string, args: Record<string, unknown> = {}, sessionId = "me") => {
+            const res = await client.callTool({ name, arguments: args, _meta: { sessionId } });
             expect(res.isError, `${name}: ${JSON.stringify(res.content)}`).toBeFalsy();
             const structured = res.structuredContent as Record<string, unknown>;
             expect(structured, name).toBeDefined();
@@ -58,13 +63,12 @@ describe.each(Object.entries(ERAS))("structuredContent for every tool, %s client
         await call("get_project", { projectId: "web_a", includeDocs: false });
         await call("send_message", { message: "global hi", category: "UPDATE" });
         await call("read_messages", { count: 5 });
-        const directory = await call("list_sessions");
-        const self = directory.self as { sessionId: string };
-        await call("update_session", { name: "contract-test", projectId: "web_a" });
-        const direct = await call("send_message", { to: self.sessionId, message: "direct hi" });
-        await call("read_inbox");
-        await call("get_message", { messageId: direct.messageId });
-        await call("acknowledge_message", { messageId: direct.messageId });
+        await call("peers");
+        await call("set_profile", { name: "contract-test", note: "checking contracts" });
+        await call("listen", { on: false });
+        await call("send", { to: "codex:peer", text: "direct hi", notifyWhenIdle: true });
+        const inbox = await call("read", {}, "peer") as { messages: { messageId: string }[] };
+        await call("reply", { messageId: inbox.messages[0].messageId, text: "direct reply" }, "peer");
         const meeting = await call("start_meeting", { topic: "Plan" });
         await call("send_message", { message: "in meeting", category: "DECISION" });
         await call("read_messages", { meetingId: meeting.meetingId, count: 5 });
