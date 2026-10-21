@@ -110,6 +110,22 @@ describe("NexusClient HTTP transport", () => {
         await expect(refused.fetchTools()).rejects.toMatchObject({ name: "NexusTransportError", code: "ECONNREFUSED" });
     });
 
+    it("decodes a multi-byte UTF-8 character split across two response chunks", async () => {
+        const text = "中文消息：跨块解码";
+        const body = Buffer.from(JSON.stringify({ ok: true, result: { text } }), "utf8");
+        // Split inside the first character's 3-byte sequence.
+        const split = body.indexOf(Buffer.from("中", "utf8")) + 1;
+        const endpoint = await listen((req, res) => {
+            req.resume();
+            req.on("end", () => {
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.write(body.subarray(0, split));
+                setTimeout(() => res.end(body.subarray(split)), 30);
+            });
+        });
+        await expect(new NexusClient({ endpoint }).callTool("read", {})).resolves.toEqual({ text });
+    });
+
     it("connects to an IPv6 loopback endpoint", async (context) => {
         let endpoint: string;
         try {

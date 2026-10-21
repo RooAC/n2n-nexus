@@ -70,6 +70,7 @@ export class NexusClient {
                 },
                 (res) => {
                     let data = "";
+                    res.setEncoding("utf8");
                     const interrupted = () => reject(new NexusTransportError("Response from daemon ended before completion"));
                     res.on("aborted", interrupted);
                     res.on("error", (error) => reject(new NexusTransportError(error.message)));
