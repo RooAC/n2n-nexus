@@ -27,6 +27,10 @@ export default tseslint.config(
         }
     },
     {
+        files: ["tests/**/*.mjs"],
+        languageOptions: { globals: { process: "readonly", console: "readonly" } }
+    },
+    {
         ignores: ["build/", "node_modules/", "vitest.config.ts"]
     }
 );

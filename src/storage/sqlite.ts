@@ -166,22 +166,64 @@ export function getDbPath(): string {
     return NexusPaths.dbFile;
 }
 
+/** Longest a first start waits for another process that is initialising the same database. */
+const INIT_BUSY_WAIT_MS = 10_000;
+const INIT_RETRY_DELAY_MS = 50;
+
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const isBusy = (error: unknown) => (error as { code?: string } | null)?.code === "SQLITE_BUSY";
+
 /**
- * Initialize the SQLite database with WAL mode
+ * Open the database, switch it to WAL and create the schema. Throws SQLITE_BUSY
+ * (from the pragma or the schema statements) while another process is writing.
  */
-export function initDatabase(): Database.Database {
+function openDatabase(dbPath: string): Database.Database {
+    const candidate = new Database(dbPath);
+    try {
+        // WAL for better concurrent access. The pragma answers with the mode in effect;
+        // anything but "wal" (an in-memory database, a VFS without shared memory) would
+        // leave the daemon in rollback-journal mode, which the startup race cannot survive.
+        const mode = candidate.pragma("journal_mode = WAL", { simple: true });
+        if (mode !== "wal") throw new Error(`WAL mode is not available for ${dbPath}: journal_mode stayed "${mode}".`);
+        candidate.pragma("foreign_keys = ON");
+        candidate.exec(SCHEMA);
+        return candidate;
+    } catch (error) {
+        candidate.close();
+        throw error;
+    }
+}
+
+/**
+ * Initialize the SQLite database with WAL mode.
+ *
+ * Two daemons starting on a fresh root reach this together. SQLite answers the
+ * second one with SQLITE_BUSY at once (not through the busy timeout) while the
+ * first holds its write lock in rollback-journal mode, so the open is retried
+ * until the other process has finished; no retry starts after `busyWaitMs`.
+ */
+export function initDatabase(options: { busyWaitMs?: number } = {}): Database.Database {
     if (db) return db;
 
     const dbPath = getDbPath();
-    db = new Database(dbPath);
-    
-    // Enable WAL mode for better concurrent access
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    
-    // Initialize schema
-    db.exec(SCHEMA);
-    
+    const started = Date.now();
+    const deadline = started + (options.busyWaitMs ?? INIT_BUSY_WAIT_MS);
+    let opened: Database.Database;
+    for (;;) {
+        try {
+            opened = openDatabase(dbPath);
+            break;
+        } catch (error) {
+            if (!isBusy(error)) throw error;
+            if (Date.now() >= deadline) {
+                (error as Error).message += ` (gave up after ${Date.now() - started} ms waiting for another process initialising ${dbPath})`;
+                throw error;
+            }
+            sleepSync(INIT_RETRY_DELAY_MS);
+        }
+    }
+    db = opened;
+
     // Migration: Add initiator column if it doesn't exist (Upgrade from v0.1.7)
     try {
         const columns = db.prepare("PRAGMA table_info(meetings)").all() as Record<string, unknown>[];
@@ -193,14 +235,14 @@ export function initDatabase(): Database.Database {
     } catch (e) {
         console.error("[Nexus] Migration check failed:", e);
     }
-    
+
     // Initialize default state if not exists
     const stmt = db.prepare("INSERT OR IGNORE INTO meeting_state (key, value) VALUES (?, ?)");
     stmt.run("active_meetings", "[]");
     stmt.run("default_meeting", "");
-    
+
     console.error("[Nexus] SQLite database initialized at:", dbPath);
-    
+
     return db;
 }
 
