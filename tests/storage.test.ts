@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { StorageManager } from "../src/storage/index.js";
 import { ProjectManifest } from "../src/types.js";
 import { promises as fs } from "fs";
@@ -29,6 +29,10 @@ describe("StorageManager", () => {
 
         StorageManager.resetInit();
         await StorageManager.init();
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it("should initialize storage structure", async () => {
@@ -267,5 +271,106 @@ describe("StorageManager", () => {
         await expect(StorageManager.saveAsset("prj-gone", "late.txt", "late"))
             .rejects.toThrow("Project 'prj-gone' not found.");
         expect(await StorageManager.exists(path.join(StorageManager.projectsRoot, "prj-gone"))).toBe(false);
+    });
+
+    it("should never return an entry with empty content while a rename is in progress", async () => {
+        const manifest = { ...manifestFor("prj-live"), techStack: ["Node", "TypeScript"] };
+        await StorageManager.saveProject(manifest, "# Live docs");
+
+        // Slow the directory move down so reads land between it and the registry write.
+        const realRename = fs.rename.bind(fs);
+        vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+            if (String(from) === path.join(StorageManager.projectsRoot, "prj-live")) {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                await realRename(from, to);
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                return;
+            }
+            return realRename(from, to);
+        });
+
+        const rename = StorageManager.renameProject("prj-live", "prj-live2");
+        const reads: Promise<{ m: Awaited<ReturnType<typeof StorageManager.getProjectManifest>>; docs: string }>[] = [];
+        for (let i = 0; i < 10; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            reads.push((async () => {
+                const [m, docs] = await Promise.all([
+                    StorageManager.getProjectManifest("prj-live"),
+                    StorageManager.getProjectDocs("prj-live")
+                ]);
+                return { m, docs };
+            })());
+        }
+        await rename;
+        for (const { m, docs } of await Promise.all(reads)) {
+            if (m === null) {
+                expect(docs).toBe("");
+            } else {
+                expect(m.techStack).toEqual(["Node", "TypeScript"]);
+                expect(docs).toBe("# Live docs");
+            }
+        }
+        expect(await StorageManager.getProjectManifest("prj-live")).toBeNull();
+        expect((await StorageManager.getProjectManifest("prj-live2"))?.techStack).toEqual(["Node", "TypeScript"]);
+    });
+
+    it.skipIf(!notRoot)("should leave no registry entry or directory when creating a project fails", async () => {
+        const dir = path.join(StorageManager.projectsRoot, "prj-new");
+        // mkdir of the project directory fails.
+        await fs.chmod(StorageManager.projectsRoot, 0o555);
+        try {
+            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow();
+            expect(Object.keys((await StorageManager.listRegistry()).projects)).not.toContain("prj-new");
+            expect(await StorageManager.exists(dir)).toBe(false);
+        } finally {
+            await fs.chmod(StorageManager.projectsRoot, 0o755);
+        }
+
+        // The registry write fails after docs and manifest were written: both are removed with the new directory.
+        await fs.chmod(TEST_ROOT, 0o555);
+        try {
+            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow();
+            expect(Object.keys((await StorageManager.listRegistry()).projects)).not.toContain("prj-new");
+            expect(await StorageManager.exists(dir)).toBe(false);
+        } finally {
+            await fs.chmod(TEST_ROOT, 0o755);
+        }
+    });
+
+    it.skipIf(!notRoot)("should restore the manifest when the registry write of an update fails", async () => {
+        await StorageManager.saveProject({ ...manifestFor("prj-upd"), techStack: ["Old"] }, "# Old docs");
+        const manifestPath = path.join(StorageManager.projectsRoot, "prj-upd", "manifest.json");
+        const registryBefore = await fs.readFile(StorageManager.registryFile);
+        const manifestBefore = await fs.readFile(manifestPath);
+
+        // registry.json and its atomic-write temp file live in the root directory.
+        await fs.chmod(TEST_ROOT, 0o555);
+        try {
+            await expect(StorageManager.patchProjectManifest("prj-upd", { name: "New", description: "New desc", techStack: ["New"] }))
+                .rejects.toThrow();
+            expect(await fs.readFile(StorageManager.registryFile)).toEqual(registryBefore);
+            expect(await fs.readFile(manifestPath)).toEqual(manifestBefore);
+            const entry = (await StorageManager.listRegistry()).projects["prj-upd"];
+            expect(entry).toMatchObject({ name: "prj-upd", summary: "D" });
+        } finally {
+            await fs.chmod(TEST_ROOT, 0o755);
+        }
+    });
+
+    it.skipIf(!notRoot)("should keep the registry unchanged when the manifest write of an update fails", async () => {
+        await StorageManager.saveProject({ ...manifestFor("prj-upd"), techStack: ["Old"] }, "# Old docs");
+        const dir = path.join(StorageManager.projectsRoot, "prj-upd");
+        const registryBefore = await fs.readFile(StorageManager.registryFile);
+        const manifestBefore = await fs.readFile(path.join(dir, "manifest.json"));
+
+        await fs.chmod(dir, 0o555);
+        try {
+            await expect(StorageManager.patchProjectManifest("prj-upd", { name: "New", description: "New desc", techStack: ["New"] }))
+                .rejects.toThrow();
+            expect(await fs.readFile(StorageManager.registryFile)).toEqual(registryBefore);
+            expect(await fs.readFile(path.join(dir, "manifest.json"))).toEqual(manifestBefore);
+        } finally {
+            await fs.chmod(dir, 0o755);
+        }
     });
 });

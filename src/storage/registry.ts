@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
-import { toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { restoreFile, snapshotFile, toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { ProjectManifest } from "../types.js";
 
 export type RegistryData = {
@@ -116,8 +116,14 @@ export class RegistryStorage {
         return readRegistry();
     }
 
+    /**
+     * Creates or replaces a project. Order: manifest first, registry last, so
+     * the registry never lists a project whose manifest was not written. If
+     * the registry write fails, the manifest is put back to its original
+     * bytes (removed if it did not exist, together with the project directory
+     * if this call created it) and the original error is rethrown.
+     */
     static async saveProjectManifest(manifest: ProjectManifest): Promise<void> {
-        const projectDir = NexusPaths.projectDir(manifest.id);
         const manifestPath = NexusPaths.projectManifestPath(manifest.id);
         const registry = await readRegistry();
         registry.projects[manifest.id] = {
@@ -125,10 +131,15 @@ export class RegistryStorage {
             summary: manifest.description || "",
             lastActive: new Date().toISOString()
         };
-        await writeRegistry(registry);
 
-        await fs.mkdir(projectDir, { recursive: true });
+        const snapshot = await snapshotFile(manifestPath);
         await writeJsonAtomic(manifestPath, { ...manifest, lastUpdated: manifest.lastUpdated || new Date().toISOString() });
+        try {
+            await writeRegistry(registry);
+        } catch (error) {
+            await restoreFile(snapshot);
+            throw error;
+        }
     }
 
     static async getProjectManifest(id: string): Promise<ProjectManifest | null> {
@@ -156,6 +167,11 @@ export class RegistryStorage {
         };
     }
 
+    /**
+     * Applies a patch to the manifest and the registry entry. Same order and
+     * rollback as saveProjectManifest: manifest first, registry last; if the
+     * registry write fails the manifest is restored to its original bytes.
+     */
     static async patchProjectManifest(id: string, patch: Partial<ProjectManifest>): Promise<void> {
         const registry = await readRegistry();
         const existing = registry.projects[id];
@@ -167,8 +183,9 @@ export class RegistryStorage {
             name: patch.name ?? existing.name,
             lastActive: new Date().toISOString()
         };
-        await writeRegistry(registry);
 
+        const manifestPath = NexusPaths.projectManifestPath(id);
+        const snapshot = await snapshotFile(manifestPath);
         const manifest = await readProjectManifest(id) || {};
         const patchedManifest: ProjectManifest = {
             id,
@@ -187,7 +204,13 @@ export class RegistryStorage {
             api_versions: patch.api_versions ?? manifest.api_versions,
             feature_tier: patch.feature_tier ?? manifest.feature_tier
         };
-        await writeJsonAtomic(NexusPaths.projectManifestPath(id), patchedManifest);
+        await writeJsonAtomic(manifestPath, patchedManifest);
+        try {
+            await writeRegistry(registry);
+        } catch (error) {
+            await restoreFile(snapshot);
+            throw error;
+        }
     }
 
     static async calculateTopology(projectId?: string) {
