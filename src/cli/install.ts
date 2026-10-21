@@ -21,6 +21,7 @@ import {
 } from "../daemon/hook-contract.js";
 import { pkg } from "../config/index.js";
 import { entryScript } from "./autostart.js";
+import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
 type HookEntry = { type: "command"; command: string; timeout: number };
 export type HookGroup = { matcher?: string; hooks?: unknown[] } & Record<string, unknown>;
@@ -216,13 +217,20 @@ function removeMcpServer(client: HookClient, action: InstallOptions["action"], h
         if (action === "uninstall") process.stdout.write(`Ran: ${client} ${removeArgs.join(" ")}\n`);
         return;
     } catch (error) {
-        const get = spawnSync(client, ["mcp", "get", MCP_SERVER_NAME], { stdio: "ignore" });
-        if (get.error || get.status !== 0) return;
+        // "Not registered" is the one failure to ignore; the registration is read from the
+        // client's configuration file (an unreadable file counts as still registered).
+        let registered = true;
+        try {
+            registered = readMcpCommand(client, mcpConfigFile(client)) !== undefined;
+        } catch {
+            // Keep registered = true: the error below tells the user what to look at.
+        }
+        if (!registered) return;
         const failure = error as { stderr?: unknown; status?: number | null; message: string };
         const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
         const detail = stderr || (typeof failure.status === "number" ? `exit code ${failure.status}` : failure.message);
         const state = action === "uninstall"
-            ? `${hooksRemoved ? "The hooks were removed; t" : "T"}he MCP server is still registered.`
+            ? `${hooksRemoved ? "The hooks were removed; t" : "T"}he MCP server is still registered in ${mcpConfigFile(client)}.`
             : "The hooks were written; the existing MCP server registration was left unchanged.";
         throw new InstallError(`"${client} ${removeArgs.join(" ")}" failed: ${detail}\n${state} Fix the error and run "n2n-nexus ${action} ${client}" again.`);
     }

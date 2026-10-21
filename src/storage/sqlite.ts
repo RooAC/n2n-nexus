@@ -242,7 +242,8 @@ export function initDatabase(options: { busyWaitMs?: number } = {}): Database.Da
     try {
         for (const column of ["created_at", "updated_at"]) {
             const { changes } = db.prepare(
-                `UPDATE tasks SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) WHERE ${column} NOT LIKE '%T%'`
+                `UPDATE tasks SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
+                 WHERE ${column} NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`
             ).run();
             if (changes > 0) {
                 console.error(`[Nexus] Migrating database: Converted ${changes} 'tasks.${column}' value(s) to ISO 8601.`);

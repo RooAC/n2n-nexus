@@ -7,14 +7,11 @@
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 import { HOOK_CLIENTS, MCP_SERVER_NAME, isHookClient, type HookClient } from "../daemon/hook-contract.js";
 import { pkg } from "../config/index.js";
-import {
-    InstallError, VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup
-} from "./install.js";
+import { VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup } from "./install.js";
+import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
 type Check = { ok: boolean; text: string };
 
@@ -45,52 +42,6 @@ export function checkNode(node: string): Check {
 
 const checkEntry = (entry: string): Check => fs.existsSync(entry) ? ok("ok") : bad("missing");
 
-/** Where the client keeps the MCP server command. */
-export function mcpConfigFile(client: HookClient): string {
-    if (client === "claude") {
-        return path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), ".claude.json");
-    }
-    return path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "config.toml");
-}
-
-type McpCommand = { command: string; args: string[] };
-
-/** The MCP server command the client has for n2n-nexus, or undefined when not registered. */
-export function readMcpCommand(client: HookClient, file: string): McpCommand | undefined {
-    let text: string;
-    try {
-        text = fs.readFileSync(file, "utf8");
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-        throw error;
-    }
-    if (client === "claude") {
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(text);
-        } catch (error) {
-            throw new InstallError(`${file} is not valid JSON (${(error as Error).message}).`);
-        }
-        const servers = (parsed as { mcpServers?: Record<string, unknown> } | null)?.mcpServers;
-        const server = servers?.[MCP_SERVER_NAME] as { command?: unknown; args?: unknown } | undefined;
-        if (!server || typeof server.command !== "string") return undefined;
-        return { command: server.command, args: Array.isArray(server.args) ? server.args.map(String) : [] };
-    }
-    // Codex: a TOML table [mcp_servers.n2n-nexus] (the key may be quoted) with command = "..." and args = [...].
-    const lines = text.split("\n");
-    const start = lines.findIndex((line) => new RegExp(`^\\s*\\[mcp_servers\\.("?)${MCP_SERVER_NAME}\\1\\]\\s*$`).test(line));
-    if (start === -1) return undefined;
-    let command: string | undefined;
-    let args: string[] = [];
-    for (const line of lines.slice(start + 1)) {
-        if (/^\s*\[/.test(line)) break;
-        const c = /^\s*command\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(line);
-        if (c) command = JSON.parse(`"${c[1]}"`) as string;
-        const a = /^\s*args\s*=\s*\[(.*)\]/.exec(line);
-        if (a) args = [...a[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`) as string);
-    }
-    return command === undefined ? undefined : { command, args };
-}
 
 /** Check one client; prints the report and returns whether everything passed, or undefined when nothing is installed. */
 function doctorClient(client: HookClient): boolean | undefined {

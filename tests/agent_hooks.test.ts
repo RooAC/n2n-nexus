@@ -316,14 +316,15 @@ describe("POST /api/hook: listen mode", () => {
     });
 
     it("cancels the wait and goes idle when the hook's client disconnects", async () => {
-        await start();
+        // A long wait, so going idle can only come from the disconnect, not from the timeout.
+        await start({ listenWaitMs: 60_000 });
         await hook("claude", "SessionStart", "r");
         await claudeTool("r", "listen", { on: true });
         const waiting = openHook("claude", "Stop", "r");
         waiting.response.catch(() => undefined);
         await until(() => status("claude:r") === "listening");
         waiting.cancel();
-        await until(() => status("claude:r") === "idle", LISTEN_MS / 2);
+        await until(() => status("claude:r") === "idle");
     });
 
     it("ends the wait when the conversation ends, and a later message leaves it offline", async () => {

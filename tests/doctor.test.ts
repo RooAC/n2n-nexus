@@ -3,7 +3,7 @@ import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { readMcpCommand } from "../src/cli/doctor.js";
+import { readMcpCommand } from "../src/cli/mcp-config.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");

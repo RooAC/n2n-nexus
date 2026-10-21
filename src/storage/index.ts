@@ -66,8 +66,9 @@ export class StorageManager {
     // file + rename), but some writes span several files (a rename moves the
     // directory before the registry switches ids), and a read between those
     // steps would see a registry entry whose files are gone. Code inside
-    // write() must call the sub-modules directly, never these locked
-    // StorageManager methods: the lock is not reentrant.
+    // write() or read() must call the sub-modules directly, never these locked
+    // StorageManager methods: the lock is not reentrant (a read inside a read
+    // deadlocks as soon as a writer is queued between them).
     private static write<T>(fn: () => Promise<T>): Promise<T> {
         return fileStoreLock.withWrite(fn);
     }
