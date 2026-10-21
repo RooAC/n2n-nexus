@@ -190,7 +190,10 @@ describe("StorageManager", () => {
         expect(topology.edges).toContainEqual({ from: "prj-source", to: "prj-renamed", type: "dependency" });
     });
 
-    it("should restore registry, directories and manifests when a rename fails midway", async () => {
+    // Permission-based failures do not apply to root, so the two chmod cases are skipped there.
+    const notRoot = process.getuid?.() !== 0;
+
+    it.skipIf(!notRoot)("should restore registry, directories and manifests when a rename fails midway", async () => {
         await StorageManager.saveProject(manifestFor("prj-a"), "# A docs");
         await StorageManager.saveProjectManifest(manifestFor("prj-b", [{ targetId: "prj-a", type: "dependency" }]));
         const dirA = path.join(StorageManager.projectsRoot, "prj-a");
@@ -217,7 +220,7 @@ describe("StorageManager", () => {
         }
     });
 
-    it("should keep the registry entry when deleting the project files fails", async () => {
+    it.skipIf(!notRoot)("should keep the registry entry when deleting the project files fails", async () => {
         await StorageManager.saveProject(manifestFor("prj-locked"), "# Locked");
         const dir = path.join(StorageManager.projectsRoot, "prj-locked");
 
@@ -245,17 +248,15 @@ describe("StorageManager", () => {
             ops.splice(round % (uploads.length + 1), 0, () => StorageManager.deleteProject("prj-race"));
             const results = await Promise.allSettled(ops.map((op) => op()));
 
-            const deleteResult = results[round % (uploads.length + 1)];
-            expect(deleteResult.status).toBe("fulfilled");
-            const uploadResults = results.filter((r) => r !== deleteResult);
-            const dirExists = await StorageManager.exists(dir);
-            const allNotFound = uploadResults.every((r) => r.status === "rejected"
-                && (r.reason as Error).message === "Project 'prj-race' not found.");
-            expect(!dirExists || allNotFound).toBe(true);
-            expect(dirExists).toBe(false);
-            for (const r of uploadResults) {
-                if (r.status === "rejected") expect((r.reason as Error).message).toBe("Project 'prj-race' not found.");
+            // The write lock is FIFO: uploads queued before the delete succeed, those after it are refused.
+            const deleteAt = round % (uploads.length + 1);
+            expect(results[deleteAt].status).toBe("fulfilled");
+            expect(results.slice(0, deleteAt).map((r) => r.status)).toEqual(Array(deleteAt).fill("fulfilled"));
+            for (const r of results.slice(deleteAt + 1)) {
+                expect(r.status).toBe("rejected");
+                expect(((r as PromiseRejectedResult).reason as Error).message).toBe("Project 'prj-race' not found.");
             }
+            expect(await StorageManager.exists(dir)).toBe(false);
         }
     });
 
