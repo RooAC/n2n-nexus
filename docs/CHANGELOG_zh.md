@@ -2,6 +2,16 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [0.8.2] - 2026-10-22
+
+### 修复
+
+- 两个 daemon 在全新存储目录上同时启动时，输掉的那个不再在到达端口前以 `SqliteError: database is locked` 崩溃；数据库初始化会等待另一个进程，输家按设计因 `EADDRINUSE` 退出。
+- 文件存储的读取（`get_project`、`search_projects`、拓扑、全局文档）与写入共用一把读写锁，`rename_project` 进行中的读取不再返回文档和技术栈为空的条目。
+- `sync_project_assets` 与 `update_project` 先写 manifest 和文档、最后写 registry，后一步失败时还原已写的文件；创建失败不再留下没有目录的项目，更新失败不再出现新旧字段混合。
+- 0.6.0 之前写入的任务时间（`YYYY-MM-DD HH:MM:SS`）在启动时转换为 ISO 8601，不再提前最多一天被清理。
+- `n2n-nexus uninstall`（以及 `install`）在 `mcp remove` 失败且客户端配置里仍有注册时报错、退出码 1 并说明处理办法；本来没注册的情况照旧忽略。
+
 ## [0.8.1] - 2026-10-22
 
 ### 新增

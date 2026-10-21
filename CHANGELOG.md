@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-10-22
+
+### Fixed
+
+- Two daemons starting together on a fresh storage root: the loser no longer crashes with `SqliteError: database is locked` before reaching the port; database initialisation waits for the other process and the loser exits on `EADDRINUSE` as intended.
+- Reads of the file store (`get_project`, `search_projects`, topology, global docs) share a read-write lock with the writes, so a read during `rename_project` no longer returns an entry with empty docs and tech stack.
+- `sync_project_assets` and `update_project` write the manifest and docs first and the registry last, and restore the files they wrote when a later step fails; a failed create no longer leaves a project without a directory, and a failed update no longer mixes new and old fields.
+- Tasks whose timestamps were written before 0.6.0 (`YYYY-MM-DD HH:MM:SS`) are converted to ISO 8601 on startup, so they are no longer purged up to a day early.
+- `n2n-nexus uninstall` (and `install`) report a failing `mcp remove` when the server is still registered in the client's configuration, exit with code 1 and say what to do; "not registered" is still ignored.
+
 ## [0.8.1] - 2026-10-22
 
 ### Added
