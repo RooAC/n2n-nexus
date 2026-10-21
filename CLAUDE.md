@@ -27,7 +27,7 @@ Pre-commit runs lint; pre-push runs `build && test` (via lefthook).
 The daemon + MCP refactor is complete (v0.5.0). The rationale is recorded in `CHANGELOG.md` under 0.5.0.
 
 ### Entry point
-`src/index.ts` routes to `runDaemon()` (`src/daemon/`), `NexusServer().run()` (`src/server/nexus.ts`, default) or the `hook` / `install` / `uninstall` commands (`src/cli/`) based on the first CLI argument. The hook path is imported dynamically and must stay free of the MCP SDK, zod and SQLite: it runs on every client tool call.
+`src/index.ts` routes to `runDaemon()` (`src/daemon/`), `NexusServer().run()` (`src/server/nexus.ts`, default) or the `hook` / `install` / `uninstall` / `doctor` commands (`src/cli/`) based on the first CLI argument. The hook path is imported dynamically and must stay free of the MCP SDK, zod and SQLite: it runs on every client tool call.
 
 ### Daemon (`src/daemon/`)
 `tools.ts` — zod contract per tool. `TOOL_DEFINITIONS` (JSON Schema for `GET /api/tools`) is generated from these schemas with `z.toJSONSchema`, and `parseToolArgs` validates every call. Add a tool here first, then its result contract in `tool-outputs.ts` (handlers are typed `Promise<ToolResult<"name">>`, and `finalizeResult` validates and strips every result at runtime, since TypeScript only checks object literals), then its handler and dispatcher case in `server.ts`. `tests/structured_output.test.ts` calls every tool through the MCP adapter and must cover a new one.
