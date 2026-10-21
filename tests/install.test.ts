@@ -24,7 +24,8 @@ function fakeCli(name: string): void {
 printf '%s' "${name}" >> "$CALLS_LOG"
 for a in "$@"; do printf '\\t%s' "$a" >> "$CALLS_LOG"; done
 printf '\\n' >> "$CALLS_LOG"
-if [ "$2" = "remove" ] && [ -n "$FAIL_REMOVE" ]; then exit 1; fi
+if [ "$2" = "remove" ] && [ -n "$FAIL_REMOVE" ]; then echo "cannot write config: EACCES" >&2; exit 1; fi
+if [ "$2" = "get" ]; then if [ -n "$MCP_REGISTERED" ]; then exit 0; fi; exit 1; fi
 exit 0
 `;
     fs.writeFileSync(path.join(bin, name), script, { mode: 0o755 });
@@ -143,7 +144,47 @@ describe("install claude", () => {
         expect(Object.keys(readJson(claudeSettings()).hooks as object).sort()).toEqual(
             ["PostToolUse", "PreToolUse", "SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"]
         );
+        expect(calls().slice(1, 3)).toEqual([
+            ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
+            ["claude", "mcp", "get", "n2n-nexus"]
+        ]);
         expect(calls().at(-1)?.slice(0, 3)).toEqual(["claude", "mcp", "add"]);
+    });
+
+    it("install stops before mcp add when mcp remove fails and the server is still registered", () => {
+        const result = run(["install", "claude"], { FAIL_REMOVE: "1", MCP_REGISTERED: "1" });
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[n2n-nexus] install failed:");
+        expect(result.stderr).toContain("cannot write config: EACCES");
+        expect(calls()).toEqual([
+            ["claude", "--version"],
+            ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
+            ["claude", "mcp", "get", "n2n-nexus"]
+        ]);
+    });
+
+    it("uninstall fails when mcp remove fails and the server is still registered", () => {
+        const result = run(["uninstall", "claude"], { FAIL_REMOVE: "1", MCP_REGISTERED: "1" });
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("[n2n-nexus] uninstall failed:");
+        expect(result.stderr).toContain("cannot write config: EACCES");
+        expect(result.stderr).toContain("the MCP server is still registered");
+        expect(calls()).toEqual([
+            ["claude", "--version"],
+            ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
+            ["claude", "mcp", "get", "n2n-nexus"]
+        ]);
+    });
+
+    it("uninstall ignores a failing mcp remove when the server is not registered", () => {
+        const result = run(["uninstall", "claude"], { FAIL_REMOVE: "1" });
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(calls()).toEqual([
+            ["claude", "--version"],
+            ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
+            ["claude", "mcp", "get", "n2n-nexus"]
+        ]);
     });
 
     it("uninstall removes only our entries and the MCP server", () => {

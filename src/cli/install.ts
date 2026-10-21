@@ -204,6 +204,30 @@ function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: 
     return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...env, "--", node, entry, "mcp"];
 }
 
+/**
+ * Run `<client> mcp remove`. A failure is ignored only when `<client> mcp get`
+ * shows the server is not registered (never installed, or already removed);
+ * otherwise the removal really failed and we stop before `mcp add`.
+ */
+function removeMcpServer(client: HookClient, action: InstallOptions["action"], hooksRemoved: boolean): void {
+    const removeArgs = mcpRemoveArgs(client);
+    try {
+        execFileSync(client, removeArgs, { encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] });
+        if (action === "uninstall") process.stdout.write(`Ran: ${client} ${removeArgs.join(" ")}\n`);
+        return;
+    } catch (error) {
+        const get = spawnSync(client, ["mcp", "get", MCP_SERVER_NAME], { stdio: "ignore" });
+        if (get.error || get.status !== 0) return;
+        const failure = error as { stderr?: unknown; status?: number | null; message: string };
+        const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
+        const detail = stderr || (typeof failure.status === "number" ? `exit code ${failure.status}` : failure.message);
+        const state = action === "uninstall"
+            ? `${hooksRemoved ? "The hooks were removed; t" : "T"}he MCP server is still registered.`
+            : "The hooks were written; the existing MCP server registration was left unchanged.";
+        throw new InstallError(`"${client} ${removeArgs.join(" ")}" failed: ${detail}\n${state} Fix the error and run "n2n-nexus ${action} ${client}" again.`);
+    }
+}
+
 /** Install or uninstall; prints what it did and returns the exit code. */
 export function runInstall(options: InstallOptions): number {
     const { action, client, endpoint } = options;
@@ -230,13 +254,7 @@ export function runInstall(options: InstallOptions): number {
             process.stdout.write(`${action === "install" ? "Wrote hooks to" : "Removed hooks from"} ${file}\n`);
         }
 
-        const removeArgs = mcpRemoveArgs(client);
-        try {
-            execFileSync(client, removeArgs, { stdio: "ignore" });
-            if (action === "uninstall") process.stdout.write(`Ran: ${client} ${removeArgs.join(" ")}\n`);
-        } catch {
-            // Not registered yet (or already removed): nothing to undo.
-        }
+        removeMcpServer(client, action, removed);
         if (action === "install" && node) {
             const addArgs = mcpAddArgs(client, node, entry, endpoint);
             execFileSync(client, addArgs, { stdio: ["ignore", "ignore", "inherit"] });
