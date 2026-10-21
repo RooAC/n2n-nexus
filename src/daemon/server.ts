@@ -45,7 +45,9 @@ async function toolSyncProjectAssets(args: ToolArgs<"sync_project_assets">, inst
 
 async function toolUploadAsset(args: ToolArgs<"upload_project_asset">, instanceId: string): Promise<ToolResult<"upload_project_asset">> {
     if (!await StorageManager.getProjectManifest(args.projectId)) throw new Error(`Project '${args.projectId}' not found.`);
-    const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    // Must produce the final saved name: StorageManager.saveAsset's sanitizeFileName
+    // (src/storage/projects.ts) has to leave this result unchanged, so keep both rules in step.
+    const sanitized = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/\.\./g, "_");
     const buf = Buffer.from(args.base64Content, "base64");
     await StorageManager.saveAsset(args.projectId, sanitized, buf);
     EventStore.record(instanceId, "project.asset", args.projectId, { fileName: sanitized, bytes: buf.length });
@@ -321,6 +323,7 @@ async function toolRead(args: ToolArgs<"read">, caller: Caller | undefined): Pro
 async function toolListen(args: ToolArgs<"listen">, caller: Caller | undefined): Promise<ToolResult<"listen">> {
     const self = resolveAgent(caller);
     AgentStore.setListening(self.id, args.on);
+    wake([self.id]);
     return { listening: args.on };
 }
 
@@ -401,7 +404,8 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
         function check() {
             if (done) return;
             // SessionEnd (or listen off) during the wait: nobody will act on a block any more.
-            if (!AgentStore.get(sessionId)?.listening) return finish(null);
+            // stopWaiting sets idle only while still "listening", so SessionEnd stays offline.
+            if (!AgentStore.get(sessionId)?.listening) return stopWaiting();
             const text = notifyFresh(sessionId, STOP_CLOSING);
             if (text === null) return;
             AgentStore.setStatus(sessionId, "working");
