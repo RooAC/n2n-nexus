@@ -236,6 +236,22 @@ export function initDatabase(options: { busyWaitMs?: number } = {}): Database.Da
         console.error("[Nexus] Migration check failed:", e);
     }
 
+    // Migration: Convert task timestamps written by the pre-0.6.0 trigger and
+    // column defaults (datetime('now'), 'YYYY-MM-DD HH:MM:SS') to ISO 8601, so
+    // string comparisons against new Date().toISOString() order correctly.
+    try {
+        for (const column of ["created_at", "updated_at"]) {
+            const { changes } = db.prepare(
+                `UPDATE tasks SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) WHERE ${column} NOT LIKE '%T%'`
+            ).run();
+            if (changes > 0) {
+                console.error(`[Nexus] Migrating database: Converted ${changes} 'tasks.${column}' value(s) to ISO 8601.`);
+            }
+        }
+    } catch (e) {
+        console.error("[Nexus] Migration check failed:", e);
+    }
+
     // Initialize default state if not exists
     const stmt = db.prepare("INSERT OR IGNORE INTO meeting_state (key, value) VALUES (?, ?)");
     stmt.run("active_meetings", "[]");
