@@ -132,7 +132,8 @@ n2n-nexus
   ├─ n2n-nexus daemon    启动一次，持续运行，持有所有数据。
   ├─ n2n-nexus mcp       IDE 通过 npx 自动启动，无状态代理。
   ├─ n2n-nexus hook      Claude Code / Codex 在每个 hook 事件时运行。
-  └─ n2n-nexus install   把 hooks 和 MCP 服务写进客户端的用户级配置。
+  ├─ n2n-nexus install   把 hooks 和 MCP 服务写进客户端的用户级配置。
+  └─ n2n-nexus doctor    检查已安装的 hook 和 MCP 命令是否还能运行。
 ```
 
 **Daemon**（由用户启动；本机地址上没有 daemon 时，也会由 hook 或适配器在后台拉起）：

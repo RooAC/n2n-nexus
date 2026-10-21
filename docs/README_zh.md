@@ -114,6 +114,9 @@ n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mc
 
 - Codex 只运行已信任的 hooks：打开 Codex，执行一次 `/hooks` 完成信任。
 - daemon 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`。
+- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
+- 用 `--node <path>` 手动指定 Node 路径。路径必须存在、可执行，且版本满足 package.json 的 `engines`（`^22.14.0 || >=23.6.0`），否则 `install` 以退出码 1 退出，不写任何配置。
+- 升级 Node 后：如果 `install` 提示 Node 路径位于带版本号的目录（Homebrew `Cellar`、nvm、fnm、Volta、asdf、`node-v<版本>`），每次升级 Node 后都要重新运行 `n2n-nexus install <claude|codex>`，或用 `--node` 指定稳定路径。`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令和 MCP 命令里的 Node 路径与入口脚本是否仍然存在、能否运行，有问题时以退出码 1 退出。
 - `n2n-nexus uninstall <claude|codex>` 删除 `install` 写入的 hooks 和 MCP 服务，配置里的其他内容不动。
 - 支持 Linux、WSL 和 macOS。其他 MCP 客户端可以使用除直接消息以外的全部工具。
 
@@ -234,8 +237,12 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 
 # 为 Claude Code 或 Codex 安装 / 删除 hooks 和 MCP 服务
-n2n-nexus install <claude|codex> [--endpoint <url>]
+# --node <path>：写进客户端配置的 Node 可执行文件路径
+n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
 n2n-nexus uninstall <claude|codex>
+
+# 检查已安装的 hook 和 MCP 命令是否还能运行（有问题时退出码 1）
+n2n-nexus doctor [claude|codex]
 
 # hook 入口（由 install 写进客户端配置）
 n2n-nexus hook <claude|codex> [--endpoint <url>]

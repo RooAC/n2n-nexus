@@ -125,8 +125,8 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 - 做法：用 `process.execPath <入口脚本> daemon --port <endpoint 的端口>` 后台拉起（detached，stdio 输出到 `~/.n2n-nexus/daemon.log`），每 100ms 探测一次 `GET /api/tools`，最多 2 秒，然后重试原请求一次。
 - 并发拉起时，抢不到端口的那个进程会因 `EADDRINUSE` 退出，用测试覆盖这个情况。
 
-**`n2n-nexus install <claude|codex> [--endpoint <url>]` / `n2n-nexus uninstall <claude|codex>`**
-- 命令写成 `"<process.execPath>" "<入口脚本绝对路径>" ...`。入口脚本路径里含 `/_npx/` 时拒绝安装，提示先执行 `npm i -g n2n-nexus`。
+**`n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]` / `n2n-nexus uninstall <claude|codex>`**
+- 命令写成 `"<node 绝对路径>" "<入口脚本绝对路径>" ...`。node 路径默认取 PATH 上的 `node`（与当前运行的 Node 按真实路径比较是同一个文件时），找不到时回退到当前运行的 Node 的真实路径；`--node <path>` 可手动指定，路径必须存在、可执行且版本满足 package.json 的 engines，否则报错、退出码 1、不写任何配置。入口脚本路径里含 `/_npx/` 时拒绝安装，提示先执行 `npm i -g n2n-nexus`。
 - Claude：
   - 合并写入 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` 的 hooks：SessionStart、SessionEnd、UserPromptSubmit、PreToolUse（matcher `mcp__n2n-nexus__.*`）、PostToolUse、Stop。Stop 的 `timeout` 设 600，其余设 10。
   - MCP：先执行 `claude mcp remove --scope user n2n-nexus`（失败忽略），再执行 `claude mcp add --scope user n2n-nexus [-e NEXUS_ENDPOINT=<url>] -- <node> <脚本> mcp`。

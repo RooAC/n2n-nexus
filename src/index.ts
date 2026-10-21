@@ -15,10 +15,13 @@ n2n-nexus v${pkg.version} — Multi-AI assistant coordination hub
 USAGE:
   n2n-nexus daemon   Start the Nexus server (run once, stays alive)
   n2n-nexus mcp      Start the MCP proxy (launched by IDE automatically)
-  n2n-nexus install <claude|codex> [--endpoint <url>]
+  n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
                      Register the hooks and the MCP server with Claude Code or Codex
   n2n-nexus uninstall <claude|codex>
                      Remove the hooks and the MCP server installed by install
+  n2n-nexus doctor [claude|codex]
+                     Check that the Node path and entry script in the installed hook and
+                     MCP commands exist and run; exit 1 and say how to fix them when not
   n2n-nexus hook <claude|codex> [--endpoint <url>]
                      Forward a client hook event to the daemon (run by the hooks)
 
@@ -29,6 +32,8 @@ OPTIONS:
   --id <id>          Instance ID for MCP proxy (default: mcp-<hostname>-<cwd hash>-<IDE name>)
   --endpoint <url>   Daemon URL for hook (default: NEXUS_ENDPOINT, then http://127.0.0.1:5688);
                      install writes it into the hook and MCP commands
+  --node <path>      Node executable written into the hook and MCP commands by install
+                     (default: the node on PATH when it is the running one, else its real path)
   --version, -v      Show version
   --help, -h         Show this help
 
@@ -51,6 +56,11 @@ async function main() {
     if (command === "install" || command === "uninstall") {
         const { runInstallCommand } = await import("./cli/install.js");
         process.exit(runInstallCommand(command, process.argv.slice(3)));
+    }
+
+    if (command === "doctor") {
+        const { runDoctor } = await import("./cli/doctor.js");
+        process.exit(runDoctor(process.argv.slice(3)));
     }
 
     if (command === "daemon") {

@@ -105,6 +105,9 @@ n2n-nexus install codex     # ~/.codex/hooks.json (or $CODEX_HOME) + codex mcp a
 
 - Codex runs new hooks only after you trust them: open Codex and run `/hooks` once.
 - Pass `--endpoint <url>` to both commands when the daemon is not at `http://127.0.0.1:5688`.
+- The hooks and the MCP server command use an absolute Node path, because GUI clients started from the Dock (such as Claude Desktop) do not read your shell's `PATH`. By default `install` writes the `node` found on `PATH` when it is the same file as the Node running `install` (for example `/usr/local/bin/node`, `/opt/homebrew/bin/node`, `~/.local/bin/node` or a version manager's stable entry point), and otherwise the real path of the running Node. `install` prints the path it wrote as `Node: <path>`.
+- Pass `--node <path>` to choose the Node path yourself. It must exist, be executable and satisfy the `engines` range in package.json (`^22.14.0 || >=23.6.0`); otherwise `install` exits with code 1 and writes nothing.
+- After upgrading Node: if `install` warned that the Node path contains a version directory (Homebrew `Cellar`, nvm, fnm, Volta, asdf, `node-v<version>`), run `n2n-nexus install <claude|codex>` again after each upgrade, or pass `--node` with a stable path. `n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook and MCP commands still exist and run, and exits with code 1 when they do not.
 - `n2n-nexus uninstall <claude|codex>` removes the hooks and the MCP server that `install` added and leaves the rest of the configuration alone.
 - Supported on Linux, WSL and macOS. Other MCP clients can use every tool except direct messages.
 
@@ -191,8 +194,12 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
 
 # Install / remove the hooks and MCP server for Claude Code or Codex
-n2n-nexus install <claude|codex> [--endpoint <url>]
+# --node <path>: the Node executable to write into the client configuration
+n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
 n2n-nexus uninstall <claude|codex>
+
+# Check that the installed hook and MCP commands still run (exit 1 when not)
+n2n-nexus doctor [claude|codex]
 
 # Hook entry point (written into the client configuration by install)
 n2n-nexus hook <claude|codex> [--endpoint <url>]

@@ -132,7 +132,8 @@ n2n-nexus
   ├─ n2n-nexus daemon    Start once, keep running. Owns all data.
   ├─ n2n-nexus mcp       IDE starts automatically via npx. Stateless proxy.
   ├─ n2n-nexus hook      Run by Claude Code / Codex on each hook event.
-  └─ n2n-nexus install   Write the hooks and MCP server into a client's user configuration.
+  ├─ n2n-nexus install   Write the hooks and MCP server into a client's user configuration.
+  └─ n2n-nexus doctor    Check that the installed hook and MCP commands still run.
 ```
 
 **Daemon** (started by the user, or in the background by a hook or adapter when none listens at a local endpoint):

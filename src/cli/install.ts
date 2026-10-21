@@ -1,9 +1,14 @@
 /**
- * `n2n-nexus install <claude|codex> [--endpoint <url>]` and
+ * `n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]` and
  * `n2n-nexus uninstall <claude|codex>`: register the hooks and the MCP server
  * with Claude Code or Codex. Our hook entries are recognised by a command that
  * contains both `n2n-nexus` and ` hook <client>`; everything else in the
  * configuration file is kept as it is.
+ *
+ * The commands start with an absolute Node path: GUI clients started from the
+ * Dock do not read the shell PATH. The `node` found on PATH is preferred when it
+ * is the running binary, because process.execPath is the resolved, versioned
+ * location (nvm, Homebrew Cellar, ...) that disappears when Node is upgraded.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -14,11 +19,12 @@ import {
     CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, isHookClient,
     type HookClient
 } from "../daemon/hook-contract.js";
+import { pkg } from "../config/index.js";
 import { entryScript } from "./autostart.js";
 
 type HookEntry = { type: "command"; command: string; timeout: number };
-type HookGroup = { matcher?: string; hooks?: unknown[] } & Record<string, unknown>;
-type HooksFile = { hooks?: Record<string, unknown> } & Record<string, unknown>;
+export type HookGroup = { matcher?: string; hooks?: unknown[] } & Record<string, unknown>;
+export type HooksFile = { hooks?: Record<string, unknown> } & Record<string, unknown>;
 
 const EVENTS: Record<HookClient, string[]> = {
     claude: ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"],
@@ -31,24 +37,93 @@ export type InstallOptions = {
     endpoint?: string;
     /** Entry script written into the commands; defaults to this package's build/index.js. */
     entry?: string;
+    /** Node path written into the commands (`--node`); defaults to the `node` on PATH or process.execPath. */
+    node?: string;
 };
 
-class InstallError extends Error {}
+export class InstallError extends Error {}
 
-function configFile(client: HookClient): string {
+/** Path segments of Node installs that are replaced on upgrade. */
+export const VERSIONED_NODE_DIR = /\/Cellar\/|\/\.nvm\/versions\/|\/node-v\d|\/fnm\/|\/fnm_multishells\/|\/\.volta\/|\/\.asdf\/installs\//;
+/** fnm puts a per-shell symlink directory first on PATH; it is gone when the shell ends. */
+const PER_SHELL_NODE_DIR = /\/fnm_multishells\//;
+
+function sameFile(a: string, b: string): boolean {
+    try {
+        return fs.realpathSync(a) === fs.realpathSync(b);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * The `node` on PATH when it is the running binary (its stable entry), else
+ * process.execPath. Relative PATH entries and fnm's per-shell directory are
+ * skipped: the commands must work from any directory and after the shell ends.
+ */
+export function stableNodePath(env: NodeJS.ProcessEnv = process.env): string {
+    for (const dir of (env.PATH ?? "").split(path.delimiter)) {
+        if (!path.isAbsolute(dir) || PER_SHELL_NODE_DIR.test(dir)) continue;
+        const candidate = path.join(dir, "node");
+        if (sameFile(candidate, process.execPath)) return candidate;
+    }
+    return process.execPath;
+}
+
+type Version = [number, number, number];
+
+export function parseVersion(text: string): Version | undefined {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(text.trim());
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : undefined;
+}
+
+const atLeast = (v: Version, min: Version) =>
+    v[0] !== min[0] ? v[0] > min[0] : v[1] !== min[1] ? v[1] > min[1] : v[2] >= min[2];
+
+/** Whether `version` satisfies the package's engines.node range (`^a.b.c` and `>=a.b.c` clauses joined by `||`). */
+export function satisfiesEngines(version: string, range: string = pkg.engines.node): boolean {
+    const v = parseVersion(version);
+    if (!v) return false;
+    return range.split("||").some((clause) => {
+        const m = /^\s*(\^|>=)\s*v?(\d+\.\d+\.\d+)\s*$/.exec(clause);
+        const min = m && parseVersion(m[2]);
+        if (!m || !min) throw new Error(`Unsupported engines.node clause: ${clause.trim()}`);
+        return atLeast(v, min) && (m[1] === ">=" || v[0] === min[0]);
+    });
+}
+
+/** Check a `--node` path: it must exist, run, and satisfy engines.node. Returns the absolute path. */
+function checkNodePath(given: string): string {
+    const node = path.resolve(given);
+    try {
+        fs.accessSync(node, fs.constants.X_OK);
+    } catch {
+        throw new InstallError(`--node ${given}: not an executable file.`);
+    }
+    if (fs.statSync(node).isDirectory()) throw new InstallError(`--node ${given}: is a directory, not the node executable.`);
+    const probe = spawnSync(node, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const version = probe.status === 0 ? parseVersion(probe.stdout) : undefined;
+    if (!version) throw new InstallError(`--node ${given}: "${node} --version" did not print a Node version.`);
+    if (!satisfiesEngines(probe.stdout)) {
+        throw new InstallError(`--node ${given}: Node ${probe.stdout.trim()} does not satisfy ${pkg.engines.node}.`);
+    }
+    return node;
+}
+
+export function configFile(client: HookClient): string {
     if (client === "claude") {
         return path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "settings.json");
     }
     return path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "hooks.json");
 }
 
-function isOurs(entry: unknown, client: HookClient): boolean {
+export function isOurs(entry: unknown, client: HookClient): boolean {
     if (typeof entry !== "object" || entry === null) return false;
     const command = (entry as { command?: unknown }).command;
     return typeof command === "string" && command.includes("n2n-nexus") && command.includes(` hook ${client}`);
 }
 
-function readConfig(file: string): HooksFile {
+export function readConfig(file: string): HooksFile {
     let text: string;
     try {
         text = fs.readFileSync(file, "utf8");
@@ -123,10 +198,10 @@ function mcpRemoveArgs(client: HookClient): string[] {
         : ["mcp", "remove", MCP_SERVER_NAME];
 }
 
-function mcpAddArgs(client: HookClient, entry: string, endpoint?: string): string[] {
+function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: string): string[] {
     const env = endpoint ? [client === "claude" ? "-e" : "--env", `NEXUS_ENDPOINT=${endpoint}`] : [];
     const scope = client === "claude" ? ["--scope", "user"] : [];
-    return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...env, "--", process.execPath, entry, "mcp"];
+    return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...env, "--", node, entry, "mcp"];
 }
 
 /** Install or uninstall; prints what it did and returns the exit code. */
@@ -141,12 +216,13 @@ export function runInstall(options: InstallOptions): number {
         if (probe.error || probe.status !== 0) {
             throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
         }
+        const node = action === "install" ? (options.node ? checkNodePath(options.node) : stableNodePath()) : undefined;
 
         const file = configFile(client);
         const config = readConfig(file);
         const removed = removeOurEntries(config, client, file);
         if (action === "install") {
-            const command = `"${process.execPath}" "${entry}" hook ${client}${endpoint ? ` --endpoint ${endpoint}` : ""}`;
+            const command = `"${node}" "${entry}" hook ${client}${endpoint ? ` --endpoint ${endpoint}` : ""}`;
             addOurEntries(config, client, command);
         }
         if (action === "install" || removed) {
@@ -161,10 +237,14 @@ export function runInstall(options: InstallOptions): number {
         } catch {
             // Not registered yet (or already removed): nothing to undo.
         }
-        if (action === "install") {
-            const addArgs = mcpAddArgs(client, entry, endpoint);
+        if (action === "install" && node) {
+            const addArgs = mcpAddArgs(client, node, entry, endpoint);
             execFileSync(client, addArgs, { stdio: ["ignore", "ignore", "inherit"] });
             process.stdout.write(`Ran: ${client} ${addArgs.join(" ")}\n`);
+            process.stdout.write(`Node: ${node}\n`);
+            if (VERSIONED_NODE_DIR.test(node)) {
+                process.stdout.write(`Note: this Node path contains a version directory that an upgrade may remove. After upgrading Node, run "n2n-nexus install ${client}" again, or install with --node <path> pointing at a stable entry such as /usr/local/bin/node.\n`);
+            }
             if (client === "codex") {
                 process.stdout.write("Next: open Codex and run /hooks to trust the n2n-nexus hooks; until then they do not run.\n");
             }
@@ -176,18 +256,26 @@ export function runInstall(options: InstallOptions): number {
     }
 }
 
-/** Parse `<claude|codex> [--endpoint <url>]` and run. */
+/** Parse `<claude|codex> [--endpoint <url>] [--node <path>]` and run. */
 export function runInstallCommand(action: "install" | "uninstall", argv: string[]): number {
     const client = argv[0];
     if (!isHookClient(client)) {
-        process.stderr.write(`Usage: n2n-nexus ${action} <claude|codex>${action === "install" ? " [--endpoint <url>]" : ""}\n`);
+        process.stderr.write(`Usage: n2n-nexus ${action} <claude|codex>${action === "install" ? " [--endpoint <url>] [--node <path>]" : ""}\n`);
         return 1;
     }
-    const i = argv.indexOf("--endpoint");
-    const endpoint = action === "install" && i !== -1 ? argv[i + 1] : undefined;
-    if (i !== -1 && action === "install" && !endpoint) {
-        process.stderr.write("--endpoint needs a URL\n");
-        return 1;
-    }
-    return runInstall({ action, client, endpoint });
+    const option = (name: string, what: string): string | undefined | null => {
+        const i = argv.indexOf(name);
+        if (i === -1 || action !== "install") return undefined;
+        const value = argv[i + 1];
+        if (!value || value.startsWith("--")) {
+            process.stderr.write(`${name} needs ${what}\n`);
+            return null;
+        }
+        return value;
+    };
+    const endpoint = option("--endpoint", "a URL");
+    if (endpoint === null) return 1;
+    const node = option("--node", "a path");
+    if (node === null) return 1;
+    return runInstall({ action, client, endpoint, node });
 }
