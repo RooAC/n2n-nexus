@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { NexusPaths } from "./paths.js";
 import { FILE_ENCODING } from "../constants.js";
-import { writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { writeFileAtomic } from "./fs-utils.js";
 
 export class ProjectStorage {
     private static projectFilePath(projectId: string) {
@@ -44,32 +44,6 @@ export class ProjectStorage {
     static async deleteProject(projectId: string): Promise<number> {
         const paths = this.projectFilePath(projectId);
         await fs.rm(paths.projectDir, { recursive: true, force: true });
-        return 1;
-    }
-
-    static async renameProject(oldId: string, newId: string): Promise<number> {
-        if (!oldId || !newId || oldId === newId) return 0;
-        const oldPath = this.projectFilePath(oldId);
-        const newPath = this.projectFilePath(newId);
-
-        try {
-            await fs.access(oldPath.projectDir);
-        } catch {
-            return 0;
-        }
-
-        await fs.mkdir(path.dirname(newPath.projectDir), { recursive: true });
-        await fs.rename(oldPath.projectDir, newPath.projectDir);
-
-        try {
-            const manifestRaw = await fs.readFile(newPath.manifestPath, FILE_ENCODING);
-            const manifest = JSON.parse(manifestRaw) as { id: string };
-            manifest.id = newId;
-            await writeJsonAtomic(newPath.manifestPath, manifest);
-        } catch {
-            // Manifest is optional for some flows.
-        }
-
         return 1;
     }
 
