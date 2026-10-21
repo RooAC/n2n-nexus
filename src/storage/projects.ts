@@ -36,14 +36,15 @@ export class ProjectStorage {
         return path.relative(NexusPaths.root, assetPath);
     }
 
+    /**
+     * Removes the project directory. A missing directory counts as deleted
+     * (force); any other failure is thrown so the caller keeps the registry
+     * entry instead of indexing a project whose files are still on disk.
+     */
     static async deleteProject(projectId: string): Promise<number> {
         const paths = this.projectFilePath(projectId);
-        try {
-            await fs.rm(paths.projectDir, { recursive: true, force: true });
-            return 1;
-        } catch {
-            return 0;
-        }
+        await fs.rm(paths.projectDir, { recursive: true, force: true });
+        return 1;
     }
 
     static async renameProject(oldId: string, newId: string): Promise<number> {

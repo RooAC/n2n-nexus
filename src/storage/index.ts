@@ -84,26 +84,32 @@ export class StorageManager {
     // --- Project Methods ---
     static getProjectDocs(id: string) { return ProjectStorage.getProjectDocs(id); }
     static saveProjectDocs(id: string, content: string) { return this.write(() => ProjectStorage.saveProjectDocs(id, content)); }
-    static saveAsset(id: string, fileName: string, content: string | Buffer) { return this.write(() => ProjectStorage.saveAsset(id, fileName, content)); }
+    /**
+     * The existence check runs inside the write lock: writeFileAtomic creates
+     * missing directories, so an upload queued behind a delete would otherwise
+     * bring the deleted project's directory back.
+     */
+    static saveAsset(id: string, fileName: string, content: string | Buffer) {
+        return this.write(async () => {
+            const registry = await RegistryStorage.listRegistry();
+            if (!registry.projects[id]) throw new Error(`Project '${id}' not found.`);
+            return ProjectStorage.saveAsset(id, fileName, content);
+        });
+    }
+    /** Files first, index last: if the files cannot be removed, the throw leaves the registry entry in place. */
     static deleteProject(id: string) {
         return this.write(async () => {
             await ProjectStorage.deleteProject(id);
             await RegistryStorage.deleteProject(id);
         });
     }
+    /** RegistryStorage.renameProject moves the directory, manifests and registry together and rolls back on failure. */
     static renameProject(oldId: string, newId: string) {
         return this.write(async () => {
             if (!await RegistryStorage.getProjectManifest(oldId)) throw new Error(`Project '${oldId}' not found.`);
             const renamed = await RegistryStorage.renameProject(oldId, newId);
             if (renamed === 0) throw new Error(`Project '${oldId}' could not be renamed.`);
-            try {
-                const result = await ProjectStorage.renameProject(oldId, newId);
-                if (result === 0) throw new Error(`Project '${oldId}' could not be renamed.`);
-                return result;
-            } catch (error) {
-                await RegistryStorage.renameProject(newId, oldId).catch(() => { });
-                throw error;
-            }
+            return renamed;
         });
     }
 
