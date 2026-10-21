@@ -168,7 +168,7 @@ describe("install claude", () => {
         expect(result.code).toBe(1);
         expect(result.stderr).toContain("[n2n-nexus] uninstall failed:");
         expect(result.stderr).toContain("cannot write config: EACCES");
-        expect(result.stderr).toContain("the MCP server is still registered");
+        expect(result.stderr).toContain("MCP server is still registered");
         expect(calls()).toEqual([
             ["claude", "--version"],
             ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
