@@ -30,6 +30,8 @@ export class ProjectStorage {
 
     static async saveAsset(projectId: string, fileName: string, content: string | Buffer): Promise<string> {
         const safeName = this.sanitizeFileName(fileName);
+        // "." would resolve to the assets directory itself and writeFileAtomic would create a file in its place.
+        if (safeName === ".") throw new Error(`Invalid fileName '${fileName}': it names no file.`);
         const paths = this.projectFilePath(projectId);
         const assetPath = path.join(paths.assetsDir, safeName);
         await writeFileAtomic(assetPath, content);

@@ -63,7 +63,7 @@ Upload a binary or text asset into a project's asset store.
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `projectId` | string | yes | Target project. Must exist. |
-| `fileName` | string | yes | Filename only. Unsafe path characters are replaced. |
+| `fileName` | string | yes | Filename only. Unsafe path characters are replaced; `.` is rejected. |
 | `base64Content` | string | yes | Base64-encoded file content. |
 
 Behavior:

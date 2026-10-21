@@ -79,4 +79,29 @@ describe("Daemon project write API", () => {
         const saved = await fs.readdir(NexusPaths.projectAssetsDir("proj-asset"));
         expect(saved).toEqual([upload.payload.result.fileName]);
     });
+
+    it("upload_project_asset refuses a file name that sanitizes to '.' and keeps the assets directory usable", async () => {
+        const sync = await daemon.request("POST", "/api/projects/sync", {
+            manifest: {
+                id: "proj-dot", name: "Dot Project", description: "", techStack: [], relations: [],
+                repositoryUrl: "", localPath: daemon.root, endpoints: [], apiSpec: []
+            },
+            instanceId: "ide-a"
+        });
+        expect(sync.status).toBe(200);
+        const content = Buffer.from("x").toString("base64");
+
+        const bad = await daemon.request<{ error: string }>("POST", "/api/tools/call", {
+            tool: "upload_project_asset", args: { projectId: "proj-dot", fileName: ".", base64Content: content }, instanceId: "ide-a"
+        });
+        expect(bad.status).toBe(400);
+        expect(bad.payload.error).toContain("Invalid fileName '.'");
+        expect(await StorageManager.exists(NexusPaths.projectAssetsDir("proj-dot"))).toBe(false);
+
+        const good = await daemon.request<{ result: { fileName: string } }>("POST", "/api/tools/call", {
+            tool: "upload_project_asset", args: { projectId: "proj-dot", fileName: "ok.txt", base64Content: content }, instanceId: "ide-a"
+        });
+        expect(good.status).toBe(200);
+        expect(await fs.readdir(NexusPaths.projectAssetsDir("proj-dot"))).toEqual(["ok.txt"]);
+    });
 });
