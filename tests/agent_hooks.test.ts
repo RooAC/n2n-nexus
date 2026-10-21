@@ -341,6 +341,19 @@ describe("POST /api/hook: listen mode", () => {
         expect(row.notified_at).toBeNull();
     });
 
+    it("ends the wait at once when the session turns listen off", async () => {
+        await start({ listenWaitMs: 30_000 });
+        await hook("claude", "SessionStart", "off");
+        await claudeTool("off", "listen", { on: true });
+        const waiting = openHook("claude", "Stop", "off");
+        await until(() => status("claude:off") === "listening");
+        const started = Date.now();
+        expect((await claudeTool("off", "listen", { on: false })).payload.result).toEqual({ listening: false });
+        expect((await waiting.response).payload).toEqual({ output: null });
+        expect(Date.now() - started).toBeLessThan(1000);
+        expect(status("claude:off")).toBe("idle");
+    });
+
     it("lets the daemon shut down without waiting for a listening Stop hook", async () => {
         await start({ listenWaitMs: 60_000 });
         await hook("claude", "SessionStart", "sd");

@@ -59,4 +59,24 @@ describe("Daemon project write API", () => {
         expect(await StorageManager.getProjectManifest("proj-demo-renamed")).toBeNull();
         expect(await StorageManager.exists(path.join(StorageManager.projectsRoot, "proj-demo-renamed"))).toBe(false);
     });
+
+    it("upload_project_asset reports the name the asset is saved under", async () => {
+        const sync = await daemon.request("POST", "/api/projects/sync", {
+            manifest: {
+                id: "proj-asset", name: "Asset Project", description: "", techStack: [], relations: [],
+                repositoryUrl: "", localPath: daemon.root, endpoints: [], apiSpec: []
+            },
+            instanceId: "ide-a"
+        });
+        expect(sync.status).toBe(200);
+
+        const upload = await daemon.request<{ ok: boolean; result: { fileName: string } }>("POST", "/api/tools/call", {
+            tool: "upload_project_asset",
+            args: { projectId: "proj-asset", fileName: "logo..png", base64Content: Buffer.from("png").toString("base64") },
+            instanceId: "ide-a"
+        });
+        expect(upload.status).toBe(200);
+        const saved = await fs.readdir(NexusPaths.projectAssetsDir("proj-asset"));
+        expect(saved).toEqual([upload.payload.result.fileName]);
+    });
 });
