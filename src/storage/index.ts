@@ -6,7 +6,7 @@ import { NexusPaths } from "./paths.js";
 import { RegistryStorage } from "./registry.js";
 import { ProjectStorage } from "./projects.js";
 import { DocStorage } from "./docs.js";
-import { fileWriteLock, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { fileStoreLock, restoreFile, snapshotFile, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
 export const BLUEPRINT_PLACEHOLDER = "# Global Coordination Blueprint\n\nShared meeting space.";
 
@@ -61,28 +61,52 @@ export class StorageManager {
         try { await fs.access(p); return true; } catch { return false; }
     }
 
-    // Every mutation of the file store goes through this lock; reads are
-    // lock-free because writes are atomic (temp file + rename).
+    // Every mutation of the file store takes the lock exclusively and every
+    // public read takes it shared. Single files are written atomically (temp
+    // file + rename), but some writes span several files (a rename moves the
+    // directory before the registry switches ids), and a read between those
+    // steps would see a registry entry whose files are gone. Code inside
+    // write() must call the sub-modules directly, never these locked
+    // StorageManager methods: the lock is not reentrant.
     private static write<T>(fn: () => Promise<T>): Promise<T> {
-        return fileWriteLock.withLock(fn);
+        return fileStoreLock.withWrite(fn);
+    }
+
+    private static read<T>(fn: () => Promise<T>): Promise<T> {
+        return fileStoreLock.withRead(fn);
     }
 
     // --- Registry Methods ---
-    static listRegistry() { return RegistryStorage.listRegistry(); }
-    static getProjectManifest(id: string) { return RegistryStorage.getProjectManifest(id); }
+    static listRegistry() { return this.read(() => RegistryStorage.listRegistry()); }
+    static getProjectManifest(id: string) { return this.read(() => RegistryStorage.getProjectManifest(id)); }
     static saveProjectManifest(manifest: ProjectManifest) { return this.write(() => RegistryStorage.saveProjectManifest(manifest)); }
-    /** Manifest and internal docs in one critical section, so a concurrent delete cannot interleave. */
+    /**
+     * Manifest and internal docs in one critical section, so a concurrent
+     * delete cannot interleave. Docs are written first and
+     * saveProjectManifest writes the registry last, so the registry only
+     * lists the project once all its files are in place. If anything fails,
+     * the docs file is put back to its original bytes (removed if it did not
+     * exist, with the project directory if this call created it) and the
+     * original error is rethrown; saveProjectManifest rolls back its own
+     * manifest write.
+     */
     static saveProject(manifest: ProjectManifest, docs: string) {
         return this.write(async () => {
-            await RegistryStorage.saveProjectManifest(manifest);
-            await ProjectStorage.saveProjectDocs(manifest.id, docs);
+            const snapshot = await snapshotFile(NexusPaths.projectDocPath(manifest.id));
+            try {
+                await ProjectStorage.saveProjectDocs(manifest.id, docs);
+                await RegistryStorage.saveProjectManifest(manifest);
+            } catch (error) {
+                await restoreFile(snapshot);
+                throw error;
+            }
         });
     }
     static patchProjectManifest(id: string, patch: Partial<ProjectManifest>) { return this.write(() => RegistryStorage.patchProjectManifest(id, patch)); }
-    static calculateTopology(projectId?: string) { return RegistryStorage.calculateTopology(projectId); }
+    static calculateTopology(projectId?: string) { return this.read(() => RegistryStorage.calculateTopology(projectId)); }
 
     // --- Project Methods ---
-    static getProjectDocs(id: string) { return ProjectStorage.getProjectDocs(id); }
+    static getProjectDocs(id: string) { return this.read(() => ProjectStorage.getProjectDocs(id)); }
     static saveProjectDocs(id: string, content: string) { return this.write(() => ProjectStorage.saveProjectDocs(id, content)); }
     /**
      * The existence check runs inside the write lock: writeFileAtomic creates
@@ -114,10 +138,10 @@ export class StorageManager {
     }
 
     // --- Doc Methods ---
-    static listGlobalDocs() { return DocStorage.listDocs(); }
-    static getGlobalDoc(docId: string) { return DocStorage.getDoc(docId); }
+    static listGlobalDocs() { return this.read(() => DocStorage.listDocs()); }
+    static getGlobalDoc(docId: string) { return this.read(() => DocStorage.getDoc(docId)); }
     static saveGlobalDoc(docId: string, title: string, content: string, updatedBy: string) { return this.write(() => DocStorage.saveDoc(docId, title, content, updatedBy)); }
     static deleteGlobalDoc(docId: string) { return this.write(() => DocStorage.deleteDoc(docId)); }
-    static getGlobalBlueprint() { return DocStorage.getBlueprint(); }
+    static getGlobalBlueprint() { return this.read(() => DocStorage.getBlueprint()); }
     static saveGlobalBlueprint(content: string) { return this.write(() => DocStorage.saveBlueprint(content)); }
 }
