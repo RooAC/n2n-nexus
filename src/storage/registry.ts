@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
-import { toDict, writeJsonAtomic } from "./fs-utils.js";
+import { toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { ProjectManifest } from "../types.js";
 
 export type RegistryData = {
@@ -272,41 +272,96 @@ export class RegistryStorage {
         return 1;
     }
 
+    /**
+     * Renames a project as one unit: its directory, its own manifest id, every
+     * relation that targets it in other manifests, and the registry key.
+     *
+     * Order: directory rename, then manifest writes, then the registry write
+     * last. The registry is the index readers trust, so it only switches to
+     * the new id once everything it points at is in place. If any step
+     * throws, the completed steps are undone in reverse (manifests restored to
+     * their original bytes, directory renamed back) and the original error is
+     * rethrown. Rollback is best effort: a failure while undoing is swallowed
+     * so the caller still sees the error that caused the rollback.
+     *
+     * Returns 0 when oldId is not registered or its directory does not exist.
+     */
     static async renameProject(oldId: string, newId: string): Promise<number> {
+        if (!oldId || !newId || oldId === newId) return 0;
         const registry = await readRegistry();
         if (!registry.projects[oldId]) return 0;
         if (registry.projects[newId]) {
             throw new Error(`Project '${newId}' already exists.`);
         }
 
-        const entry = registry.projects[oldId];
-        delete registry.projects[oldId];
-        registry.projects[newId] = entry;
-        await writeRegistry(registry);
+        const oldDir = NexusPaths.projectDir(oldId);
+        const newDir = NexusPaths.projectDir(newId);
+        try {
+            await fs.access(oldDir);
+        } catch {
+            return 0;
+        }
 
+        // Plan every manifest rewrite before touching disk. `original` keeps
+        // the exact bytes for rollback; `path` is where the file lives after
+        // the directory rename.
+        const rewrites: { path: string; original: string; updated: Partial<ProjectManifest> }[] = [];
         for (const projectId of Object.keys(registry.projects)) {
-            const manifestId = projectId === newId ? oldId : projectId;
-            const manifest = await readProjectManifest(manifestId);
-            if (!manifest) continue;
+            let original: string;
+            try {
+                original = await fs.readFile(NexusPaths.projectManifestPath(projectId), "utf-8");
+            } catch {
+                continue;
+            }
+            let manifest: Partial<ProjectManifest>;
+            try {
+                manifest = JSON.parse(original) as Partial<ProjectManifest>;
+            } catch {
+                continue;
+            }
 
             let changed = false;
-            if (projectId === newId && manifest.id !== newId) {
+            if (projectId === oldId) {
                 manifest.id = newId;
                 changed = true;
             }
-
             if (Array.isArray(manifest.relations)) {
-                const relations = manifest.relations.map((relation) => {
-                    if (relation.targetId !== oldId) return relation;
+                manifest.relations = manifest.relations.map((relation) => {
+                    if (relation?.targetId !== oldId) return relation;
                     changed = true;
                     return { ...relation, targetId: newId };
                 });
-                manifest.relations = relations;
+            }
+            if (changed) {
+                const target = projectId === oldId ? newId : projectId;
+                rewrites.push({ path: NexusPaths.projectManifestPath(target), original, updated: manifest });
+            }
+        }
+
+        let dirMoved = false;
+        const written: typeof rewrites = [];
+        try {
+            await fs.mkdir(NexusPaths.projectsRoot, { recursive: true });
+            await fs.rename(oldDir, newDir);
+            dirMoved = true;
+
+            for (const rewrite of rewrites) {
+                await writeJsonAtomic(rewrite.path, rewrite.updated);
+                written.push(rewrite);
             }
 
-            if (changed) {
-                await writeJsonAtomic(NexusPaths.projectManifestPath(manifestId), manifest);
+            const entry = registry.projects[oldId];
+            delete registry.projects[oldId];
+            registry.projects[newId] = entry;
+            await writeRegistry(registry);
+        } catch (error) {
+            for (const rewrite of written.reverse()) {
+                await writeFileAtomic(rewrite.path, rewrite.original).catch(() => { });
             }
+            if (dirMoved) {
+                await fs.rename(newDir, oldDir).catch(() => { });
+            }
+            throw error;
         }
 
         return 1;

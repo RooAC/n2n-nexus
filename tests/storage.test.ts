@@ -7,6 +7,13 @@ import path from "path";
 const TEST_ROOT = path.join(process.cwd(), "tests", "tmp", "test-storage");
 process.env.NEXUS_ROOT = TEST_ROOT;
 
+function manifestFor(id: string, relations: ProjectManifest["relations"] = []): ProjectManifest {
+    return {
+        id, name: id, description: "D", techStack: [], relations,
+        lastUpdated: "", repositoryUrl: "", localPath: TEST_ROOT, endpoints: [], apiSpec: []
+    };
+}
+
 describe("StorageManager", () => {
     beforeEach(async () => {
         // Clean up and re-init with proper delay for filesystem sync
@@ -49,6 +56,7 @@ describe("StorageManager", () => {
     });
 
     it("should save and retrieve assets", async () => {
+        await StorageManager.saveProjectManifest(manifestFor("test-p"));
         const content = Buffer.from("fake-image-data");
         const relPath = await StorageManager.saveAsset("test-p", "logo.png", content);
         expect(relPath).toContain("logo.png");
@@ -180,5 +188,83 @@ describe("StorageManager", () => {
 
         const topology = await StorageManager.calculateTopology("prj-source");
         expect(topology.edges).toContainEqual({ from: "prj-source", to: "prj-renamed", type: "dependency" });
+    });
+
+    it("should restore registry, directories and manifests when a rename fails midway", async () => {
+        await StorageManager.saveProject(manifestFor("prj-a"), "# A docs");
+        await StorageManager.saveProjectManifest(manifestFor("prj-b", [{ targetId: "prj-a", type: "dependency" }]));
+        const dirA = path.join(StorageManager.projectsRoot, "prj-a");
+        const dirA2 = path.join(StorageManager.projectsRoot, "prj-a2");
+        const dirB = path.join(StorageManager.projectsRoot, "prj-b");
+        const manifestA = await fs.readFile(path.join(dirA, "manifest.json"), "utf-8");
+        const manifestB = await fs.readFile(path.join(dirB, "manifest.json"), "utf-8");
+
+        // B's manifest cannot be rewritten: the atomic write needs a temp file in its directory.
+        await fs.chmod(dirB, 0o555);
+        try {
+            await expect(StorageManager.renameProject("prj-a", "prj-a2")).rejects.toThrow();
+
+            const registry = await StorageManager.listRegistry();
+            expect(Object.keys(registry.projects)).toContain("prj-a");
+            expect(Object.keys(registry.projects)).not.toContain("prj-a2");
+            expect(await StorageManager.exists(dirA)).toBe(true);
+            expect(await StorageManager.exists(dirA2)).toBe(false);
+            expect(await StorageManager.getProjectDocs("prj-a")).toBe("# A docs");
+            expect(await fs.readFile(path.join(dirA, "manifest.json"), "utf-8")).toBe(manifestA);
+            expect(await fs.readFile(path.join(dirB, "manifest.json"), "utf-8")).toBe(manifestB);
+        } finally {
+            await fs.chmod(dirB, 0o755);
+        }
+    });
+
+    it("should keep the registry entry when deleting the project files fails", async () => {
+        await StorageManager.saveProject(manifestFor("prj-locked"), "# Locked");
+        const dir = path.join(StorageManager.projectsRoot, "prj-locked");
+
+        // Entries of a read-only directory cannot be unlinked.
+        await fs.chmod(dir, 0o555);
+        try {
+            await expect(StorageManager.deleteProject("prj-locked")).rejects.toThrow();
+
+            const registry = await StorageManager.listRegistry();
+            expect(Object.keys(registry.projects)).toContain("prj-locked");
+            expect(await StorageManager.exists(path.join(dir, "manifest.json"))).toBe(true);
+            expect(await StorageManager.getProjectDocs("prj-locked")).toBe("# Locked");
+        } finally {
+            await fs.chmod(dir, 0o755);
+        }
+    });
+
+    it("should not recreate a deleted project when uploads race the delete", async () => {
+        const dir = path.join(StorageManager.projectsRoot, "prj-race");
+        for (let round = 0; round < 10; round++) {
+            await StorageManager.saveProjectManifest(manifestFor("prj-race"));
+            const uploads = Array.from({ length: 5 }, (_, i) => () => StorageManager.saveAsset("prj-race", `f${i}.txt`, `round ${round}`));
+            // Put the delete at a different position in the queue each round.
+            const ops = [...uploads];
+            ops.splice(round % (uploads.length + 1), 0, () => StorageManager.deleteProject("prj-race"));
+            const results = await Promise.allSettled(ops.map((op) => op()));
+
+            const deleteResult = results[round % (uploads.length + 1)];
+            expect(deleteResult.status).toBe("fulfilled");
+            const uploadResults = results.filter((r) => r !== deleteResult);
+            const dirExists = await StorageManager.exists(dir);
+            const allNotFound = uploadResults.every((r) => r.status === "rejected"
+                && (r.reason as Error).message === "Project 'prj-race' not found.");
+            expect(!dirExists || allNotFound).toBe(true);
+            expect(dirExists).toBe(false);
+            for (const r of uploadResults) {
+                if (r.status === "rejected") expect((r.reason as Error).message).toBe("Project 'prj-race' not found.");
+            }
+        }
+    });
+
+    it("should reject an upload to a deleted project without recreating its directory", async () => {
+        await StorageManager.saveProjectManifest(manifestFor("prj-gone"));
+        await StorageManager.deleteProject("prj-gone");
+
+        await expect(StorageManager.saveAsset("prj-gone", "late.txt", "late"))
+            .rejects.toThrow("Project 'prj-gone' not found.");
+        expect(await StorageManager.exists(path.join(StorageManager.projectsRoot, "prj-gone"))).toBe(false);
     });
 });
