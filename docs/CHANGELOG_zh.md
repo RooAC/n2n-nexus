@@ -2,6 +2,25 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [0.8.1] - 2026-10-22
+
+### 新增
+
+- `n2n-nexus install <claude|codex>` 写入 PATH 上的 `node`（当它就是当前运行的 Node 时），不再写 `process.execPath` 解析出的带版本号目录（nvm、Homebrew Cellar、fnm 等），这类目录在升级 Node 后会消失。`--node <path>` 可手动指定路径，路径必须存在、能运行且满足 `engines.node`。`install` 会打印实际写入的路径，位于版本目录时给出提示。
+- `n2n-nexus doctor [claude|codex]`：检查已安装的 hook 命令和 MCP 命令里的 Node 路径与入口脚本是否存在、能否运行，并给出修复建议。
+
+### 修复
+
+- daemon 响应改为流式 UTF-8 解码，跨块的多字节字符不再变成 U+FFFD。
+- `rename_project` 把目录、manifest 和 registry 条目作为一个整体重命名，任一步失败全部回滚。
+- `host_delete_project` 在项目文件删不掉时返回失败并保留 registry 条目。
+- `upload_project_asset` 在写锁内检查项目存在，与删除并发时不再把已删除的项目重新建出来；返回的是实际保存的文件名；清洗后为 `.` 的文件名会被拒绝。
+- `listen({ on: false })` 会结束正在等待的 Stop hook，而不是等到超时。
+
+### 升级说明
+
+- 重新运行 `n2n-nexus install claude` 和/或 `n2n-nexus install codex`，让 hooks 和 MCP 命令使用稳定的 Node 路径。
+
 ## [0.8.0] - 2026-10-21
 
 ### 新增

@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-10-22
+
+### Added
+
+- `n2n-nexus install <claude|codex>` writes the `node` found on PATH when it is the running binary, instead of `process.execPath`, the resolved version directory (nvm, Homebrew Cellar, fnm, ...) that disappears when Node is upgraded. `--node <path>` chooses the path explicitly; it must exist, run and satisfy `engines.node`. `install` prints the path it wrote and warns when it is in a version directory.
+- `n2n-nexus doctor [claude|codex]`: checks that the Node path and the entry script in the installed hook and MCP commands exist and run, and says how to fix them.
+
+### Fixed
+
+- Daemon responses are decoded as streaming UTF-8; a multi-byte character split across two chunks no longer turns into U+FFFD.
+- `rename_project` renames the directory, the manifests and the registry entry as one unit and rolls everything back when a step fails.
+- `host_delete_project` fails, and keeps the registry entry, when the project files cannot be removed.
+- `upload_project_asset` checks that the project exists inside the write lock, so an upload racing a delete no longer recreates the deleted project. It returns the name the asset is saved under, and a file name that sanitizes to `.` is rejected.
+- `listen({ on: false })` ends a Stop hook that is already waiting instead of letting it run to the timeout.
+
+### Upgrade notes
+
+- Run `n2n-nexus install claude` and/or `n2n-nexus install codex` again so the hooks and the MCP command use a stable Node path.
+
 ## [0.8.0] - 2026-10-21
 
 ### Added
