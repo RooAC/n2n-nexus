@@ -92,7 +92,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 **SQLite WAL 模式**：只有 daemon 进程打开数据库。MCP 适配器不直接访问，全部经由 HTTP。
 
-**文件存储写入**：HTTP 请求是并发处理的，因此对 `registry.json`、manifest 和文档索引的每次修改都排在一把 daemon 级写锁后面，并以原子方式写入（临时文件 + rename）。
+**文件存储访问**：HTTP 请求是并发处理的，因此对 `registry.json`、manifest 和文档索引的每次修改都独占一把 daemon 级读写锁，并以原子方式写入（临时文件 + rename）；读取共享这把锁，所以不会读到改名或更新进行到一半的状态。写入时各文件按 `registry.json` 最后写的顺序进行，后一步失败就还原已写的文件。
 
 **活动日志**：经由 daemon 发生的状态变更（项目同步/重命名/删除、会议开始/结束、文档同步等）以结构化事件记录在 SQLite 中，通过 `list_events` / `GET /api/events` 读取，不混入聊天流。
 

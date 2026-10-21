@@ -43,7 +43,7 @@ Stateless proxy on the MCP TypeScript SDK v2 (`@modelcontextprotocol/server`). O
 ### Storage layer (`src/storage/`)
 - `StorageManager` (`index.ts`) is the single access point; delegates to sub-modules
 - `sqlite.ts` + `sqlite-meeting.ts` / `global-messages.ts` / `events.ts` / `tasks.ts` / `agents.ts` — SQLite with WAL mode for meetings, global chat, the activity event log, tasks, read cursors, agent sessions and direct messages (SQLite is required; there is no JSON fallback)
-- `registry.ts` / `projects.ts` / `docs.ts` — file-based storage for projects and global docs; all writes go through `fs-utils.ts` (daemon-wide write lock + atomic temp-file-and-rename)
+- `registry.ts` / `projects.ts` / `docs.ts` — file-based storage for projects and global docs; all access goes through `fs-utils.ts` (daemon-wide read-write lock: reads share it, writes hold it alone, plus atomic temp-file-and-rename); writes order the files so that `registry.json` is written last and roll back on failure
 - `paths.ts` — all file paths derived from `getRootPath()` which reads `NEXUS_ROOT` env or `~/.n2n-nexus`
 
 Only the daemon process accesses SQLite directly. MCP processes go through HTTP.

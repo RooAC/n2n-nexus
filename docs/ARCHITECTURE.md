@@ -92,7 +92,7 @@ All data lives under the daemon's storage root (default `~/.n2n-nexus`):
 
 **SQLite WAL mode**: Only the daemon process opens the database. MCP adapters never touch it — they go through HTTP.
 
-**File-store writes**: HTTP requests are handled concurrently, so every mutation of `registry.json`, manifests and the docs index is queued behind one daemon-wide lock and written atomically (temp file + rename).
+**File-store access**: HTTP requests are handled concurrently, so every mutation of `registry.json`, manifests and the docs index holds one daemon-wide read-write lock alone and is written atomically (temp file + rename); reads share the lock, so a rename or update is never observed half-done. A write orders its files so that `registry.json` goes last and restores what it had already written when a later step fails.
 
 **Activity log**: state changes made through the daemon (project sync/rename/delete, meeting start/end, doc sync, ...) are recorded as structured events in SQLite and read with `list_events` / `GET /api/events`; they are not mixed into chat streams.
 
