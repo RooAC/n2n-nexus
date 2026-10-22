@@ -16,7 +16,7 @@ import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } 
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
 import {
-    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, STOP_CLOSING,
+    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STOP_CLOSING,
     agentSessionId, type Caller, type HookClient
 } from "./hook-contract.js";
 import { z } from "zod";
@@ -376,6 +376,25 @@ function notifyFresh(sessionId: string, closing = NOTIFY_CLOSING): string | null
     return messages.length || notices.length ? notify(messages, notices, "new", closing) : null;
 }
 
+/** SessionStart introduction: who this session is and which other sessions are online now. */
+function introduce(sessionId: string): string {
+    const self = AgentStore.get(sessionId)!;
+    const online = AgentStore.listPeers(sessionId).filter(p => p.status !== "offline");
+    const lines = [`${NOTICE_PREFIX} This conversation is ${self.name} (${self.id}) on n2n-nexus, where AI sessions can message each other.`];
+    if (online.length === 0) {
+        lines.push("No other AI sessions are online.");
+    } else {
+        const n = online.length;
+        lines.push(`${n} other AI session${n === 1 ? " is" : "s are"} online:`);
+        for (const p of online.slice(0, NOTIFY_LIST_LIMIT)) {
+            lines.push(`- ${p.name} (${p.id}), ${p.client}, ${p.status}${p.cwd ? `, ${p.cwd}` : ""}${p.note ? `: ${p.note}` : ""}`);
+        }
+        if (n > NOTIFY_LIST_LIMIT) lines.push(`- ...and ${n - NOTIFY_LIST_LIMIT} more`);
+    }
+    lines.push(SESSION_START_CLOSING);
+    return lines.join("\n");
+}
+
 const contextOutput = (hookEventName: string, text: string | null): HookOutput =>
     text === null ? null : { hookSpecificOutput: { hookEventName, additionalContext: text } };
 
@@ -448,7 +467,7 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
     switch (input.hook_event_name) {
         case "SessionStart":
             AgentStore.setStatus(id, "idle");
-            return null;
+            return contextOutput("SessionStart", introduce(id));
         case "UserPromptSubmit":
             AgentStore.setStatus(id, "working");
             return contextOutput("UserPromptSubmit", notifyAll(id));

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- LAN discovery: `NEXUS_ENDPOINT=discover` (or `--endpoint discover`) makes the MCP adapter and the hooks find a daemon by UDP broadcast on `NEXUS_DISCOVERY_PORT` (default 5688), cache it in `~/.n2n-nexus/discovered-endpoint` and look again when it cannot be reached. A daemon bound to a non-loopback address answers these queries. When none answers, clients use the local daemon as before.
+- The SessionStart hook tells a new conversation its own session name and ID and which other sessions are not offline, so it can message them without being asked to look first.
+- The MCP adapter sends server instructions describing how to find and message other AI sessions.
+
 ## [0.8.2] - 2026-10-22
 
 ### Fixed

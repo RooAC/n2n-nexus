@@ -153,6 +153,7 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 
 | Client event | What the recipient sees |
 | --- | --- |
+| Conversation started | Its own name and ID, the other sessions that are not offline (up to five listed) and how to use `peers`, `send` and `read`. |
 | Prompt submitted | Count of unread messages, up to five listed, and pending notices. |
 | After each tool call | Only messages and notices not announced yet. |
 | Turn about to end | If anything is unread, the turn continues once with the announcement. |

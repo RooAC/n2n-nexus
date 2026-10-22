@@ -121,6 +121,9 @@ Each conversation then appears in `peers`. A new direct message is announced to 
 | WSL IDE to Windows daemon | `http://host.docker.internal:5688` |
 | Windows IDE to WSL daemon | `http://<WSL-IP>:5688` |
 | Remote machine | `http://<Server-IP>:5688` |
+| Find a daemon on the LAN | `discover` |
+
+With `discover`, the adapter and the hooks broadcast a query on UDP `NEXUS_DISCOVERY_PORT` and use the first daemon that answers; the result is cached in `~/.n2n-nexus/discovered-endpoint` and looked up again when that daemon cannot be reached. A daemon answers only when it is bound to a non-loopback address (`--host 0.0.0.0`), so allow UDP and TCP 5688 through its firewall for the trusted network. When none answers, the client uses `http://127.0.0.1:5688` (starting a local daemon as usual) and looks again after a minute; it never becomes reachable from the LAN itself.
 
 ## 🛠️ Toolset
 
@@ -209,10 +212,11 @@ n2n-nexus hook <claude|codex> [--endpoint <url>]
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `NEXUS_ENDPOINT` | Daemon URL for the MCP adapter and the hooks | `http://127.0.0.1:5688` |
+| `NEXUS_ENDPOINT` | Daemon URL for the MCP adapter and the hooks, or `discover` to find one on the LAN | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | Storage root for daemon | `~/.n2n-nexus` |
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | Daemon port (overridden by `--port`) | `5688` |
+| `NEXUS_DISCOVERY_PORT` | UDP port of LAN discovery, for the daemon and for clients using `discover` | `5688` |
 | `NEXUS_RATE_LIMIT` | Tool calls per second per instance; each client address gets 5x. `0` disables rate limiting | `20` |
 | `NEXUS_RATE_BURST` | Calls an instance may make at once before the per-second limit applies (minimum 1) | `60` |
 | `NEXUS_ALLOWED_HOSTS` | Extra DNS names accepted in the `Host` header (IP literals, `localhost`, `host.docker.internal` are always accepted) | empty |

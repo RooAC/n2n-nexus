@@ -130,6 +130,9 @@ n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mc
 | WSL IDE 连接 Windows daemon | `http://host.docker.internal:5688` |
 | Windows IDE 连接 WSL daemon | `http://<WSL-IP>:5688` |
 | 远程机器 | `http://<Server-IP>:5688` |
+| 在局域网里自动查找 daemon | `discover` |
+
+设为 `discover` 时，适配器和 hooks 在 UDP `NEXUS_DISCOVERY_PORT` 上广播查询，使用第一个应答的 daemon；结果缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上该 daemon 时重新查找。只有监听非回环地址（`--host 0.0.0.0`）的 daemon 才应答，所以要在它的防火墙上对可信网络放行 UDP 和 TCP 5688。没有应答时，客户端使用 `http://127.0.0.1:5688`（照常启动本机 daemon），一分钟后再查找；客户端自己不会变成局域网可访问的 daemon。
 
 ## 工具集
 
@@ -252,10 +255,11 @@ n2n-nexus hook <claude|codex> [--endpoint <url>]
 
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `NEXUS_ENDPOINT` | MCP 适配器和 hooks 连接的 daemon 地址 | `http://127.0.0.1:5688` |
+| `NEXUS_ENDPOINT` | MCP 适配器和 hooks 连接的 daemon 地址，设为 `discover` 时在局域网里查找 | `http://127.0.0.1:5688` |
 | `NEXUS_ROOT` | daemon 存储根目录 | `~/.n2n-nexus` |
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | daemon 端口（`--port` 优先） | `5688` |
+| `NEXUS_DISCOVERY_PORT` | 局域网发现使用的 UDP 端口，daemon 与使用 `discover` 的客户端共用 | `5688` |
 | `NEXUS_RATE_LIMIT` | 每个实例每秒工具调用数，每个客户端地址为其 5 倍；`0` 关闭限流 | `20` |
 | `NEXUS_RATE_BURST` | 每个实例可一次性突发的调用数（最小为 1） | `60` |
 | `NEXUS_ALLOWED_HOSTS` | `Host` 头额外允许的域名，逗号分隔（IP、`localhost`、`host.docker.internal` 始终允许） | 空 |

@@ -9,6 +9,7 @@ import { serveStdio, StdioServerTransport, type StdioServerHandle } from "@model
 
 import { NexusClient, NexusToolError, NexusTransportError } from "../client/nexus-client.js";
 import { startLocalDaemon } from "../cli/autostart.js";
+import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, cachedEndpoint, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
 import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, type Caller } from "../daemon/hook-contract.js";
 import { resolveInstanceId } from "./instance-id.js";
@@ -17,6 +18,12 @@ const RETRY_INTERVAL_MS = 3000;
 /** How long the first tools/list waits for the startup daemon fetch before answering with what it has. */
 const INITIAL_LIST_WAIT_MS = 1000;
 const SERVICE_NAME = "n2n-nexus";
+/** Sent to the client on connect so the model knows it can talk to other AI sessions. */
+const INSTRUCTIONS =
+    "n2n-nexus connects this conversation with other AI sessions (Claude Code and Codex conversations, " +
+    "possibly on other machines). Call peers to see who is online, send to message a session, read to " +
+    "read messages sent to you and reply to answer one; listen waits for messages after each turn. " +
+    "Projects, global docs, meetings and tasks are shared through the other tools.";
 
 export type RunOptions = {
     /** MCP transport; defaults to stdio. */
@@ -52,12 +59,17 @@ export class NexusServer {
     private server: Server | null = null;
     private handle: StdioServerHandle | null = null;
     private client: NexusClient;
+    private readonly requestTimeoutMs: number;
     private cachedTools: Tool[] = [];
     private retryTimer: NodeJS.Timeout | null = null;
     /** True while a reconnect loop is active (waiting or attempting). */
     private retrying = false;
     private readonly retryIntervalMs: number;
-    private readonly endpoint: string;
+    /** Daemon in use; with NEXUS_ENDPOINT=discover it changes when a lookup finds another one. */
+    private endpoint: string;
+    private readonly discover: boolean;
+    /** A lookup ran already, so the next one ignores the cache that led here. */
+    private looked = false;
     private readonly autostart: boolean;
     private instanceId: string | undefined;
     private readonly workspace = process.cwd();
@@ -78,17 +90,20 @@ export class NexusServer {
     private initialFetch: Promise<boolean> | null = null;
 
     constructor(options: NexusServerOptions = {}) {
-        this.endpoint = process.env.NEXUS_ENDPOINT || "http://127.0.0.1:5688";
+        const configured = process.env.NEXUS_ENDPOINT || LOCAL_ENDPOINT;
+        this.discover = configured === DISCOVER_ENDPOINT;
+        this.endpoint = this.discover ? LOCAL_ENDPOINT : configured;
         this.retryIntervalMs = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
         this.autostart = options.autostart ?? true;
-        this.client = new NexusClient({ endpoint: this.endpoint, timeoutMs: options.requestTimeoutMs ?? 5000 });
+        this.requestTimeoutMs = options.requestTimeoutMs ?? 5000;
+        this.client = new NexusClient({ endpoint: this.endpoint, timeoutMs: this.requestTimeoutMs });
     }
 
     /** Builds the MCP server instance serveStdio pins for the connection. */
     private buildServer(): Server {
         const server = new Server(
             { name: SERVICE_NAME, version: pkg.version },
-            { capabilities: { tools: { listChanged: true } } }
+            { capabilities: { tools: { listChanged: true } }, instructions: INSTRUCTIONS }
         );
 
         server.setRequestHandler("tools/list", async (_request, ctx) => {
@@ -117,6 +132,10 @@ export class NexusServer {
             try {
                 if (this.stopped) throw new NexusTransportError("MCP connection is closed");
                 callingTool = true;
+                // The hooks share the lookup cache; follow it so this conversation's hooks and
+                // tool calls reach the same daemon after either looked again.
+                const cached = this.discover ? cachedEndpoint() : null;
+                if (cached && cached.endpoint !== this.endpoint) this.useEndpoint(cached.endpoint);
                 const caller = this.callerOf(request.params._meta);
                 const call = () => this.client.callTool(request.params.name, request.params.arguments, this.instanceId, caller);
                 let result: unknown;
@@ -210,15 +229,32 @@ export class NexusServer {
     }
 
     /**
-     * Connect; when nothing listens at a local endpoint, start a daemon once per
-     * outage and connect again. `refused` skips the first attempt when the caller
+     * Connect (with NEXUS_ENDPOINT=discover, to the daemon a lookup finds); when
+     * nothing listens at a local endpoint, start a daemon once per outage and
+     * connect again. `refused` skips the first attempt when the caller
      * has just seen ECONNREFUSED.
      */
     private async connectOrStart(refused = false): Promise<boolean> {
+        if (this.discover) {
+            // First the cached daemon; on every later attempt (it failed) a new lookup.
+            const endpoint = await resolveEndpoint(DISCOVER_ENDPOINT, { fresh: this.looked });
+            this.looked = true;
+            if (this.stopped) return false;
+            if (endpoint !== this.endpoint) {
+                this.useEndpoint(endpoint);
+                refused = false;                  // the refusal was from the previous endpoint
+            }
+        }
         if (!refused && await this.tryConnect()) return true;
         if (!this.autostart || this.stopped || this.autostartTried || this.lastConnectError !== "ECONNREFUSED") return false;
         this.autostartTried = true;
         return await startLocalDaemon(this.endpoint) && await this.tryConnect();
+    }
+
+    private useEndpoint(endpoint: string): void {
+        console.error(`[n2n-nexus] Using daemon at ${endpoint}`);
+        this.endpoint = endpoint;
+        this.client = new NexusClient({ endpoint, timeoutMs: this.requestTimeoutMs });
     }
 
     private async tryConnect(): Promise<boolean> {

@@ -73,6 +73,13 @@ describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegoti
         await client.close();
     });
 
+    it("tells the client how to find and message other AI sessions", async () => {
+        const { client } = await connectProxy();
+        const instructions = client.getInstructions() ?? "";
+        for (const tool of ["peers", "send", "read", "reply"]) expect(instructions).toContain(tool);
+        await client.close();
+    });
+
     it("answers an unknown tool with a JSON-RPC InvalidParams error", async () => {
         const { client } = await connectProxy();
         await expect(client.callTool({ name: "no_such_tool", arguments: {} }))

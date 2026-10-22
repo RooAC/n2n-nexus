@@ -2,6 +2,14 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [未发布]
+
+### 新增
+
+- 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 daemon，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 daemon 会应答这些查询。没有应答时，客户端照旧使用本机 daemon。
+- SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
+- MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
+
 ## [0.8.2] - 2026-10-22
 
 ### 修复

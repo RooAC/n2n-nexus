@@ -230,6 +230,6 @@ The daemon rejects browser-originated requests (`Origin` header or cross-site `S
 ## Scope Boundaries
 
 - No cloud bridge by default.
-- No cross-machine live sync by default — point `NEXUS_ENDPOINT` at a reachable host for that.
+- No cross-machine live sync by default — point `NEXUS_ENDPOINT` at a reachable host for that, or set it to `discover` to find a daemon bound to `0.0.0.0` on the LAN through a UDP broadcast.
 - Single daemon node; no built-in clustering.
 - No authentication layer in the open-source baseline.

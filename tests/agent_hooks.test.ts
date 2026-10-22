@@ -11,7 +11,7 @@ import { AgentStore } from "../src/storage/agents.js";
 import { RateLimitConfig } from "../src/daemon/rate-limit.js";
 import {
     IDLE_SUBSCRIPTION_TTL_MS, MESSAGE_TRUST_NOTE, MESSAGE_TTL_MS, NOTICE_PREFIX, NOTIFY_CLOSING, NO_AGENT_SESSION_ERROR, STOP_CLOSING,
-    PREVIEW_CHARS, TOOL_USE_BINDING_TTL_MS, type HookClient
+    PREVIEW_CHARS, SESSION_START_CLOSING, TOOL_USE_BINDING_TTL_MS, type HookClient
 } from "../src/daemon/hook-contract.js";
 import { requestJson } from "./helpers/daemon.js";
 
@@ -165,6 +165,31 @@ describe("POST /api/hook: sessions and names", () => {
         expect((await codexTool("a", "listen", { on: true })).payload.result).toEqual({ listening: true });
         expect(await hook("codex", "SessionEnd", "a", { reason: "exit" })).toBeNull();
         expect(AgentStore.get("codex:a")).toMatchObject({ status: "offline", listening: false });
+    });
+});
+
+describe("POST /api/hook: SessionStart introduction", () => {
+    it("tells a new session who it is and which sessions are online, at most five individually", async () => {
+        await start();
+        const alone = context(await hook("claude", "SessionStart", "a"));
+        expect(alone.startsWith(`${NOTICE_PREFIX} This conversation is claude@proj (claude:a) on n2n-nexus`)).toBe(true);
+        expect(alone).toContain("No other AI sessions are online.");
+        expect(alone).toContain(SESSION_START_CLOSING);
+
+        await hook("codex", "SessionStart", "b");
+        await codexTool("b", "set_profile", { note: "fixing login" });
+        for (const id of ["c", "d", "e", "f", "g"]) await hook("codex", "SessionStart", id);
+        await hook("codex", "SessionEnd", "g");                                  // offline sessions are not listed
+
+        const text = context(await hook("claude", "SessionStart", "h"));
+        expect(text).toContain("6 other AI sessions are online:");
+        expect(text).toContain("- codex@proj (codex:b), codex, idle, /work/proj: fixing login");
+        expect(text).not.toContain("(codex:g)");
+        expect(text).toContain("This conversation is claude@proj#2 (claude:h)");
+        expect(text).not.toContain("- claude@proj#2 (claude:h)");              // not listed among the others
+        expect(text).toContain("...and 1 more");
+        expect(text.endsWith(SESSION_START_CLOSING)).toBe(true);
+        expect(status("claude:h")).toBe("idle");
     });
 });
 

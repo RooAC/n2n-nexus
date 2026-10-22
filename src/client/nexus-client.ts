@@ -29,6 +29,9 @@ export class NexusTransportError extends Error {
     }
 }
 
+/** NexusTransportError code when the daemon did not answer within the request timeout. */
+export const REQUEST_TIMEOUT_CODE = "EREQUESTTIMEOUT";
+
 /** The daemon answered, but the tool call itself failed (unknown tool, validation, not found, ...). */
 export class NexusToolError extends Error {
     constructor(message: string, public readonly status: number) {
@@ -95,7 +98,7 @@ export class NexusClient {
             );
 
             req.on("error", (e: NodeJS.ErrnoException) => reject(e instanceof NexusTransportError ? e : new NexusTransportError(e.message, e.code)));
-            req.on("timeout", () => req.destroy(new NexusTransportError(`Request to ${this.endpoint} timed out after ${timeoutMs} ms`)));
+            req.on("timeout", () => req.destroy(new NexusTransportError(`Request to ${this.endpoint} timed out after ${timeoutMs} ms`, REQUEST_TIMEOUT_CODE)));
             if (payload) req.write(payload);
             req.end();
         });

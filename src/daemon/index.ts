@@ -6,6 +6,7 @@ import { pkg } from "../config/index.js";
 import { getArg } from "../config/cli.js";
 import { getRootPath } from "../config/paths.js";
 import { NEXUS_HOST, NEXUS_PORT } from "../constants.js";
+import { answersDiscovery, discoveryPort, startDiscoveryResponder } from "../client/discovery.js";
 
 function parsePort(): number {
     for (const candidate of [getArg("--port"), process.env.NEXUS_DAEMON_PORT]) {
@@ -37,6 +38,16 @@ export async function runDaemon(): Promise<void> {
             resolve();
         });
     });
+
+    // Reachable from the LAN: let clients configured with the endpoint `discover` find this daemon.
+    if (answersDiscovery(host)) {
+        try {
+            await startDiscoveryResponder(port, pkg.version, host);
+            console.error(`[n2n-nexus] Answering LAN discovery on UDP ${discoveryPort()}`);
+        } catch (e) {
+            console.error(`[n2n-nexus] LAN discovery unavailable: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
 
     // Expire overdue tasks and purge old finished ones at startup and then periodically
     const maintain = () => {

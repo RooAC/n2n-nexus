@@ -279,7 +279,8 @@ describe("n2n-nexus hook, no daemon", () => {
         const pid = listenerPid(port);
         if (pid) started.push(pid);
 
-        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(result.code).toBe(0);
+        expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toContain("This conversation is");
         expect(pid).toBeDefined();
         expect(await toolsAnswer(port)).toBe(true);
         expect(fs.readFileSync(path.join(home, ".n2n-nexus", "daemon.log"), "utf8")).toContain(`listening on http://127.0.0.1:${port}`);
