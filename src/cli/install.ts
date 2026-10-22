@@ -45,9 +45,9 @@ export type InstallOptions = {
 export class InstallError extends Error {}
 
 /** Path segments of Node installs that are replaced on upgrade. */
-export const VERSIONED_NODE_DIR = /\/Cellar\/|\/\.nvm\/versions\/|\/node-v\d|\/fnm\/|\/fnm_multishells\/|\/\.volta\/|\/\.asdf\/installs\//;
+export const VERSIONED_NODE_DIR = /[/\\]Cellar[/\\]|[/\\]\.nvm[/\\]versions[/\\]|[/\\]node-v\d|[/\\]fnm[/\\]|[/\\]fnm_multishells[/\\]|[/\\]\.volta[/\\]|[/\\]\.asdf[/\\]installs[/\\]/;
 /** fnm puts a per-shell symlink directory first on PATH; it is gone when the shell ends. */
-const PER_SHELL_NODE_DIR = /\/fnm_multishells\//;
+const PER_SHELL_NODE_DIR = /[/\\]fnm_multishells[/\\]/;
 
 function sameFile(a: string, b: string): boolean {
     try {
@@ -65,7 +65,7 @@ function sameFile(a: string, b: string): boolean {
 export function stableNodePath(env: NodeJS.ProcessEnv = process.env): string {
     for (const dir of (env.PATH ?? "").split(path.delimiter)) {
         if (!path.isAbsolute(dir) || PER_SHELL_NODE_DIR.test(dir)) continue;
-        const candidate = path.join(dir, "node");
+        const candidate = path.join(dir, process.platform === "win32" ? "node.exe" : "node");
         if (sameFile(candidate, process.execPath)) return candidate;
     }
     return process.execPath;

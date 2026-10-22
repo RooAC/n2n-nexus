@@ -14,6 +14,16 @@ function manifestFor(id: string, relations: ProjectManifest["relations"] = []): 
     };
 }
 
+function failAtomicWriteIn(dir: string) {
+    const realWriteFile = fs.writeFile.bind(fs);
+    return vi.spyOn(fs, "writeFile").mockImplementation(async (file, ...args) => {
+        if (path.dirname(String(file)) === dir) {
+            throw Object.assign(new Error("Injected write failure"), { code: "EACCES" });
+        }
+        return realWriteFile(file, ...args);
+    });
+}
+
 describe("StorageManager", () => {
     beforeEach(async () => {
         // Clean up and re-init with proper delay for filesystem sync
@@ -194,10 +204,7 @@ describe("StorageManager", () => {
         expect(topology.edges).toContainEqual({ from: "prj-source", to: "prj-renamed", type: "dependency" });
     });
 
-    // Permission-based failures do not apply to root, so the two chmod cases are skipped there.
-    const notRoot = process.getuid?.() !== 0;
-
-    it.skipIf(!notRoot)("should restore registry, directories and manifests when a rename fails midway", async () => {
+    it("should restore registry, directories and manifests when a rename fails midway", async () => {
         await StorageManager.saveProject(manifestFor("prj-a"), "# A docs");
         await StorageManager.saveProjectManifest(manifestFor("prj-b", [{ targetId: "prj-a", type: "dependency" }]));
         const dirA = path.join(StorageManager.projectsRoot, "prj-a");
@@ -206,10 +213,10 @@ describe("StorageManager", () => {
         const manifestA = await fs.readFile(path.join(dirA, "manifest.json"), "utf-8");
         const manifestB = await fs.readFile(path.join(dirB, "manifest.json"), "utf-8");
 
-        // B's manifest cannot be rewritten: the atomic write needs a temp file in its directory.
-        await fs.chmod(dirB, 0o555);
+        // Fail B's atomic write after A's directory and manifest have changed.
+        const writeFailure = failAtomicWriteIn(dirB);
         try {
-            await expect(StorageManager.renameProject("prj-a", "prj-a2")).rejects.toThrow();
+            await expect(StorageManager.renameProject("prj-a", "prj-a2")).rejects.toThrow("Injected write failure");
 
             const registry = await StorageManager.listRegistry();
             expect(Object.keys(registry.projects)).toContain("prj-a");
@@ -220,25 +227,30 @@ describe("StorageManager", () => {
             expect(await fs.readFile(path.join(dirA, "manifest.json"), "utf-8")).toBe(manifestA);
             expect(await fs.readFile(path.join(dirB, "manifest.json"), "utf-8")).toBe(manifestB);
         } finally {
-            await fs.chmod(dirB, 0o755);
+            writeFailure.mockRestore();
         }
     });
 
-    it.skipIf(!notRoot)("should keep the registry entry when deleting the project files fails", async () => {
+    it("should keep the registry entry when deleting the project files fails", async () => {
         await StorageManager.saveProject(manifestFor("prj-locked"), "# Locked");
         const dir = path.join(StorageManager.projectsRoot, "prj-locked");
 
-        // Entries of a read-only directory cannot be unlinked.
-        await fs.chmod(dir, 0o555);
+        const realRm = fs.rm.bind(fs);
+        const deleteFailure = vi.spyOn(fs, "rm").mockImplementation(async (target, options) => {
+            if (String(target) === dir) {
+                throw Object.assign(new Error("Injected delete failure"), { code: "EACCES" });
+            }
+            return realRm(target, options);
+        });
         try {
-            await expect(StorageManager.deleteProject("prj-locked")).rejects.toThrow();
+            await expect(StorageManager.deleteProject("prj-locked")).rejects.toThrow("Injected delete failure");
 
             const registry = await StorageManager.listRegistry();
             expect(Object.keys(registry.projects)).toContain("prj-locked");
             expect(await StorageManager.exists(path.join(dir, "manifest.json"))).toBe(true);
             expect(await StorageManager.getProjectDocs("prj-locked")).toBe("# Locked");
         } finally {
-            await fs.chmod(dir, 0o755);
+            deleteFailure.mockRestore();
         }
     });
 
@@ -314,63 +326,69 @@ describe("StorageManager", () => {
         expect((await StorageManager.getProjectManifest("prj-live2"))?.techStack).toEqual(["Node", "TypeScript"]);
     });
 
-    it.skipIf(!notRoot)("should leave no registry entry or directory when creating a project fails", async () => {
+    it("should leave no registry entry or directory when creating a project fails", async () => {
         const dir = path.join(StorageManager.projectsRoot, "prj-new");
         // mkdir of the project directory fails.
-        await fs.chmod(StorageManager.projectsRoot, 0o555);
+        const realMkdir = fs.mkdir.bind(fs);
+        const createFailure = vi.spyOn(fs, "mkdir").mockImplementation(async (target, options) => {
+            if (String(target) === dir) {
+                throw Object.assign(new Error("Injected mkdir failure"), { code: "EACCES" });
+            }
+            return realMkdir(target, options);
+        });
         try {
-            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow();
+            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow("Injected mkdir failure");
             expect(Object.keys((await StorageManager.listRegistry()).projects)).not.toContain("prj-new");
             expect(await StorageManager.exists(dir)).toBe(false);
         } finally {
-            await fs.chmod(StorageManager.projectsRoot, 0o755);
+            createFailure.mockRestore();
         }
 
         // The registry write fails after docs and manifest were written: both are removed with the new directory.
-        await fs.chmod(TEST_ROOT, 0o555);
+        const writeFailure = failAtomicWriteIn(TEST_ROOT);
         try {
-            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow();
+            await expect(StorageManager.saveProject(manifestFor("prj-new"), "# New")).rejects.toThrow("Injected write failure");
             expect(Object.keys((await StorageManager.listRegistry()).projects)).not.toContain("prj-new");
             expect(await StorageManager.exists(dir)).toBe(false);
         } finally {
-            await fs.chmod(TEST_ROOT, 0o755);
+            writeFailure.mockRestore();
         }
     });
 
-    it.skipIf(!notRoot)("should restore the manifest when the registry write of an update fails", async () => {
+    it("should restore the manifest when the registry write of an update fails", async () => {
         await StorageManager.saveProject({ ...manifestFor("prj-upd"), techStack: ["Old"] }, "# Old docs");
         const manifestPath = path.join(StorageManager.projectsRoot, "prj-upd", "manifest.json");
         const registryBefore = await fs.readFile(StorageManager.registryFile);
         const manifestBefore = await fs.readFile(manifestPath);
 
         // registry.json and its atomic-write temp file live in the root directory.
-        await fs.chmod(TEST_ROOT, 0o555);
+        const writeFailure = failAtomicWriteIn(TEST_ROOT);
         try {
             await expect(StorageManager.patchProjectManifest("prj-upd", { name: "New", description: "New desc", techStack: ["New"] }))
-                .rejects.toThrow();
+                .rejects.toThrow("Injected write failure");
             expect(await fs.readFile(StorageManager.registryFile)).toEqual(registryBefore);
             expect(await fs.readFile(manifestPath)).toEqual(manifestBefore);
             const entry = (await StorageManager.listRegistry()).projects["prj-upd"];
             expect(entry).toMatchObject({ name: "prj-upd", summary: "D" });
         } finally {
-            await fs.chmod(TEST_ROOT, 0o755);
+            writeFailure.mockRestore();
         }
     });
 
-    it.skipIf(!notRoot)("should keep the registry unchanged when the manifest write of an update fails", async () => {
+    it("should keep the registry unchanged when the manifest write of an update fails", async () => {
         await StorageManager.saveProject({ ...manifestFor("prj-upd"), techStack: ["Old"] }, "# Old docs");
         const dir = path.join(StorageManager.projectsRoot, "prj-upd");
         const registryBefore = await fs.readFile(StorageManager.registryFile);
         const manifestBefore = await fs.readFile(path.join(dir, "manifest.json"));
 
-        await fs.chmod(dir, 0o555);
+        const writeFailure = failAtomicWriteIn(dir);
         try {
             await expect(StorageManager.patchProjectManifest("prj-upd", { name: "New", description: "New desc", techStack: ["New"] }))
-                .rejects.toThrow();
+                .rejects.toThrow("Injected write failure");
             expect(await fs.readFile(StorageManager.registryFile)).toEqual(registryBefore);
             expect(await fs.readFile(path.join(dir, "manifest.json"))).toEqual(manifestBefore);
         } finally {
-            await fs.chmod(dir, 0o755);
+            writeFailure.mockRestore();
         }
     });
 });

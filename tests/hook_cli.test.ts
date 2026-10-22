@@ -83,17 +83,50 @@ async function toolsAnswer(port: number): Promise<boolean> {
     });
 }
 
-/** PID of the process listening on a port (the daemon this test started), via ss. */
+/** PID of the process listening on a port (the daemon this test started). */
 function listenerPid(port: number): number | undefined {
-    const out = execFileSync("ss", ["-ltnpH", `sport = :${port}`], { encoding: "utf8" });
-    const match = /pid=(\d+)/.exec(out);
-    return match ? Number(match[1]) : undefined;
+    let pid: number | undefined;
+    if (process.platform === "win32") {
+        const out = execFileSync("netstat.exe", ["-ano", "-p", "TCP"], { encoding: "utf8" });
+        const line = out.split("\n").find((line) => {
+            const fields = line.trim().split(/\s+/);
+            return fields[1] === `127.0.0.1:${port}` && fields[3] === "LISTENING";
+        });
+        pid = line ? Number(line.trim().split(/\s+/)[4]) : undefined;
+    } else {
+        const out = execFileSync("ss", ["-ltnpH", `sport = :${port}`], { encoding: "utf8" });
+        const match = /pid=(\d+)/.exec(out);
+        pid = match ? Number(match[1]) : undefined;
+    }
+    if (!pid) return undefined;
+    try {
+        if (process.platform === "win32") {
+            return windowsDaemonPids(port, "ProcessId", pid).includes(pid) ? pid : undefined;
+        }
+        const command = execFileSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf8" });
+        const entry = ENTRY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(?:^|\\s)"?${entry}"?\\s+daemon\\s+--port\\s+${port}(?:\\s|$)`).test(command) ? pid : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function windowsDaemonPids(port: number, selector: "ParentId" | "ProcessId", pid: number): number[] {
+    const out = execFileSync("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        "-File", path.join(REPO, "tests", "helpers", "hook-processes.ps1"),
+        `-${selector}`, String(pid), "-Entry", ENTRY, "-Port", String(port)
+    ], { encoding: "utf8" });
+    return out.trim() ? out.trim().split(/\s+/).map(Number) : [];
 }
 
 /** PIDs of this test process's own children running `daemon --port <port>`. */
 function ownDaemonChildren(port: number): number[] {
     let out: string;
     try {
+        if (process.platform === "win32") {
+            return windowsDaemonPids(port, "ParentId", process.pid);
+        }
         out = execFileSync("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)], { encoding: "utf8" });
     } catch {
         return [];
@@ -122,10 +155,16 @@ function isAlive(pid: number): boolean {
 }
 
 const started: number[] = [];
+const startedPorts: number[] = [];
 async function stopStarted(): Promise<void> {
-    for (const pid of started.splice(0)) {
+    for (const port of startedPorts.splice(0)) {
+        started.push(...ownDaemonChildren(port));
+        const pid = listenerPid(port);
+        if (pid) started.push(pid);
+    }
+    for (const pid of new Set(started.splice(0))) {
         try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
-        await waitFor(() => !isAlive(pid), 5000);
+        expect(await waitFor(() => !isAlive(pid), 5000)).toBe(true);
     }
 }
 
@@ -133,8 +172,9 @@ beforeAll(() => {
     execSync("npm run build", { cwd: REPO, stdio: "ignore" });
 }, 120_000);
 
-afterAll(() => {
-    fs.rmSync(TMP, { recursive: true, force: true });
+afterAll(async () => {
+    await stopStarted();
+    fs.rmSync(TMP, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 describe("n2n-nexus hook, forwarding", () => {
@@ -229,11 +269,12 @@ describe("n2n-nexus hook, no daemon", () => {
         const home = path.join(TMP, "autostart-home");
         fs.rmSync(home, { recursive: true, force: true });
         const port = await freePort();
+        startedPorts.push(port);
 
         const result = await runHook(
             ["claude", "--endpoint", `http://127.0.0.1:${port}`],
             JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }),
-            { HOME: home, NEXUS_ROOT: path.join(home, "root") }
+            { HOME: home, USERPROFILE: home, NEXUS_ROOT: path.join(home, "root") }
         );
         const pid = listenerPid(port);
         if (pid) started.push(pid);
@@ -256,12 +297,14 @@ describe("n2n-nexus hook, no daemon", () => {
     type Autostart = typeof import("../src/cli/autostart.js");
     const loadAutostart = async () => await import(pathToFileURL(path.join(REPO, "build", "cli", "autostart.js")).href) as Autostart;
 
-    /** Call startLocalDaemon from this process (so the daemons are our children) with a temporary HOME / NEXUS_ROOT. */
+    /** Call startLocalDaemon from this process (so the daemons are our children) with an isolated home and storage root. */
     async function startConcurrently(home: string, endpoints: string[]): Promise<boolean[]> {
         const autostart = await loadAutostart();
-        const saved = { HOME: process.env.HOME, NEXUS_ROOT: process.env.NEXUS_ROOT };
+        const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, NEXUS_ROOT: process.env.NEXUS_ROOT };
         process.env.HOME = home;
+        process.env.USERPROFILE = home;
         process.env.NEXUS_ROOT = path.join(home, "root");
+        startedPorts.push(...endpoints.map((endpoint) => Number(new URL(endpoint.includes("://") ? endpoint : `http://${endpoint}`).port)));
         try {
             return await Promise.all(endpoints.map((endpoint) => autostart.startLocalDaemon(endpoint)));
         } finally {

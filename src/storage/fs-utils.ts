@@ -21,7 +21,19 @@ export async function writeFileAtomic(filePath: string, data: string | Buffer): 
     const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`);
     try {
         await fs.writeFile(tmp, data, typeof data === "string" ? FILE_ENCODING : undefined);
-        await fs.rename(tmp, filePath);
+        for (let attempt = 0; ; attempt++) {
+            try {
+                await fs.rename(tmp, filePath);
+                break;
+            } catch (error) {
+                // Windows can briefly deny replacement while another process reads the target.
+                const code = (error as NodeJS.ErrnoException).code;
+                if (process.platform !== "win32" || !["EPERM", "EACCES", "EBUSY"].includes(code ?? "") || attempt >= 4) {
+                    throw error;
+                }
+                await new Promise(resolve => setTimeout(resolve, 10 * (attempt + 1)));
+            }
+        }
     } catch (e) {
         await fs.rm(tmp, { force: true }).catch(() => { });
         throw e;

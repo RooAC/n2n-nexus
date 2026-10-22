@@ -10,6 +10,7 @@ describe("Paths Module", () => {
     const originalEnv = { ...process.env };
 
     afterEach(() => {
+        vi.restoreAllMocks();
         Object.defineProperty(process, "platform", { value: originalPlatform });
         process.env = { ...originalEnv };
         vi.resetModules();
@@ -41,7 +42,7 @@ describe("Paths Module", () => {
             vi.resetModules();
             const { normalizeRootPath } = await import("../src/config/paths.js");
             const result = normalizeRootPath(undefined);
-            expect(result).toBe("/env/nexus/root");
+            expect(result).toBe(path.resolve("/env/nexus/root"));
         });
 
         it("should prioritize input over NEXUS_ROOT env", async () => {
@@ -49,11 +50,13 @@ describe("Paths Module", () => {
             vi.resetModules();
             const { normalizeRootPath } = await import("../src/config/paths.js");
             const result = normalizeRootPath("/custom/path");
-            expect(result).toBe("/custom/path");
+            expect(result).toBe(path.resolve("/custom/path"));
         });
 
         it("should convert Windows path to WSL path on Linux", async () => {
             Object.defineProperty(process, "platform", { value: "linux" });
+            const posixResolve = path.posix.resolve;
+            vi.spyOn(path, "resolve").mockImplementation(posixResolve);
             vi.resetModules();
             const { normalizeRootPath } = await import("../src/config/paths.js");
             const result = normalizeRootPath("C:\\Users\\James\\.n2n-nexus");

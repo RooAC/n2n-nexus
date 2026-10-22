@@ -3,6 +3,8 @@ import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
+
 import { runInstall, satisfiesEngines } from "../src/cli/install.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
@@ -21,20 +23,21 @@ let callsLog: string;
 
 /** A fake claude / codex that records its arguments (tab separated, one call per line). */
 function fakeCli(name: string): void {
-    const script = `#!/bin/sh
-printf '%s' "${name}" >> "$CALLS_LOG"
-for a in "$@"; do printf '\\t%s' "$a" >> "$CALLS_LOG"; done
-printf '\\n' >> "$CALLS_LOG"
-if [ "$2" = "remove" ] && [ -n "$FAIL_REMOVE" ]; then echo "cannot write config: EACCES" >&2; exit 1; fi
-exit 0
-`;
-    fs.writeFileSync(path.join(bin, name), script, { mode: 0o755 });
+    writeExecutable(path.join(bin, name), `
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.CALLS_LOG, [${JSON.stringify(name)}, ...args].join("\\t") + "\\n");
+if (args[1] === "remove" && process.env.FAIL_REMOVE) {
+    process.stderr.write("cannot write config: EACCES\\n");
+    process.exit(1);
+}
+`);
 }
 
 function run(args: string[], env: NodeJS.ProcessEnv = {}) {
     const result = spawnSync(NODE, [ENTRY, ...args], {
         encoding: "utf8",
-        env: { PATH: bin, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome, CALLS_LOG: callsLog, ...env }
+        env: { SystemRoot: process.env.SystemRoot, PATH: [bin, path.join(bin, "node")].join(path.delimiter), HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome, CALLS_LOG: callsLog, ...env }
     });
     return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -50,9 +53,15 @@ function ourCommands(file: string, client: string): string[] {
     const hooks = readJson(file).hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
     return Object.values(hooks).flat().flatMap((group) => group.hooks).map((h) => h.command).filter((c) => c.includes(` hook ${client}`));
 }
-/** A symlink to the running Node at `relative` under the temp dir; returns its path. */
+/** An alias to the running Node; Windows directory junctions do not need symlink privileges. */
 function linkNode(relative: string): string {
-    const link = path.join(dir, relative);
+    if (process.platform === "win32") {
+        const junction = path.join(dir, relative);
+        fs.mkdirSync(path.dirname(junction), { recursive: true });
+        fs.symlinkSync(path.dirname(NODE), junction, "junction");
+        return path.join(junction, path.basename(NODE));
+    }
+    const link = executablePath(path.join(dir, relative));
     fs.mkdirSync(path.dirname(link), { recursive: true });
     fs.symlinkSync(NODE, link);
     return link;
@@ -93,6 +102,7 @@ beforeEach(() => {
 
 afterAll(() => {
     fs.rmSync(TMP, { recursive: true, force: true });
+    cleanupExecutables();
 });
 
 describe("install claude", () => {
@@ -215,7 +225,7 @@ describe("install claude", () => {
     });
 
     it("refuses to install when claude is not on PATH and writes nothing", () => {
-        fs.rmSync(path.join(bin, "claude"));
+        fs.rmSync(executablePath(path.join(bin, "claude")));
         const result = run(["install", "claude"]);
         expect(result.code).toBe(1);
         expect(result.stderr).toContain("not found on PATH");
@@ -288,7 +298,7 @@ describe("install codex", () => {
     });
 
     it("refuses when codex is not on PATH or hooks.json is broken, writing nothing", () => {
-        fs.rmSync(path.join(bin, "codex"));
+        fs.rmSync(executablePath(path.join(bin, "codex")));
         expect(run(["install", "codex"]).code).toBe(1);
         expect(fs.existsSync(codexHome)).toBe(false);
 
@@ -315,7 +325,7 @@ describe("node path", () => {
     it("prefers the first matching PATH entry and skips a different node", () => {
         const other = path.join(dir, "other");
         fs.mkdirSync(other);
-        fs.writeFileSync(path.join(other, "node"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+        writeExecutable(path.join(other, "node"), "process.exit(0);");
         const link = linkNode("stable/node");
         const result = run(["install", "codex"], { PATH: [bin, other, path.dirname(link)].join(path.delimiter) });
         expect(result.code).toBe(0);
@@ -324,12 +334,12 @@ describe("node path", () => {
     });
 
     it("skips relative PATH entries and fnm's per-shell directory", () => {
-        linkNode("cwd/node");
+        const relative = linkNode("cwd/node");
         const multishell = linkNode("fnm_multishells/123_456/bin/node");
         const result = spawnSync(NODE, [ENTRY, "install", "claude"], {
             cwd: path.join(dir, "cwd"),
             encoding: "utf8",
-            env: { PATH: [".", "../cwd", bin, path.dirname(multishell)].join(path.delimiter), HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CALLS_LOG: callsLog }
+            env: { SystemRoot: process.env.SystemRoot, PATH: [path.relative(path.join(dir, "cwd"), path.dirname(relative)) || ".", path.join("..", "cwd", process.platform === "win32" ? "node" : ""), bin, path.dirname(multishell)].join(path.delimiter), HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CALLS_LOG: callsLog }
         });
         expect(result.status).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
@@ -341,7 +351,7 @@ describe("node path", () => {
         expect(run(["install", "claude"]).code).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
 
-        fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+        writeExecutable(path.join(bin, "node"), "process.exit(0);");
         const result = run(["install", "claude"]);
         expect(result.code).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
@@ -362,13 +372,13 @@ describe("node path", () => {
     });
 
     it("--node rejects a missing path, a directory, a non-node program and an old Node, writing nothing", () => {
-        fs.writeFileSync(path.join(bin, "not-node"), "#!/bin/sh\necho hello\n", { mode: 0o755 });
-        fs.writeFileSync(path.join(bin, "old-node"), "#!/bin/sh\necho v22.13.1\n", { mode: 0o755 });
+        const notNode = writeExecutable(path.join(bin, "not-node"), 'process.stdout.write("hello\\n");');
+        const oldNode = writeExecutable(path.join(bin, "old-node"), 'process.stdout.write("v22.13.1\\n");');
         const cases: Array<[string, string]> = [
             [path.join(dir, "missing", "node"), "not an executable file"],
             [bin, "is a directory"],
-            [path.join(bin, "not-node"), `"${path.join(bin, "not-node")} --version" did not print a Node version`],
-            [path.join(bin, "old-node"), "Node v22.13.1 does not satisfy ^22.14.0 || >=23.6.0"]
+            [notNode, `"${notNode} --version" did not print a Node version`],
+            [oldNode, "Node v22.13.1 does not satisfy ^22.14.0 || >=23.6.0"]
         ];
         for (const [node, message] of cases) {
             fs.rmSync(callsLog, { force: true });

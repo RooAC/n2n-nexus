@@ -3,6 +3,8 @@ import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
+
 import { readMcpCommand } from "../src/cli/mcp-config.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
@@ -18,7 +20,7 @@ let codexHome: string;
 function run(args: string[]) {
     const result = spawnSync(NODE, [ENTRY, "doctor", ...args], {
         encoding: "utf8",
-        env: { PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome }
+        env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome }
     });
     return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -73,6 +75,7 @@ beforeEach(() => {
 
 afterAll(() => {
     fs.rmSync(TMP, { recursive: true, force: true });
+    cleanupExecutables();
 });
 
 describe("doctor", () => {
@@ -103,25 +106,30 @@ describe("doctor", () => {
     it("reports a Node that does not run, an old Node, a missing entry script and warns about version directories", () => {
         const bin = path.join(dir, "bin");
         fs.mkdirSync(bin);
-        fs.writeFileSync(path.join(bin, "broken"), "#!/bin/sh\nexit 3\n", { mode: 0o755 });
-        fs.writeFileSync(path.join(bin, "old"), "#!/bin/sh\necho v20.1.0\n", { mode: 0o755 });
+        const broken = writeExecutable(path.join(bin, "broken"), "process.exit(3);");
+        const old = writeExecutable(path.join(bin, "old"), 'process.stdout.write("v20.1.0\\n");');
         fs.writeFileSync(path.join(bin, "noexec"), "", { mode: 0o644 });
-        const versioned = path.join(dir, ".nvm", "versions", "node", "v99.0.0", "bin", "node");
-        fs.mkdirSync(path.dirname(versioned), { recursive: true });
-        fs.symlinkSync(NODE, versioned);
+        const versioned = executablePath(path.join(dir, ".nvm", "versions", "node", "v99.0.0", "bin", "node"));
+        if (process.platform === "win32") {
+            fs.mkdirSync(path.dirname(path.dirname(versioned)), { recursive: true });
+            fs.symlinkSync(path.dirname(NODE), path.dirname(versioned), "junction");
+        } else {
+            fs.mkdirSync(path.dirname(versioned), { recursive: true });
+            fs.symlinkSync(NODE, versioned);
+        }
 
-        writeCodex(hookCommand("codex", path.join(bin, "broken"), "/nowhere/build/index.js"), { command: path.join(bin, "old"), args: ["/nowhere/build/index.js", "mcp"] });
+        writeCodex(hookCommand("codex", broken, "/nowhere/build/index.js"), { command: old, args: ["/nowhere/build/index.js", "mcp"] });
         let result = run(["codex"]);
         expect(result.code).toBe(1);
-        expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "broken")}: does not run`);
+        expect(result.stdout).toContain(`FAIL hook Node ${broken}: does not run`);
         expect(result.stdout).toContain("FAIL hook entry /nowhere/build/index.js: missing");
-        expect(result.stdout).toContain(`FAIL MCP Node ${path.join(bin, "old")}: v20.1.0 does not satisfy ^22.14.0 || >=23.6.0`);
+        expect(result.stdout).toContain(`FAIL MCP Node ${old}: v20.1.0 does not satisfy ^22.14.0 || >=23.6.0`);
         expect(result.stdout).toContain('fix: run "n2n-nexus install codex" again');
 
         writeCodex(hookCommand("codex", path.join(bin, "noexec")), { command: versioned, args: [ENTRY, "mcp"] });
         result = run(["codex"]);
         expect(result.code).toBe(1);
-        expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "noexec")}: not executable`);
+        expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "noexec")}: ${process.platform === "win32" ? "does not run" : "not executable"}`);
         expect(result.stdout).toContain(`ok   MCP Node ${versioned}: v${process.versions.node}, in a version directory that an upgrade may remove`);
         expect(result.stdout).not.toContain("note:");
 
