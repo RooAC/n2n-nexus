@@ -91,6 +91,15 @@ export const NOTICE_PREFIX = "[n2n-nexus]";
 export const NOTIFY_CLOSING = "Call read to view them.";
 /** Closing line when the notification continues a turn that was about to end (Stop). */
 export const STOP_CLOSING = "Read them with read and answer with reply before you finish.";
+/**
+ * An idle or working session without activity for this long counts as offline:
+ * clients do not always send SessionEnd (Codex threads that finish or close).
+ * Any later event brings it back.
+ */
+export const STALE_SESSION_MS = 30 * 60_000;
+/** What the statuses mean for a message, in the SessionStart introduction. */
+export const STATUS_NOTE =
+    "Only listening sessions answer right away; idle and working ones see a message when their user next sends a prompt or they next call a tool.";
 /** Closing line of the SessionStart introduction. */
 export const SESSION_START_CLOSING =
     "Call peers for the current list, send to message a session, and read to read messages sent to you.";

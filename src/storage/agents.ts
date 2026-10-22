@@ -190,6 +190,13 @@ export class AgentStore {
         return row ? toSession(row) : null;
     }
 
+    /** Set idle and working sessions without activity since `before` offline; returns how many changed. */
+    static expireStale(before: number): number {
+        return getDatabase().prepare(
+            "UPDATE agent_sessions SET status = 'offline' WHERE status IN ('idle', 'working') AND last_active_at < ?"
+        ).run(iso(before)).changes;
+    }
+
     /** Other sessions that are not offline or were active within PEER_WINDOW_MS, most recent first. */
     static listPeers(selfId: string, now = Date.now()): AgentSession[] {
         const rows = getDatabase().prepare(

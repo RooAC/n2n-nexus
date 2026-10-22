@@ -107,7 +107,7 @@ describe("direct-message tools: peers, listen, set_profile", () => {
         vi.spyOn(Date, "now").mockReturnValue(t0 - PEER_WINDOW_MS - 60_000);
         await hook("codex", "SessionStart", "gone", "/work/old");
         await hook("codex", "SessionEnd", "gone");
-        await hook("codex", "SessionStart", "stale", "/work/stale");             // not offline, so listed however old
+        await hook("codex", "SessionStart", "stale", "/work/stale");             // never ended, but stale: offline and too old to list
         vi.spyOn(Date, "now").mockReturnValue(t0 - 2000);
         await hook("claude", "SessionStart", "recent-offline");
         await hook("claude", "SessionEnd", "recent-offline");
@@ -122,8 +122,9 @@ describe("direct-message tools: peers, listen, set_profile", () => {
             lastActiveAt: new Date(t0).toISOString()
         });
         expect(payload.result?.peers.map(p => [p.id, p.status])).toEqual([
-            ["codex:busy", "working"], ["claude:recent-offline", "offline"], ["codex:stale", "idle"]
+            ["codex:busy", "working"], ["claude:recent-offline", "offline"]
         ]);
+        expect(AgentStore.get("codex:stale")?.status).toBe("offline");
         expect(Object.keys(payload.result!.peers[0]).sort()).toEqual(["client", "cwd", "id", "lastActiveAt", "name", "note", "status"]);
     });
 

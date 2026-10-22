@@ -11,7 +11,7 @@ import { AgentStore } from "../src/storage/agents.js";
 import { RateLimitConfig } from "../src/daemon/rate-limit.js";
 import {
     IDLE_SUBSCRIPTION_TTL_MS, MESSAGE_TRUST_NOTE, MESSAGE_TTL_MS, NOTICE_PREFIX, NOTIFY_CLOSING, NO_AGENT_SESSION_ERROR, STOP_CLOSING,
-    PREVIEW_CHARS, SESSION_START_CLOSING, TOOL_USE_BINDING_TTL_MS, type HookClient
+    PREVIEW_CHARS, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, TOOL_USE_BINDING_TTL_MS, type HookClient
 } from "../src/daemon/hook-contract.js";
 import { requestJson } from "./helpers/daemon.js";
 
@@ -189,7 +189,39 @@ describe("POST /api/hook: SessionStart introduction", () => {
         expect(text).not.toContain("- claude@proj#2 (claude:h)");              // not listed among the others
         expect(text).toContain("...and 1 more");
         expect(text.endsWith(SESSION_START_CLOSING)).toBe(true);
+        expect(text).toContain(STATUS_NOTE);
         expect(status("claude:h")).toBe("idle");
+    });
+
+    it("counts idle and working sessions without activity for STALE_SESSION_MS as offline until they are active again", async () => {
+        await start();
+        const t0 = Date.now();
+        vi.spyOn(Date, "now").mockReturnValue(t0);
+        await hook("codex", "SessionStart", "idle");
+        await hook("codex", "UserPromptSubmit", "busy");
+        await hook("codex", "SessionStart", "waiting");
+        expect((await codexTool("waiting", "listen", { on: true })).status).toBe(200);
+        AgentStore.setStatus("codex:waiting", "listening");                     // a Stop hook is waiting for messages
+
+        vi.spyOn(Date, "now").mockReturnValue(t0 + STALE_SESSION_MS + 1000);
+        const text = context(await hook("claude", "SessionStart", "new"));
+        expect(status("codex:idle")).toBe("offline");
+        expect(status("codex:busy")).toBe("offline");
+        expect(status("codex:waiting")).toBe("listening");
+        expect(text).toContain("1 other AI session is online:");
+        expect(text).toContain("(codex:waiting)");
+
+        // Any event brings a session back, a direct-message tool call or Claude's PreToolUse included.
+        await hook("codex", "UserPromptSubmit", "idle");
+        expect(status("codex:idle")).toBe("working");
+        const peers = await codexTool<{ self: { status: string } }>("busy", "peers");
+        expect(peers.payload.result?.self.status).toBe("working");
+        await hook("claude", "SessionStart", "quiet");
+        vi.spyOn(Date, "now").mockReturnValue(t0 + 2 * STALE_SESSION_MS + 2000);
+        await hook("codex", "UserPromptSubmit", "idle");                           // expires claude:quiet
+        expect(status("claude:quiet")).toBe("offline");
+        await hook("claude", "PreToolUse", "quiet", { tool_use_id: "toolu_quiet" });
+        expect(status("claude:quiet")).toBe("working");
     });
 });
 

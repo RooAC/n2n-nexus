@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 - The SessionStart hook tells a new conversation its own session name and ID and which other sessions are not offline, so it can message them without being asked to look first.
 - The MCP adapter sends server instructions describing how to find and message other AI sessions.
 
+### Changed
+
+- An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.
+
 ## [0.8.2] - 2026-10-22
 
 ### Fixed

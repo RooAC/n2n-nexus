@@ -147,13 +147,13 @@ The six tools below identify their caller from the MCP request's `_meta`, never 
 | `listen` | `on: boolean` | `{ listening }`. While on, each time the conversation ends a turn its Stop hook waits up to 590 seconds and continues the conversation when a message or notice arrives. Pressing Esc in the client ends one wait. |
 | `set_profile` | `name?: string` (1–48 of `A–Z a–z 0–9 . _ @ # -`), `note?: string` (≤ 200 chars); at least one | `{ profile }`. Names are unique among sessions that are not offline. |
 
-`Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended), `listening` (waiting in listen mode) or `offline` (the conversation ended). There is no liveness probe: a client that crashes keeps its last status, with an old `lastActiveAt`.
+`Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended), `listening` (waiting in listen mode) or `offline` (the conversation ended). Clients do not always report the end of a conversation, so an `idle` or `working` session without any activity for 30 minutes becomes `offline` too; its next event brings it back. Only a `listening` session answers right away; `idle` and `working` ones see a message when their user next sends a prompt or they next call a tool.
 
 Delivery. The recipient's hooks announce new messages; notifications carry only the sender, the time and the first line (up to 100 characters), and the text arrives through `read`, as tool output:
 
 | Client event | What the recipient sees |
 | --- | --- |
-| Conversation started | Its own name and ID, the other sessions that are not offline (up to five listed) and how to use `peers`, `send` and `read`. |
+| Conversation started | Its own name and ID, the other sessions that are not offline (up to five listed), which of them can answer right away, and how to use `peers`, `send` and `read`. |
 | Prompt submitted | Count of unread messages, up to five listed, and pending notices. |
 | After each tool call | Only messages and notices not announced yet. |
 | Turn about to end | If anything is unread, the turn continues once with the announcement. |

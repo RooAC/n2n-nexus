@@ -16,7 +16,7 @@ import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } 
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
 import {
-    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STOP_CLOSING,
+    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, STOP_CLOSING,
     agentSessionId, type Caller, type HookClient
 } from "./hook-contract.js";
 import { z } from "zod";
@@ -258,9 +258,15 @@ function wake(sessionIds: string[]): void {
     for (const id of sessionIds) agentWake.emit(id);
 }
 
-/** Expire overdue messages and wake the senders that got a notice. */
+/** A stale session that acts again (a tool call) is working; one that ended stays offline until its next prompt. */
+function revive(id: string): void {
+    if (AgentStore.get(id)?.status === "offline") AgentStore.setStatus(id, "working");
+}
+
+/** Expire overdue messages (waking the senders that got a notice) and stale sessions. */
 function expireMessages(now: number): void {
     wake(AgentStore.expireMessages(now));
+    AgentStore.expireStale(now - STALE_SESSION_MS);
 }
 
 function profileOf(s: AgentSession): ToolResult<"peers">["self"] {
@@ -279,6 +285,7 @@ function resolveAgent(caller: Caller | undefined): AgentSession {
     if (!id || !AgentStore.get(id)) throw new Error(NO_AGENT_SESSION_ERROR);
     AgentStore.refresh(id, now);
     expireMessages(now);
+    revive(id);
     return AgentStore.get(id)!;
 }
 
@@ -390,6 +397,7 @@ function introduce(sessionId: string): string {
             lines.push(`- ${p.name} (${p.id}), ${p.client}, ${p.status}${p.cwd ? `, ${p.cwd}` : ""}${p.note ? `: ${p.note}` : ""}`);
         }
         if (n > NOTIFY_LIST_LIMIT) lines.push(`- ...and ${n - NOTIFY_LIST_LIMIT} more`);
+        lines.push(STATUS_NOTE);
     }
     lines.push(SESSION_START_CLOSING);
     return lines.join("\n");
@@ -473,6 +481,7 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
             return contextOutput("UserPromptSubmit", notifyAll(id));
         case "PreToolUse":
             if (typeof input.tool_use_id === "string" && input.tool_use_id) AgentStore.bindToolUse(input.tool_use_id, id, now);
+            revive(id);
             return null;
         case "PostToolUse":
             AgentStore.setStatus(id, "working");

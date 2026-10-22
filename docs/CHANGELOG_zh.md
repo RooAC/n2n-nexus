@@ -10,6 +10,10 @@
 - SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
 - MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
 
+### 变更
+
+- `idle` 或 `working` 状态的会话 30 分钟没有任何活动就标为 `offline`，因为客户端不一定发送 SessionEnd（已结束或关闭的 Codex 对话此前会一直"在线"）；它下一次有事件时恢复。`peers` 与 SessionStart 介绍会说明只有 `listening` 的会话能马上回复。
+
 ## [0.8.2] - 2026-10-22
 
 ### 修复
