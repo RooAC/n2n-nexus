@@ -118,7 +118,7 @@ n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mc
 - 用 `--node <path>` 手动指定 Node 路径。路径必须存在、可执行，且版本满足 package.json 的 `engines`（`^22.14.0 || >=23.6.0`），否则 `install` 以退出码 1 退出，不写任何配置。
 - 升级 Node 后：如果 `install` 提示 Node 路径位于带版本号的目录（Homebrew `Cellar`、nvm、fnm、Volta、asdf、`node-v<版本>`），每次升级 Node 后都要重新运行 `n2n-nexus install <claude|codex>`，或用 `--node` 指定稳定路径。`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令和 MCP 命令里的 Node 路径与入口脚本是否仍然存在、能否运行，有问题时以退出码 1 退出。
 - `n2n-nexus uninstall <claude|codex>` 删除 `install` 写入的 hooks 和 MCP 服务，配置里的其他内容不动。
-- 支持 Linux、WSL 和 macOS。其他 MCP 客户端可以使用除直接消息以外的全部工具。
+- 支持 Linux、WSL 和 macOS；Codex hooks 也支持 Windows PowerShell。其他 MCP 客户端可以使用除直接消息以外的全部工具。
 
 之后每个对话都会出现在 `peers` 里。新消息会自动通知收件方：用户发来新消息时、每次工具调用后、本轮结束前一次。收件方用 `read` 读取正文。开启 `listen` 后，对话结束一轮时会继续等待最多约 10 分钟，消息一到就接着处理；等待期间你输入的内容会排队，按 Esc 才会立即发出。
 

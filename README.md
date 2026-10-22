@@ -109,7 +109,7 @@ n2n-nexus install codex     # ~/.codex/hooks.json (or $CODEX_HOME) + codex mcp a
 - Pass `--node <path>` to choose the Node path yourself. It must exist, be executable and satisfy the `engines` range in package.json (`^22.14.0 || >=23.6.0`); otherwise `install` exits with code 1 and writes nothing.
 - After upgrading Node: if `install` warned that the Node path contains a version directory (Homebrew `Cellar`, nvm, fnm, Volta, asdf, `node-v<version>`), run `n2n-nexus install <claude|codex>` again after each upgrade, or pass `--node` with a stable path. `n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook and MCP commands still exist and run, and exits with code 1 when they do not.
 - `n2n-nexus uninstall <claude|codex>` removes the hooks and the MCP server that `install` added and leaves the rest of the configuration alone.
-- Supported on Linux, WSL and macOS. Other MCP clients can use every tool except direct messages.
+- Supported on Linux, WSL and macOS; Codex hooks also support Windows PowerShell. Other MCP clients can use every tool except direct messages.
 
 Each conversation then appears in `peers`. A new direct message is announced to the recipient automatically: when the user sends a prompt, after each tool call, and once before the turn ends. The recipient reads the text with `read`. With `listen` on, a conversation that finished its turn keeps waiting for up to about 10 minutes and continues when a message arrives; while it waits, input you type is queued until you press Esc.
 

@@ -11,6 +11,7 @@ const ENTRY = path.join(REPO, "build", "index.js");
 const TMP = path.join(REPO, "tests", "tmp", "install");
 const NODE = process.execPath;
 const command = (client: string, endpoint?: string, node = NODE) => `"${node}" "${ENTRY}" hook ${client}${endpoint ? ` --endpoint ${endpoint}` : ""}`;
+const codexWindowsCommand = (endpoint?: string) => `& ${[NODE, ENTRY, "hook", "codex", ...(endpoint ? ["--endpoint", endpoint] : [])].map((arg) => `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`).join(" ")}`;
 
 let dir: string;
 let bin: string;
@@ -241,7 +242,7 @@ describe("install codex", () => {
         const result = run(["install", "codex", "--endpoint", "http://127.0.0.1:5799"]);
         expect(result.code).toBe(0);
 
-        const entry = (timeout: number) => ({ type: "command", command: command("codex", "http://127.0.0.1:5799"), timeout });
+        const entry = (timeout: number) => ({ type: "command", command: command("codex", "http://127.0.0.1:5799"), commandWindows: codexWindowsCommand("http://127.0.0.1:5799"), timeout });
         expect(readJson(codexHooks())).toEqual({
             hooks: {
                 SessionStart: [{ hooks: [entry(10)] }],
@@ -274,7 +275,7 @@ describe("install codex", () => {
         expect(run(["install", "codex"]).code).toBe(0);
         const once = fs.readFileSync(codexHooks(), "utf8");
         const hooks = readJson(codexHooks()).hooks as Record<string, unknown[]>;
-        expect(hooks.Stop).toEqual([original.hooks.Stop[0], { hooks: [{ type: "command", command: command("codex"), timeout: 600 }] }]);
+        expect(hooks.Stop).toEqual([original.hooks.Stop[0], { hooks: [{ type: "command", command: command("codex"), commandWindows: codexWindowsCommand(), timeout: 600 }] }]);
         expect(hooks.PreToolUse).toBeUndefined();
 
         expect(run(["install", "codex"]).code).toBe(0);

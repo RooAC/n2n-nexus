@@ -42,18 +42,23 @@ export function readMcpCommand(client: HookClient, file: string): McpCommand | u
         if (!server || typeof server.command !== "string") return undefined;
         return { command: server.command, args: Array.isArray(server.args) ? server.args.map(String) : [] };
     }
-    // Codex: a TOML table [mcp_servers.n2n-nexus] (the key may be quoted) with command = "..." and args = [...].
+    // Codex: a TOML table [mcp_servers.n2n-nexus] (the key may be quoted) with command and args.
     const lines = text.split("\n");
-    const start = lines.findIndex((line) => new RegExp(`^\\s*\\[mcp_servers\\.("?)${MCP_SERVER_NAME}\\1\\]\\s*$`).test(line));
+    const start = lines.findIndex((line) => new RegExp(`^\\s*\\[mcp_servers\\.(["']?)${MCP_SERVER_NAME}\\1\\]\\s*(?:#.*)?$`).test(line));
     if (start === -1) return undefined;
-    let command: string | undefined;
-    let args: string[] = [];
+    const body: string[] = [];
     for (const line of lines.slice(start + 1)) {
         if (/^\s*\[/.test(line)) break;
-        const c = /^\s*command\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(line);
-        if (c) command = JSON.parse(`"${c[1]}"`) as string;
-        const a = /^\s*args\s*=\s*\[(.*)\]/.exec(line);
-        if (a) args = [...a[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`) as string);
+        body.push(line);
     }
-    return command === undefined ? undefined : { command, args };
+    const table = body.join("\n");
+    const value = String.raw`"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'`;
+    const decode = (s: string): string => s.startsWith("'") ? s.slice(1, -1) : JSON.parse(s) as string;
+    const command = new RegExp(`^\\s*command\\s*=\\s*(${value})`, "m").exec(table);
+    if (!command) return undefined;
+    // Treat strings and comments as whole tokens so brackets and quotes inside them are not syntax.
+    const array = new RegExp(`^\\s*args\\s*=\\s*\\[((?:${value}|#[^\\n]*|[^\\]"'#])*)\\]`, "m").exec(table);
+    const args = array ? [...array[1].matchAll(new RegExp(`(${value})|#[^\\n]*`, "g"))]
+        .filter((m) => m[1] !== undefined).map((m) => decode(m[1])) : [];
+    return { command: decode(command[1]), args };
 }

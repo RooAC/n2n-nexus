@@ -23,7 +23,7 @@ import { pkg } from "../config/index.js";
 import { entryScript } from "./autostart.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
-type HookEntry = { type: "command"; command: string; timeout: number };
+type HookEntry = { type: "command"; command: string; commandWindows?: string; timeout: number };
 export type HookGroup = { matcher?: string; hooks?: unknown[] } & Record<string, unknown>;
 export type HooksFile = { hooks?: Record<string, unknown> } & Record<string, unknown>;
 
@@ -173,10 +173,11 @@ function removeOurEntries(config: HooksFile, client: HookClient, file: string): 
     return changed;
 }
 
-function addOurEntries(config: HooksFile, client: HookClient, command: string): void {
+function addOurEntries(config: HooksFile, client: HookClient, command: string, commandWindows?: string): void {
     const hooks = (config.hooks ??= {});
     for (const event of EVENTS[client]) {
         const entry: HookEntry = { type: "command", command, timeout: event === "Stop" ? HOOK_STOP_TIMEOUT_SEC : HOOK_TIMEOUT_SEC };
+        if (commandWindows) entry.commandWindows = commandWindows;
         const group: HookGroup = client === "claude" && event === "PreToolUse"
             ? { matcher: CLAUDE_PRE_TOOL_MATCHER, hooks: [entry] }
             : { hooks: [entry] };
@@ -255,7 +256,10 @@ export function runInstall(options: InstallOptions): number {
         const removed = removeOurEntries(config, client, file);
         if (action === "install") {
             const command = `"${node}" "${entry}" hook ${client}${endpoint ? ` --endpoint ${endpoint}` : ""}`;
-            addOurEntries(config, client, command);
+            const commandWindows = client === "codex"
+                ? `& ${[node!, entry, "hook", client, ...(endpoint ? ["--endpoint", endpoint] : [])].map((arg) => `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`).join(" ")}`
+                : undefined;
+            addOurEntries(config, client, command, commandWindows);
         }
         if (action === "install" || removed) {
             writeConfig(file, config);
