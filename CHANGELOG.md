@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 
 - The MCP server updates itself: `n2n-nexus install` registers it as `"<node>" "<npx>" -y n2n-nexus@latest mcp` (npm's npx next to the chosen Node; outside Windows with `PATH` set to that Node's folder, `/usr/bin` and `/bin`), so every new conversation starts the latest published version. The hooks still run the global installation; update them with `npm i -g n2n-nexus@latest`. Run `n2n-nexus install claude` / `n2n-nexus install codex` once to switch an existing installation; the hook commands stay the same, so Codex does not ask to trust them again. `n2n-nexus doctor` checks the new form and reports an MCP command in the old one.
 
+- Direct message notices and the `read` tool no longer tell the receiving model to carry out a message's request only when its own user asked for it: n2n-nexus passes messages on for the receiving session to act on.
+
 ### Fixed
 
 - The Codex background wait loads what a wake needs before it starts waiting, so an upgrade of the package (or a cleared npx cache) during the wait no longer makes the wake fail silently.
