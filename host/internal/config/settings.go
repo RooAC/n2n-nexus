@@ -30,7 +30,7 @@ func Defaults() Settings {
 		AllowedHosts:  []string{},
 		RateLimit:     20,
 		RateBurst:     60,
-		MaxAutoTurns:  8,
+		MaxAutoTurns:  0,
 	}
 }
 

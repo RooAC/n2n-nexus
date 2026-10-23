@@ -71,28 +71,17 @@ func meetingID(topic string, now time.Time) string {
 }
 
 type meetingRow struct {
-	status    string
-	initiator string
-	topic     string
+	status string
+	topic  string
 }
 
 func loadMeeting(tx *sql.Tx, id string) (meetingRow, error) {
 	var m meetingRow
-	err := tx.QueryRow(`SELECT status, initiator, topic FROM meetings WHERE id = ?`, id).Scan(&m.status, &m.initiator, &m.topic)
+	err := tx.QueryRow(`SELECT status, topic FROM meetings WHERE id = ?`, id).Scan(&m.status, &m.topic)
 	if err == sql.ErrNoRows {
 		return m, notFoundMeeting(id)
 	}
-	if m.initiator == "" {
-		m.initiator = "Unknown"
-	}
 	return m, err
-}
-
-func checkInitiator(m meetingRow, caller, verb string) error {
-	if m.initiator != caller {
-		return api.Errorf("Only the MCP adapter instance that started this meeting (%s) can %s it; this call comes from instance %s.", m.initiator, verb, caller)
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -155,9 +144,6 @@ func (c *Core) endMeeting(call api.Call, a endMeetingArgs) (any, error) {
 		if m.status != "active" {
 			return api.Errorf("Meeting '%s' is already %s.", id, m.status)
 		}
-		if err := checkInitiator(m, call.Actor(), "end"); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(`UPDATE meetings SET status = 'closed', is_default = 0, closed_at = ?, summary = ? WHERE id = ?`,
 			c.now(), nullString(summary), id); err != nil {
 			return err
@@ -203,9 +189,6 @@ func (c *Core) archiveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if m.status == "active" {
 			return api.Errorf("Meeting '%s' is still active. End it first.", a.MeetingID)
 		}
-		if err := checkInitiator(m, call.Actor(), "archive"); err != nil {
-			return err
-		}
 		if _, err := tx.Exec(`UPDATE meetings SET status = 'archived' WHERE id = ?`, a.MeetingID); err != nil {
 			return err
 		}
@@ -225,9 +208,6 @@ func (c *Core) reopenMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		}
 		if m.status == "active" {
 			return api.Errorf("Meeting '%s' is already active.", a.MeetingID)
-		}
-		if err := checkInitiator(m, call.Actor(), "reopen"); err != nil {
-			return err
 		}
 		if _, err := tx.Exec(`UPDATE meetings SET status = 'active', closed_at = NULL,
 			active_order = (SELECT MAX(active_order) + 1 FROM meetings) WHERE id = ?`, a.MeetingID); err != nil {

@@ -30,7 +30,7 @@ func TestMeetingIDs(t *testing.T) {
 	}
 }
 
-func TestMeetingLifecycleAndPermissions(t *testing.T) {
+func TestMeetingLifecycle(t *testing.T) {
 	h := newHarness(t)
 	h.fails(400, "No active meeting found to end.", "end_meeting", map[string]any{}, "ide-a")
 	id := h.startMeeting("Release plan", "ide-a")
@@ -38,11 +38,11 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 		t.Fatal("new meeting is not the active one")
 	}
 
-	h.fails(400, "Only the MCP adapter instance that started this meeting (ide-a) can end it; this call comes from instance ide-b.", "end_meeting", map[string]any{"meetingId": id}, "ide-b")
 	h.fails(400, "is still active. End it first.", "archive_meeting", map[string]any{"meetingId": id}, "ide-a")
 	h.fails(400, "is already active.", "reopen_meeting", map[string]any{"meetingId": id}, "ide-a")
 
-	res := h.ok("end_meeting", map[string]any{"summary": "shipped"}, "ide-a")
+	// Any instance may end, archive and reopen a meeting, not only the one that started it
+	res := h.ok("end_meeting", map[string]any{"summary": "shipped"}, "ide-b")
 	if res["meetingId"] != id || res["status"] != "closed" || res["summary"] != "shipped" {
 		t.Fatalf("end %v", res)
 	}
@@ -50,13 +50,11 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 		t.Fatal("ended meeting still active")
 	}
 	h.fails(400, "is already closed.", "end_meeting", map[string]any{"meetingId": id}, "ide-a")
-	h.fails(400, "Only the MCP adapter instance that started this meeting (ide-a) can reopen it; this call comes from instance ide-b.", "reopen_meeting", map[string]any{"meetingId": id}, "ide-b")
-	h.fails(400, "Only the MCP adapter instance that started this meeting (ide-a) can archive it; this call comes from instance ide-b.", "archive_meeting", map[string]any{"meetingId": id}, "ide-b")
 
-	if res := h.ok("archive_meeting", map[string]any{"meetingId": id}, "ide-a"); res["status"] != "archived" {
+	if res := h.ok("archive_meeting", map[string]any{"meetingId": id}, "ide-b"); res["status"] != "archived" {
 		t.Fatalf("archive %v", res)
 	}
-	if res := h.ok("reopen_meeting", map[string]any{"meetingId": id}, "ide-a"); res["status"] != "active" {
+	if res := h.ok("reopen_meeting", map[string]any{"meetingId": id}, "ide-b"); res["status"] != "active" {
 		t.Fatalf("reopen %v", res)
 	}
 	if h.activeMeeting() != id {
@@ -68,8 +66,7 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 
 	// Anonymous callers act as "unknown".
 	anon := h.startMeeting("anon", "")
-	h.fails(400, "Only the MCP adapter instance that started this meeting (unknown) can end it; this call comes from instance ide-a.", "end_meeting", map[string]any{"meetingId": anon}, "ide-a")
-	h.ok("end_meeting", map[string]any{"meetingId": anon}, "")
+	h.ok("end_meeting", map[string]any{"meetingId": anon}, "ide-a")
 
 	got := h.eventActions("meeting")
 	want := []string{"meeting.end", "meeting.start", "meeting.reopen", "meeting.archive", "meeting.end", "meeting.start"}

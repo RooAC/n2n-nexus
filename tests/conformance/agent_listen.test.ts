@@ -1,7 +1,7 @@
 // POST /api/hook with a listening wait far longer than any test: whatever ends a
 // wait here is the event under test, never the timeout. The last test stops the host.
 import { afterEach, describe, expect, it } from "vitest";
-import { HOOK, until, useHost } from "./harness.js";
+import { until, useHost } from "./harness.js";
 import { BACKGROUND_WAIT_EVENT, NOTICE_PREFIX, agentKit, ids } from "./agents.js";
 
 const host = useHost({ listenWaitMs: 60_000, rateLimit: 0 });
@@ -79,9 +79,7 @@ describe("POST /api/hook: listen mode", () => {
         expect(await hook("codex", "Stop", s("target"))).toBeNull();
         const { payload } = await waiting.response;
         expect(payload.output?.decision).toBe("block");
-        expect(payload.output?.reason?.startsWith(
-            `${NOTICE_PREFIX} Notices:\n- codex@proj#2 (codex:${s("target")}) finished its turn.\n${NOTICE_PREFIX} Automatic turn 1 of ${HOOK.limits.defaultMaxAutoTurns}`
-        )).toBe(true);
+        expect(payload.output?.reason).toBe(`${NOTICE_PREFIX} Notices:\n- codex@proj#2 (codex:${s("target")}) finished its turn.`);
     });
 
     it("listen sets the flag: Stop then waits instead of ending the turn", async () => {

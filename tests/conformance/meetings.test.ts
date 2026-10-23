@@ -13,27 +13,19 @@ const start = async (topic: string, instanceId: string) =>
 const listed = async (args: Record<string, unknown> = {}) => (await host.callTool<Listed>("list_meetings", args)).payload.result!;
 
 describe("meeting tools", () => {
-    it("start -> end -> archive -> reopen, with initiator-only permissions", async () => {
+    it("start -> end -> archive -> reopen, by any adapter instance", async () => {
         const started = await host.callTool<{ meetingId: string; topic: string; status: string }>("start_meeting", { topic: "Release plan" }, "ide-a");
         expect(started.status).toBe(200);
         expect(started.payload.result).toMatchObject({ ok: true, topic: "Release plan", status: "active" });
         const meetingId = started.payload.result!.meetingId;
 
-        const endByOther = await host.callTool("end_meeting", { meetingId }, "ide-b");
-        expect(endByOther.status).toBe(400);
-        expect(endByOther.payload.error).toContain("Only the MCP adapter instance that started this meeting (ide-a) can end it; this call comes from instance ide-b.");
-
-        const ended = await host.callTool<{ status: string; summary: string }>("end_meeting", { meetingId, summary: "shipped" }, "ide-a");
+        const ended = await host.callTool<{ status: string; summary: string }>("end_meeting", { meetingId, summary: "shipped" }, "ide-b");
         expect(ended.payload.result).toMatchObject({ status: "closed", summary: "shipped" });
 
-        const reopenByOther = await host.callTool("reopen_meeting", { meetingId }, "ide-b");
-        expect(reopenByOther.status).toBe(400);
-        expect(reopenByOther.payload.error).toContain("Only the MCP adapter instance that started this meeting (ide-a) can reopen it; this call comes from instance ide-b.");
-
-        const archived = await host.callTool<{ status: string }>("archive_meeting", { meetingId }, "ide-a");
+        const archived = await host.callTool<{ status: string }>("archive_meeting", { meetingId }, "ide-b");
         expect(archived.payload.result?.status).toBe("archived");
 
-        const reopened = await host.callTool<{ status: string }>("reopen_meeting", { meetingId }, "ide-a");
+        const reopened = await host.callTool<{ status: string }>("reopen_meeting", { meetingId }, "ide-b");
         expect(reopened.payload.result?.status).toBe("active");
         expect((await listed()).meetings.find((m) => m.id === meetingId)?.status).toBe("active");
 

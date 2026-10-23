@@ -94,7 +94,7 @@ Client (`n2n-nexus`):
 | --- | --- | --- |
 | `NEXUS_ENDPOINT` | Host URL for the MCP adapter, the hooks and `doctor`, or `discover` to find one on the LAN | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | UDP port the client queries with `discover` | `5688` |
-| `NEXUS_INSTANCE_ID` | Override the MCP instance ID (read cursors and meeting permissions are keyed on it) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
+| `NEXUS_INSTANCE_ID` | Override the MCP instance ID (read cursors are keyed on it) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
 | `NEXUS_CODEX_COMMAND` | Command the Codex background wait runs as `<command> queue ...` | `codex` |
 
 Host (`n2n-nexus-host`): only `NEXUS_ROOT`, the data directory (`--root` overrides it). Every other host setting is in `settings.json`, which the tray, the service and the command line share.
@@ -111,7 +111,7 @@ Read when the host starts; command-line flags override it. A missing file or fie
 | `allowedHosts` | Extra DNS names accepted in the `Host` header (IP literals, `localhost` and `host.docker.internal` are always accepted) | `[]` |
 | `rateLimit` | Tool calls per second per instance; each client address gets 5x. Hooks have their own budget at the same rate per conversation and 5x per client address. `0` disables rate limiting | `20` |
 | `rateBurst` | Calls an instance may make at once before the per-second limit applies (minimum 1) | `60` |
-| `maxAutoTurns` | Automatic turns a conversation may take between its user's prompts (wakes, listening and Stops held open for messages); past it, messages wait until the user prompts. `0` disables the limit | `8` |
+| `maxAutoTurns` | Automatic turns a conversation may take between its user's prompts (wakes, listening and Stops held open for messages); past it, messages wait until the user prompts. `0` disables the limit | `0` |
 
 After editing the file, restart the host (tray **Restart**, or restart `serve` or the service).
 

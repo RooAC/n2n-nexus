@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import os from "node:os";
 
 /**
- * Identity of this MCP adapter as seen by the daemon. Read cursors and
- * meeting initiator permissions are keyed on it, so it has to
+ * Identity of this MCP adapter as seen by the daemon. Read cursors are
+ * keyed on it, so it has to
  * survive an IDE restart: derive it from the machine, the workspace the IDE
  * launched the adapter in and the IDE itself (two IDEs open on the same
  * workspace must not share cursors), unless the user pins one explicitly.

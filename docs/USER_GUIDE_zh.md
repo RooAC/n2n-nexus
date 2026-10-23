@@ -94,7 +94,7 @@ n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
 | --- | --- | --- |
 | `NEXUS_ENDPOINT` | MCP 适配器、hooks 和 `doctor` 连接的 host 地址，设为 `discover` 时在局域网里查找 | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | 客户端用 `discover` 查询时使用的 UDP 端口 | `5688` |
-| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标、会议权限都以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
+| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
 | `NEXUS_CODEX_COMMAND` | Codex 后台等待以 `<命令> queue ...` 方式运行的命令 | `codex` |
 
 host（`n2n-nexus-host`）：只读取 `NEXUS_ROOT`，即数据目录（`--root` 优先）。其余 host 设置都在 `settings.json` 里，托盘、服务和命令行共用。
@@ -111,7 +111,7 @@ host 启动时读取；命令行参数优先。文件或字段缺失时使用默
 | `allowedHosts` | `Host` 头额外允许的域名（IP、`localhost`、`host.docker.internal` 始终允许） | `[]` |
 | `rateLimit` | 每个实例每秒工具调用数，每个客户端地址为其 5 倍；hooks 另有独立额度：每个对话同样速率，每个客户端地址 5 倍。`0` 关闭限流 | `20` |
 | `rateBurst` | 每个实例可一次性突发的调用数（最小为 1） | `60` |
-| `maxAutoTurns` | 两次用户输入之间，一个对话最多可以自动继续的轮数（包括被叫醒、listen 等待、因消息被拦下不结束）；超过后消息只排队，等用户下次输入。`0` 表示不限制 | `8` |
+| `maxAutoTurns` | 两次用户输入之间，一个对话最多可以自动继续的轮数（包括被叫醒、listen 等待、因消息被拦下不结束）；超过后消息只排队，等用户下次输入。`0` 表示不限制 | `0` |
 
 改完文件后重启 host（托盘 **重启**，或重启 `serve` / 服务）。
 

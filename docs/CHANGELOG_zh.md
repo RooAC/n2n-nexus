@@ -10,7 +10,9 @@
 
 - MCP 服务器会自己更新：`n2n-nexus install` 把它注册成 `"<node>" "<npx>" -y n2n-nexus@latest mcp`（npx 取所选 Node 旁边 npm 自带的那个；在 Windows 以外的系统上同时把 `PATH` 设为这个 Node 所在目录、`/usr/bin` 和 `/bin`），所以每次新开对话都启动最新发布的版本。hooks 仍运行全局安装的包，用 `npm i -g n2n-nexus@latest` 升级。已有的安装运行一次 `n2n-nexus install claude` / `n2n-nexus install codex` 即可切换；hook 命令不变，所以 Codex 不会要求重新信任。`n2n-nexus doctor` 检查新的写法，旧写法的 MCP 命令会报出来。
 
-- 直接消息的通知和 `read` 工具不再要求收到消息的模型只在自己的用户要求时才执行消息里的请求：n2n-nexus 只负责把消息交给收件会话去执行。
+- n2n-nexus 是让会话之间互相派活的：直接消息的通知、`read` 工具和助手指南现在告诉收到消息的模型执行消息里要求的事，并用 `reply` 回复，不再限定只在它自己的用户要求时才做。
+- 默认不限制自动轮次：host `settings.json` 里的 `maxAutoTurns` 默认改为 `0`，会话之间可以一直互相叫醒、执行对方的请求，不用有人输入。设一个数字可以重新加上限；`settings.json` 里已经写了 `maxAutoTurns` 的保持原值。
+- 任何 MCP 适配器实例都能结束、存档或重新开启会议，不只是开启它的那个。
 
 ### 修复
 

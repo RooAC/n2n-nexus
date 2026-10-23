@@ -176,7 +176,8 @@ describe("POST /api/hook: notifications", () => {
         expect(blocked?.reason?.startsWith(`${NOTICE_PREFIX} 1 unread direct message:`)).toBe(true);
         expect(blocked?.reason).toContain("please look");
         // Continuing a turn that was about to end asks for read and reply, not just a look.
-        expect(blocked?.reason).toContain(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}\n${NOTICE_PREFIX} Automatic turn 1 of ${HOOK.limits.defaultMaxAutoTurns}`);
+        expect(blocked?.reason).toContain(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}`);
+        expect(blocked?.reason).not.toContain("Automatic turn");                // no limit by default, so no count
         expect(await status(`claude:${s("r")}`)).toBe("working");
 
         expect(await hook("claude", "Stop", s("r"), { stop_hook_active: true })).toBeNull();

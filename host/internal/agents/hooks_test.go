@@ -255,7 +255,10 @@ func TestStopBlocksOnce(t *testing.T) {
 		t.Fatal(blocked)
 	}
 	contains(t, blocked.str("reason"), "please look")
-	contains(t, blocked.str("reason"), texts.MessageTrustNote+" "+texts.StopClosing+"\n"+prefix+" Automatic turn 1 of 8")
+	contains(t, blocked.str("reason"), texts.MessageTrustNote+" "+texts.StopClosing)
+	if strings.Contains(blocked.str("reason"), "Automatic turn") { // no limit by default, so no count
+		t.Fatal(blocked)
+	}
 	eq(t, h.status("claude:r"), "working")
 
 	if out := h.hook("claude", "Stop", "r", stopActive); out != nil {
@@ -569,7 +572,7 @@ func TestListeningStopWokenByNotice(t *testing.T) {
 	}
 	out := waiting.wait(t)
 	eq(t, out.str("decision"), "block")
-	if !strings.HasPrefix(out.str("reason"), prefix+" Notices:\n- codex@proj#2 (codex:target) finished its turn.\n"+prefix+" Automatic turn 1 of 8") {
+	if out.str("reason") != prefix+" Notices:\n- codex@proj#2 (codex:target) finished its turn." {
 		t.Fatal(out.str("reason"))
 	}
 }

@@ -63,7 +63,7 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   └─ stdin closes → stop retrying, close, exit
 ```
 
-The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it. Every tool call carries it as `instanceId`; `read_messages` refuses a call without one, since unread cursors are kept per instance.
+The adapter's instance ID (read cursors) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it. Every tool call carries it as `instanceId`; `read_messages` refuses a call without one, since unread cursors are kept per instance.
 
 ### Conversations and hooks
 
@@ -102,7 +102,7 @@ The wait never delivers while the session is `working` or while a listening Stop
 - Codex starts a queued turn only for a conversation loaded in the running Codex app. After Codex restarts, a conversation is loaded once the user opens it.
 - The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the host (not in Codex's own queue) until the user next prompts that conversation.
 - A Claude Code conversation is reachable for an hour after its last turn (the hook timeout).
-- Every AI reply wakes the recipient again. To stop two sessions waking each other forever, the host counts automatic turns (wakes, listening Stops, Stops held open for messages) since the user's last prompt and stops after `maxAutoTurns` in `settings.json` (default 8); a prompt within a minute of a wake is the woken turn starting and keeps the count. Messages past the limit wait until the user prompts.
+- Every AI reply wakes the recipient again, so sessions can work through each other's requests without anyone typing. To cap that, set `maxAutoTurns` in `settings.json` (default 0, no limit): the host then counts automatic turns (wakes, listening Stops, Stops held open for messages) since the user's last prompt and stops after that many; a prompt within a minute of a wake is the woken turn starting and keeps the count. Messages past the limit wait until the user prompts.
 - The automatic turn count tells the woken turn from the user by time alone. If a wake does not start a turn (a Codex conversation not loaded) and the user prompts within that minute, that prompt keeps the count; the user's next prompt resets it. If a woken turn starts more than a minute late (a Codex conversation the user opens later), its prompt resets the count. Neither loses a message or lets sessions loop without a user.
 
 ---
