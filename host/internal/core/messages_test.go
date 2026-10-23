@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -67,11 +68,27 @@ func TestGlobalChatCursorsPerInstance(t *testing.T) {
 func TestReadMessagesNeedsAnInstance(t *testing.T) {
 	h := newHarness(t)
 	h.ok("send_message", map[string]any{"message": "x"}, "A")
-	h.fails(400, "needs an instanceId", "read_messages", map[string]any{}, "")
+	h.fails(400, "read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.", "read_messages", map[string]any{}, "")
 	id := h.ok("start_meeting", map[string]any{"topic": "t"}, "A")["meetingId"]
-	h.fails(400, "needs an instanceId", "read_messages", map[string]any{"meetingId": id}, "")
+	h.fails(400, "read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.", "read_messages", map[string]any{"meetingId": id}, "")
 	if n := h.count(`SELECT COUNT(*) FROM read_cursors`); n != 0 {
 		t.Fatalf("%d cursors", n)
+	}
+}
+
+func TestValidationErrorListsOnlyTheFailures(t *testing.T) {
+	h := newHarness(t)
+	r := h.call("read_messages", map[string]any{"count": "x"}, "i")
+	if want := "Invalid arguments for read_messages: at '/count': got string, want integer"; r.status != 400 || r.err != want {
+		t.Fatalf("got %d %q, want %q", r.status, r.err, want)
+	}
+	// Several failures, in any order, joined with "; ".
+	r = h.call("read_messages", map[string]any{"count": "x", "meetingId": 3}, "i")
+	got := strings.TrimPrefix(r.err, "Invalid arguments for read_messages: ")
+	parts := strings.Split(got, "; ")
+	slices.Sort(parts)
+	if want := []string{"at '/count': got string, want integer", "at '/meetingId': got number, want string"}; r.status != 400 || !slices.Equal(parts, want) {
+		t.Fatalf("got %d %q", r.status, r.err)
 	}
 }
 
@@ -86,8 +103,8 @@ func TestHostMaintenance(t *testing.T) {
 	if res["removed"] != 1.0 || res["remaining"] != 2.0 || res["message"] != "Removed 1 global messages." {
 		t.Fatalf("prune %v", res)
 	}
-	if res := h.ok("host_maintenance", map[string]any{"action": "prune"}, "ops"); res["removed"] != 0.0 {
-		t.Fatalf("prune without count %v", res)
+	for _, args := range []map[string]any{{"action": "prune"}, {"action": "prune", "count": 0}} {
+		h.fails(400, `host_maintenance prune needs count ≥ 1 (the number of oldest global messages to remove); use action "clear" to remove all.`, "host_maintenance", args, "ops")
 	}
 	if res := h.ok("host_maintenance", map[string]any{"action": "clear"}, "ops"); res["removed"] != 2.0 || res["remaining"] != 0.0 {
 		t.Fatalf("clear %v", res)
@@ -99,7 +116,7 @@ func TestHostMaintenance(t *testing.T) {
 	}
 	ev := h.ok("list_events", map[string]any{"action": "maintenance"}, "")["events"].([]any)
 	first := ev[0].(map[string]any)
-	if len(ev) != 3 || first["action"] != "maintenance.clear" || first["actor"] != "ops" ||
+	if len(ev) != 2 || first["action"] != "maintenance.clear" || first["actor"] != "ops" ||
 		!reflect.DeepEqual(first["detail"], map[string]any{"removed": 2.0}) {
 		t.Fatalf("events %v", ev)
 	}

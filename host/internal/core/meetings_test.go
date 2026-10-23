@@ -38,7 +38,7 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 		t.Fatal("new meeting is not the active one")
 	}
 
-	h.fails(400, "Only initiator (ide-a) can end", "end_meeting", map[string]any{"meetingId": id}, "ide-b")
+	h.fails(400, "Only the session that started this meeting (instance ide-a) can end it; this call comes from instance ide-b.", "end_meeting", map[string]any{"meetingId": id}, "ide-b")
 	h.fails(400, "is still active. End it first.", "archive_meeting", map[string]any{"meetingId": id}, "ide-a")
 	h.fails(400, "is already active.", "reopen_meeting", map[string]any{"meetingId": id}, "ide-a")
 
@@ -50,8 +50,8 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 		t.Fatal("ended meeting still active")
 	}
 	h.fails(400, "is already closed.", "end_meeting", map[string]any{"meetingId": id}, "ide-a")
-	h.fails(400, "Only initiator (ide-a) can reopen", "reopen_meeting", map[string]any{"meetingId": id}, "ide-b")
-	h.fails(400, "Only initiator (ide-a) can archive", "archive_meeting", map[string]any{"meetingId": id}, "ide-b")
+	h.fails(400, "Only the session that started this meeting (instance ide-a) can reopen it; this call comes from instance ide-b.", "reopen_meeting", map[string]any{"meetingId": id}, "ide-b")
+	h.fails(400, "Only the session that started this meeting (instance ide-a) can archive it; this call comes from instance ide-b.", "archive_meeting", map[string]any{"meetingId": id}, "ide-b")
 
 	if res := h.ok("archive_meeting", map[string]any{"meetingId": id}, "ide-a"); res["status"] != "archived" {
 		t.Fatalf("archive %v", res)
@@ -68,7 +68,7 @@ func TestMeetingLifecycleAndPermissions(t *testing.T) {
 
 	// Anonymous callers act as "unknown".
 	anon := h.startMeeting("anon", "")
-	h.fails(400, "Only initiator (unknown)", "end_meeting", map[string]any{"meetingId": anon}, "ide-a")
+	h.fails(400, "Only the session that started this meeting (instance unknown) can end it; this call comes from instance ide-a.", "end_meeting", map[string]any{"meetingId": anon}, "ide-a")
 	h.ok("end_meeting", map[string]any{"meetingId": anon}, "")
 
 	got := h.eventActions("meeting")

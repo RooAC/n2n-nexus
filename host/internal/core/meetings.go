@@ -90,7 +90,7 @@ func loadMeeting(tx *sql.Tx, id string) (meetingRow, error) {
 
 func checkInitiator(m meetingRow, caller, verb string) error {
 	if m.initiator != caller {
-		return api.Errorf("Permission denied: Only initiator (%s) can %s this meeting.", m.initiator, verb)
+		return api.Errorf("Only the session that started this meeting (instance %s) can %s it; this call comes from instance %s.", m.initiator, verb, caller)
 	}
 	return nil
 }

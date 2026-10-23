@@ -410,7 +410,7 @@ func TestAutoTurnLimitWakes(t *testing.T) {
 		h.send("s", "claude:r", "ping "+n, false)
 		wake := waiting.wait(t).str("wake")
 		contains(t, wake, "ping "+n)
-		contains(t, wake, "Automatic turn "+n+" of 2")
+		contains(t, wake, "Automatic turn "+n+" of 2 since your user's last prompt; after turn 2, messages wait until your user prompts again.")
 		h.claude("r", "read", nil)
 		// The woken turn as the client runs it: its prompt (within the wake window), then the end of the turn.
 		h.at(ms(timing.WakePromptWindowMs) / 2)

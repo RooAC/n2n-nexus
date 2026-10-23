@@ -49,7 +49,7 @@ func TestTaskLifecycle(t *testing.T) {
 		t.Fatalf("update 2 %v", updated)
 	}
 	h.fails(400, "Task 'nope' not found.", "update_task", map[string]any{"taskId": "nope", "progress": 1}, "")
-	h.fails(400, "Invalid arguments", "update_task", map[string]any{"taskId": id, "progress": 1.5}, "")
+	h.fails(400, "Invalid arguments for update_task: at '/progress': maximum: got 1.5, want 1", "update_task", map[string]any{"taskId": id, "progress": 1.5}, "")
 	h.fails(400, "Invalid arguments", "update_task", map[string]any{"taskId": id, "bogus": 1}, "")
 
 	// list_tasks: newest first, status filter, limit.
@@ -80,7 +80,7 @@ func TestTaskLifecycle(t *testing.T) {
 	if got := h.ok("get_task", map[string]any{"taskId": id}, "")["status"]; got != "cancelled" {
 		t.Fatalf("status %v", got)
 	}
-	h.fails(400, "not found or cannot be cancelled", "cancel_task", map[string]any{"taskId": id}, "")
-	h.fails(400, "not found or cannot be cancelled", "cancel_task", map[string]any{"taskId": "missing"}, "")
+	h.fails(400, "Task '"+id+"' is already cancelled and cannot be cancelled.", "cancel_task", map[string]any{"taskId": id}, "")
+	h.fails(400, "Task 'missing' not found.", "cancel_task", map[string]any{"taskId": "missing"}, "")
 	h.fails(400, "Task 'missing' not found.", "get_task", map[string]any{"taskId": "missing"}, "")
 }
