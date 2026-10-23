@@ -14,7 +14,7 @@ Before starting any task, use these tools to orient yourself:
 
 ```
 get_global_topology()           → summary list of all projects + dependency stats
-get_global_topology(projectId)  → detailed dependency sub-graph for one project (error if it does not exist)
+get_global_topology(projectId)  → one project and what it depends on, directly or indirectly (error if it does not exist)
 search_projects(query)          → search projects by id, name or description
 get_project(projectId)          → full manifest + internal docs of one project
 read_messages(count)            → fetch messages you have not yet read (incremental, auto-cursor)

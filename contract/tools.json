@@ -595,7 +595,7 @@
     {
       "name": "get_global_topology",
       "title": "Project Topology",
-      "description": "Without projectId: every project with its relations and stats. With projectId: that project and the projects it is related to (an unknown projectId is an error).",
+      "description": "Without projectId: every project (id, name, summary, last active) with project and relation totals. With projectId: that project and the projects it depends on, directly or through others (outgoing relations only); an unknown projectId is an error.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -604,7 +604,7 @@
         "type": "object",
         "properties": {
           "projectId": {
-            "description": "Focus on one project (optional)",
+            "description": "Project to focus on (optional).",
             "type": "string",
             "minLength": 1,
             "pattern": "^[a-zA-Z0-9._-]+$"

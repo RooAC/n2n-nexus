@@ -2,6 +2,17 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [0.9.1] - 2026-10-24
+
+让使用 n2n-nexus 的 AI 模型读到更清楚的说明。
+
+### 变更
+
+- 工具说明区分 `send` / `read`（会话之间的私信）与 `send_message` / `read_messages`（全局聊天和会议），说明 `read_messages`、`list_events` 和会议里的 ID 是 MCP 适配器实例 ID 而不是会话 ID，写明哪个会议成为当前会议、只有发起实例能结束 / 归档 / 重开，并准确描述 `sync_project_assets`（新建或整体替换）、任务 metadata、`billing`、策略文档和 `get_global_topology`。
+- MCP 服务器说明和 SessionStart 介绍补上 `reply`、`set_profile`、私信需要的 hooks，以及两类消息的区别。
+- 报错说明下一步：缺少会话身份时列出原因（没装 hooks、装完没开新对话、MCP 服务器名不是 `n2n-nexus`、绑定过期请重试）；会议权限报错写出发起实例和调用实例；参数校验报错只列出不合格的字段；`cancel_task` 区分任务不存在和已结束；适配器和 hook 的报错称 n2n-nexus-host 而不是 daemon。
+- `get_global_topology` 传入不存在的 `projectId` 时报错，不再返回空图；`host_maintenance` 的 `prune` 要求 `count` ≥ 1，不再什么都不删。
+
 ## [0.9.0] - 2026-10-23
 
 两个程序的 0.9.0 版本：host 改为独立的 Go 程序 `n2n-nexus-host`，npm 包 `n2n-nexus` 只保留客户端。

@@ -115,7 +115,7 @@ Read the project topology.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `projectId` | string | no | When provided, returns a focused subgraph for that project. Without it, returns a global project list and stats. |
+| `projectId` | string | no | When provided, returns that project and the projects it depends on, directly or through others (outgoing relations only); an unknown projectId is an error. Without it, returns every project (id, name, summary, last active) with project and relation totals. |
 
 Behavior:
 
@@ -151,7 +151,7 @@ These six tools are direct messages between conversations. Global chat and meeti
 | `send` | `to: string`, `text: string` (1–32000 chars), `notifyWhenIdle?: boolean = false` | `{ messageId, to: { id, name, status } }`. `to` is a session ID (any status) or the name of a session that is not offline; you cannot message yourself. Offline recipients get the message when they resume. With `notifyWhenIdle`, you get one notice when the recipient next ends its turn, starts listening or goes offline (the subscription lapses after 24 hours). |
 | `read` | `count?: integer = 10` (1–50) | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt }], remaining }`; unread messages oldest first, marked read. |
 | `reply` | `messageId: string`, `text: string` (1–32000 chars) | Same result as `send`. The message must have been sent to you; the reply goes to its sender with `replyTo` set to it. |
-| `listen` | `on: boolean` | `{ listening }`. While on, each time the conversation ends a turn its Stop hook waits up to 590 seconds and continues the conversation when a message or notice arrives. Pressing Esc in the client ends one wait. |
+| `listen` | `on: boolean` | `{ listening }`. While on, each time the conversation ends a turn its Stop hook waits up to 590 seconds and continues the conversation when a message or notice arrives. In Claude Code, pressing Esc ends one wait. |
 | `set_profile` | `name?: string` (1–48 of `A–Z a–z 0–9 . _ @ # -`), `note?: string` (≤ 200 chars); at least one | `{ profile }`. Names are unique among sessions that are not offline. |
 
 `Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended; a session with a background wait for messages shows as `listening` instead), `listening` (waiting in listen mode) or `offline` (the conversation ended). Clients do not always report the end of a conversation, so an `idle` or `working` session without any activity for 30 minutes becomes `offline` too; its next event brings it back. Only a `listening` session answers right away; `idle` and `working` ones see a message when their user next sends a prompt or they next call a tool.
@@ -204,7 +204,7 @@ Behavior:
 
 - Both global and meeting reads are incremental per adapter instance: each call returns only messages not yet returned to that instance, oldest first, and advances the cursor.
 - Each message's `from` is the sending adapter instance ID, not a session ID: you cannot `send` to it.
-- Needs the calling instance: a call without `instanceId` fails with `read_messages needs an instanceId: unread cursors are kept per instance.` The MCP adapter always sends one.
+- Needs the calling instance: a call without `instanceId` fails with `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` The MCP adapter always sends one.
 
 ### `list_events`
 
@@ -327,7 +327,7 @@ Reactivate a closed or archived meeting.
 
 Behavior:
 
-- Only the adapter instance that started the meeting (its `initiator`) can end, archive or reopen it; calls from any other instance fail with `Permission denied`.
+- Only the adapter instance that started the meeting (its `initiator`) can end, archive or reopen it; calls from any other instance fail with `Only the MCP adapter instance that started this meeting (<initiator>) can <action> it; this call comes from instance <caller>.`
 
 ## Task management
 

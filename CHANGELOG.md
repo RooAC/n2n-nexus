@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-10-24
+
+Clearer texts for the AI models that use n2n-nexus.
+
+### Changed
+
+- Tool descriptions tell `send` / `read` (direct messages between sessions) apart from `send_message` / `read_messages` (global chat and meetings), explain that ids in `read_messages`, `list_events` and meetings are MCP adapter instance ids rather than session ids, say which meeting becomes active and that only the starting instance can end, archive or reopen it, and describe `sync_project_assets` (create or replace), task metadata, `billing`, the strategy document and `get_global_topology` exactly.
+- The MCP server instructions and the SessionStart introduction mention `reply`, `set_profile`, the hooks that direct messaging needs, and the difference between the two message kinds.
+- Error texts say what to do: the no-agent-session error lists its causes (hooks missing, no new conversation since installing them, MCP server not named `n2n-nexus`, an expired binding: retry); meeting permission errors name the starting instance and the caller; schema validation errors list only the failing fields; `cancel_task` tells a missing task from a finished one; adapter and hook errors name n2n-nexus-host instead of the daemon.
+- `get_global_topology` with an unknown `projectId` is an error instead of an empty graph; `host_maintenance` `prune` needs `count` ≥ 1 instead of removing nothing.
+
 ## [0.9.0] - 2026-10-23
 
 Version 0.9.0 of both programs: the host is now `n2n-nexus-host`, a separate Go program, and the npm package `n2n-nexus` is the client only.

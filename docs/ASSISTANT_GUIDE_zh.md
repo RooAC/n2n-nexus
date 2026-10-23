@@ -16,7 +16,7 @@
 
 ```
 get_global_topology()           → 获取所有项目的摘要列表 + 依赖统计
-get_global_topology(projectId)  → 获取特定项目的详细依赖子图（项目不存在时报错）
+get_global_topology(projectId)  → 获取某个项目及它直接或间接依赖的项目（项目不存在时报错）
 search_projects(query)          → 按 ID、名称或描述搜索项目
 get_project(projectId)          → 读取单个项目的完整 Manifest + 内部文档
 read_messages(count)            → 获取你尚未读取的消息（增量，自动游标）

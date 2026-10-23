@@ -21,14 +21,14 @@ describe("meeting tools", () => {
 
         const endByOther = await host.callTool("end_meeting", { meetingId }, "ide-b");
         expect(endByOther.status).toBe(400);
-        expect(endByOther.payload.error).toContain("Only the session that started this meeting (instance ide-a) can end it; this call comes from instance ide-b.");
+        expect(endByOther.payload.error).toContain("Only the MCP adapter instance that started this meeting (ide-a) can end it; this call comes from instance ide-b.");
 
         const ended = await host.callTool<{ status: string; summary: string }>("end_meeting", { meetingId, summary: "shipped" }, "ide-a");
         expect(ended.payload.result).toMatchObject({ status: "closed", summary: "shipped" });
 
         const reopenByOther = await host.callTool("reopen_meeting", { meetingId }, "ide-b");
         expect(reopenByOther.status).toBe(400);
-        expect(reopenByOther.payload.error).toContain("Only the session that started this meeting (instance ide-a) can reopen it; this call comes from instance ide-b.");
+        expect(reopenByOther.payload.error).toContain("Only the MCP adapter instance that started this meeting (ide-a) can reopen it; this call comes from instance ide-b.");
 
         const archived = await host.callTool<{ status: string }>("archive_meeting", { meetingId }, "ide-a");
         expect(archived.payload.result?.status).toBe("archived");
