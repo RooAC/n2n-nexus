@@ -104,7 +104,7 @@ func start(o Options, lock *Lock) (*Host, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &Host{Addr: ln.Addr().(*net.TCPAddr), store: st, agents: ag, cancel: cancel, done: make(chan struct{}), logger: o.Logger, lock: lock}
-	h.server = &http.Server{Handler: srv, BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 10 * time.Second}
+	h.server = &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 
 	maintain := func() {
 		for _, m := range []func(context.Context) (string, error){c.Maintain, ag.Maintain} {
@@ -147,13 +147,14 @@ func start(o Options, lock *Lock) (*Host, error) {
 // Stop ends held waits, lets in-flight requests finish (up to 5 s), closes the
 // database and releases the lock.
 func (h *Host) Stop() {
-	h.cancel()
-	h.stopDiscovery()
+	// End held hooks first so they are answered ({"output": null}) before the server closes.
 	h.agents.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = h.server.Shutdown(ctx)
 	<-h.done
+	h.cancel()
+	h.stopDiscovery()
 	h.store.Close()
 	h.lock.Release()
 }
