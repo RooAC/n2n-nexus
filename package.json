@@ -79,6 +79,8 @@
     "daemon": "node build/index.js daemon",
     "dev": "tsc -w",
     "test": "vitest run",
+    "test:conformance": "vitest run -c vitest.conformance.config.ts",
+    "test:conformance:ts": "NEXUS_HOST_BIN=tests/conformance/ts-host.mjs NEXUS_HOST_KIND=ts vitest run -c vitest.conformance.config.ts",
     "audit": "npm audit",
     "audit:prod": "npm audit --omit=dev",
     "pack:dry-run": "npm pack --dry-run",

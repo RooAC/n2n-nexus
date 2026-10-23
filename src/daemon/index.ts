@@ -1,3 +1,4 @@
+import type { AddressInfo } from "node:net";
 import { createDaemonServer } from "./server.js";
 import { closeDatabase } from "../storage/sqlite.js";
 import { runTaskMaintenance } from "../storage/tasks.js";
@@ -11,7 +12,7 @@ import { answersDiscovery, discoveryPort, startDiscoveryResponder } from "../cli
 function parsePort(): number {
     for (const candidate of [getArg("--port"), process.env.NEXUS_DAEMON_PORT]) {
         const parsed = parseInt(candidate || "", 10);
-        if (!isNaN(parsed) && parsed > 0) return parsed;
+        if (!isNaN(parsed) && parsed >= 0) return parsed;   // 0: any free port
     }
     return NEXUS_PORT;
 }
@@ -28,21 +29,25 @@ export async function runDaemon(): Promise<void> {
     // Publish the resolved root so every storage module (which reads NEXUS_ROOT) agrees with the log line below
     process.env.NEXUS_ROOT = root;
 
-    const { server } = await createDaemonServer({ port, host, version: pkg.version });
+    // Conformance tests shorten how long a listening Stop hook is held open.
+    const listenWaitMs = parseInt(process.env.NEXUS_TEST_LISTEN_WAIT_MS || "", 10);
+    const { server } = await createDaemonServer({ port, host, version: pkg.version, listenWaitMs: listenWaitMs > 0 ? listenWaitMs : undefined });
 
-    await new Promise<void>((resolve, reject) => {
+    // The bound port, not the requested one (0 = any free port); conformance tests read it from the log line.
+    const boundPort = await new Promise<number>((resolve, reject) => {
         server.once("error", reject);
         server.listen(port, host, () => {
-            console.error(`[n2n-nexus] Daemon v${pkg.version} listening on http://${host}:${port}`);
+            const bound = (server.address() as AddressInfo).port;
+            console.error(`[n2n-nexus] Daemon v${pkg.version} listening on http://${host}:${bound}`);
             console.error(`[n2n-nexus] Storage: ${root}`);
-            resolve();
+            resolve(bound);
         });
     });
 
     // Reachable from the LAN: let clients configured with the endpoint `discover` find this daemon.
     if (answersDiscovery(host)) {
         try {
-            await startDiscoveryResponder(port, pkg.version, host);
+            await startDiscoveryResponder(boundPort, pkg.version, host);
             console.error(`[n2n-nexus] Answering LAN discovery on UDP ${discoveryPort()}`);
         } catch (e) {
             console.error(`[n2n-nexus] LAN discovery unavailable: ${e instanceof Error ? e.message : String(e)}`);
