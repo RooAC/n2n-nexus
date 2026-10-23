@@ -16,7 +16,7 @@ import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } 
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
 import {
-    LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, STOP_CLOSING,
+    BACKGROUND_WAIT_EVENT, LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, STOP_CLOSING,
     agentSessionId, type Caller, type HookClient
 } from "./hook-contract.js";
 import { z } from "zod";
@@ -408,16 +408,21 @@ const contextOutput = (hookEventName: string, text: string | null): HookOutput =
 
 const blockOutput = (reason: string): HookOutput => ({ decision: "block", reason });
 
+/** Sessions whose listening Stop hook is waiting; it delivers before any background wait. */
+const listeningStops = new Set<string>();
+
 /**
  * Listen mode: wait until something not notified yet arrives (then block the
  * stop with it), the wait runs out, or the hook's HTTP client goes away.
  */
 function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal): Promise<HookOutput> {
+    listeningStops.add(sessionId);
     return new Promise((resolve) => {
         let done = false;
         const finish = (output: HookOutput) => {
             if (done) return;
             done = true;
+            listeningStops.delete(sessionId);
             clearTimeout(timer);
             agentWake.off(sessionId, check);
             signal.removeEventListener("abort", stopWaiting);
@@ -427,6 +432,7 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
             if (done) return;
             AgentStore.setStatusIf(sessionId, "listening", "idle");
             finish(null);
+            wake([sessionId]);                    // a background wait takes over
         };
         function check() {
             if (done) return;
@@ -439,6 +445,60 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
             finish(blockOutput(text));
         }
         const timer = setTimeout(stopWaiting, waitMs);
+        agentWake.on(sessionId, check);
+        signal.addEventListener("abort", stopWaiting, { once: true });
+        if (signal.aborted) stopWaiting();
+        else check();
+    });
+}
+
+/** Sessions with a background wait in progress, and how to end each wait without output. */
+const backgroundWaits = new Map<string, Set<() => void>>();
+
+/** The session became active again: its background waits end, the client handles messages itself. */
+function cancelBackgroundWaits(sessionId: string): void {
+    for (const cancel of [...backgroundWaits.get(sessionId) ?? []]) cancel();
+}
+
+/**
+ * Background wait (BACKGROUND_WAIT_EVENT): the session counts as listening, and
+ * the wait returns `{ wake }` with what was not notified yet as soon as there is
+ * any, `{ timeout: true }` when `waitMs` runs out (the client asks again) and
+ * null when the session became active or the client went away (it stops).
+ * While a listening Stop hook waits, that hook delivers instead. It never delivers while the session is working: the wait starts alongside
+ * Stop, which announces what is unread at the end of the turn itself, and Stop
+ * wakes the wait again once the turn has ended.
+ */
+function backgroundWait(sessionId: string, waitMs: number, signal: AbortSignal): Promise<HookOutput> {
+    return new Promise((resolve) => {
+        let done = false;
+        const waits = backgroundWaits.get(sessionId) ?? new Set<() => void>();
+        backgroundWaits.set(sessionId, waits);
+        const finish = (output: HookOutput) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            agentWake.off(sessionId, check);
+            signal.removeEventListener("abort", stopWaiting);
+            waits.delete(stopWaiting);
+            if (waits.size === 0) backgroundWaits.delete(sessionId);
+            if (!output?.wake && !AgentStore.get(sessionId)?.listening) AgentStore.setStatusIf(sessionId, "listening", "idle");
+            resolve(output);
+        };
+        const stopWaiting = () => finish(null);
+        function check() {
+            if (done) return;
+            const session = AgentStore.get(sessionId);
+            if (!session || session.status === "offline") return stopWaiting();
+            if (session.status === "working" || listeningStops.has(sessionId)) return;
+            if (session.status === "idle") AgentStore.setStatus(sessionId, "listening");
+            const text = notifyFresh(sessionId);
+            if (text === null) return;
+            AgentStore.setStatus(sessionId, "working");
+            finish({ wake: text });
+        }
+        waits.add(stopWaiting);
+        const timer = setTimeout(() => finish({ timeout: true }), waitMs);
         agentWake.on(sessionId, check);
         signal.addEventListener("abort", stopWaiting, { once: true });
         if (signal.aborted) stopWaiting();
@@ -459,8 +519,9 @@ async function handleStop(sessionId: string, input: Record<string, unknown>, lis
         wake(AgentStore.fireIdle(sessionId, "idle"));
         return waitForMessages(sessionId, listenWaitMs, signal);
     }
-    AgentStore.setStatus(sessionId, "idle");
-    wake(AgentStore.fireIdle(sessionId, "idle"));
+    // A background wait keeps the session reachable: it counts as listening, and the wake lets it check now.
+    AgentStore.setStatus(sessionId, backgroundWaits.has(sessionId) ? "listening" : "idle");
+    wake([sessionId, ...AgentStore.fireIdle(sessionId, "idle")]);
     return null;
 }
 
@@ -468,9 +529,13 @@ async function handleStop(sessionId: string, input: Record<string, unknown>, lis
 async function handleHook(client: HookClient, input: Record<string, unknown>, listenWaitMs: number, signal: AbortSignal): Promise<HookOutput> {
     if (typeof input.session_id !== "string" || !input.session_id) return null;
     const id = agentSessionId(client, input.session_id);
+    if (input.hook_event_name === BACKGROUND_WAIT_EVENT) {
+        return AgentStore.get(id) ? backgroundWait(id, listenWaitMs, signal) : null;
+    }
     const now = Date.now();
     AgentStore.touch(id, client, typeof input.cwd === "string" ? input.cwd : "", now);
     expireMessages(now);
+    if (input.hook_event_name !== "Stop") cancelBackgroundWaits(id);
 
     switch (input.hook_event_name) {
         case "SessionStart":

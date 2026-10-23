@@ -46,12 +46,12 @@ function install(client: "codex" | "claude"): Entry[] {
 describe("Codex Windows hooks", () => {
     it("writes a PowerShell command for every Codex lifecycle event", () => {
         const entries = install("codex");
-        expect(entries).toHaveLength(5);
+        expect(entries).toHaveLength(6);
         for (const hook of entries) {
             expect(hook.commandWindows).toMatch(/^& '/);
             expect(hook.commandWindows).toContain("$user''s-");
             expect(hook.commandWindows).toContain("'hook' 'codex' '--endpoint' 'http://127.0.0.1:5688/?label=$nexus&quote='''");
-            expect(hook.command).toBe(`"${process.execPath}" "${entry}" hook codex --endpoint ${endpoint}`);
+            expect(hook.command.replace(/ --wait$/, "")).toBe(`"${process.execPath}" "${entry}" hook codex --endpoint ${endpoint}`);
         }
     });
 

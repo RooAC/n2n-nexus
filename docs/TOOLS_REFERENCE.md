@@ -158,6 +158,7 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 | After each tool call | Only messages and notices not announced yet. |
 | Turn about to end | If anything is unread, the turn continues once with the announcement. |
 | Listening | The wait ends as soon as something new arrives, and the conversation continues with it. |
+| Idle (turn ended) | A background wait started by the Stop hook (`n2n-nexus hook <client> --wait`, up to an hour) starts a new turn with the announcement: Claude Code through an `asyncRewake` hook (exit code 2), Codex through `codex queue --thread <session id>` (`NEXUS_CODEX_COMMAND` overrides the `codex` command). Meanwhile the session shows as `listening`; any new activity in the conversation ends the wait. |
 
 Unread messages expire after 24 hours; the sender then gets a notice. Notices also report `notifyWhenIdle` results.
 

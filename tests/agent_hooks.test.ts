@@ -11,7 +11,7 @@ import { AgentStore } from "../src/storage/agents.js";
 import { RateLimitConfig } from "../src/daemon/rate-limit.js";
 import {
     IDLE_SUBSCRIPTION_TTL_MS, MESSAGE_TRUST_NOTE, MESSAGE_TTL_MS, NOTICE_PREFIX, NOTIFY_CLOSING, NO_AGENT_SESSION_ERROR, STOP_CLOSING,
-    PREVIEW_CHARS, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, TOOL_USE_BINDING_TTL_MS, type HookClient
+    BACKGROUND_WAIT_EVENT, PREVIEW_CHARS, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, TOOL_USE_BINDING_TTL_MS, type HookClient
 } from "../src/daemon/hook-contract.js";
 import { requestJson } from "./helpers/daemon.js";
 
@@ -19,6 +19,8 @@ type HookOutput = {
     decision?: string;
     reason?: string;
     hookSpecificOutput?: { hookEventName: string; additionalContext: string };
+    wake?: string;
+    timeout?: boolean;
 } | null;
 type ToolReply<T> = { ok: boolean; result?: T; error?: string };
 
@@ -307,6 +309,95 @@ describe("POST /api/hook: notifications", () => {
 
         expect(await hook("claude", "Stop", "r", { stop_hook_active: true })).toBeNull();
         expect(status("claude:r")).toBe("idle");
+    });
+});
+
+describe("POST /api/hook: background wait", () => {
+    it("shows the session as listening and returns a new message as soon as it arrives", async () => {
+        await start({ listenWaitMs: 5000 });
+        await hook("codex", "SessionStart", "s");
+        await hook("claude", "SessionStart", "r");
+        await hook("claude", "Stop", "r", { stop_hook_active: false });
+        const waiting = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("claude:r") === "listening");
+        await send("s", "claude:r", "wake up");
+        const { payload } = await waiting.response;
+        expect(payload.output?.wake).toContain(`${NOTICE_PREFIX} 1 new direct message:`);
+        expect(payload.output?.wake).toContain("wake up");
+        expect(status("claude:r")).toBe("working");
+        expect(await hook("claude", "UserPromptSubmit", "r")).not.toBeNull();     // still unread until read
+    });
+
+    it("waits while the turn is still ending, and Stop keeps the session listening", async () => {
+        await start({ listenWaitMs: 5000 });
+        await hook("codex", "SessionStart", "s");
+        await hook("codex", "UserPromptSubmit", "r");
+        await send("s", "codex:r", "before the turn ended");
+        const waiting = openHook("codex", BACKGROUND_WAIT_EVENT, "r");          // started alongside Stop
+        await new Promise((r) => setTimeout(r, 100));
+        expect(status("codex:r")).toBe("working");
+
+        // Stop announces the unread message itself; the wait must not repeat it.
+        expect((await hook("codex", "Stop", "r", { stop_hook_active: false }))?.decision).toBe("block");
+        expect(await hook("codex", "Stop", "r", { stop_hook_active: true })).toBeNull();
+        expect(status("codex:r")).toBe("listening");
+        await send("s", "codex:r", "after");
+        const { payload } = await waiting.response;
+        expect(payload.output?.wake).toContain("after");
+        expect(payload.output?.wake).not.toContain("before the turn ended");
+    });
+
+    it("ends without output when the session becomes active, times out or the client goes away", async () => {
+        await start();
+        await hook("claude", "SessionStart", "r");
+        await hook("claude", "Stop", "r");
+
+        const cancelled = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("claude:r") === "listening");
+        await hook("claude", "UserPromptSubmit", "r");
+        expect((await cancelled.response).payload.output).toBeNull();
+        expect(status("claude:r")).toBe("working");
+
+        await hook("claude", "Stop", "r");
+        const timedOut = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        expect((await timedOut.response).payload.output).toEqual({ timeout: true });
+        expect(status("claude:r")).toBe("idle");
+
+        const gone = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("claude:r") === "listening");
+        gone.cancel();
+        await gone.response.catch(() => { });
+        await until(() => status("claude:r") === "idle");
+    });
+
+    it("leaves delivery to a listening Stop hook while it waits, and takes over when that wait ends", async () => {
+        await start();
+        await hook("codex", "SessionStart", "s");
+        await hook("codex", "UserPromptSubmit", "r");
+        await codexTool("r", "listen", { on: true });
+        const background = openHook("codex", BACKGROUND_WAIT_EVENT, "r");      // registered first
+        const listening = openHook("codex", "Stop", "r", { stop_hook_active: false });
+        await until(() => status("codex:r") === "listening");
+        await send("s", "codex:r", "for the listening stop");
+        const stop = (await listening.response).payload.output;
+        expect(stop?.decision).toBe("block");
+        expect(stop?.reason).toContain("for the listening stop");
+
+        expect((await background.response).payload.output).toEqual({ timeout: true });   // it did not take the message
+
+        // The next listening Stop times out (LISTEN_MS); the client's next background wait delivers what arrives then.
+        await hook("codex", "Stop", "r", { stop_hook_active: true });
+        const again = openHook("codex", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("codex:r") === "listening");
+        await send("s", "codex:r", "for the background wait");
+        const { payload } = await again.response;
+        expect(payload.output?.wake).toContain("for the background wait");
+        expect(payload.output?.wake).not.toContain("for the listening stop");
+    });
+
+    it("never runs for an unknown session", async () => {
+        await start();
+        expect(await hook("claude", BACKGROUND_WAIT_EVENT, "nobody")).toBeNull();
     });
 });
 

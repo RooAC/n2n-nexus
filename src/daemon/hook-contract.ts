@@ -53,6 +53,16 @@ export type HookRequest = { client: HookClient; input: Record<string, unknown> }
 /** POST /api/hook response: `output` is printed to stdout as JSON; null prints nothing. */
 export type HookResponse = { output: Record<string, unknown> | null };
 
+/**
+ * Pseudo hook event of the background wait (`n2n-nexus hook <client> --wait`):
+ * started when a turn ends, it waits up to LISTEN_WAIT_MS and returns
+ * `{ wake: text }` when something new arrives for the session, `{ timeout: true }`
+ * when the time runs out (the client asks again), or null when the session
+ * became active again (the client stops). Claude delivers the text
+ * through an asyncRewake hook, Codex through `codex queue`.
+ */
+export const BACKGROUND_WAIT_EVENT = "BackgroundWait";
+
 /** Longest a Stop hook waits for messages while listening. */
 export const LISTEN_WAIT_MS = 590_000;
 /** HTTP timeout of the hook command: Stop may wait LISTEN_WAIT_MS, every other event is quick. */
@@ -60,6 +70,8 @@ export const HOOK_STOP_REQUEST_TIMEOUT_MS = 595_000;
 export const HOOK_REQUEST_TIMEOUT_MS = 5_000;
 /** `timeout` (seconds) written into the client hook configuration. */
 export const HOOK_STOP_TIMEOUT_SEC = 600;
+/** `timeout` (seconds) of the background wait hook; a conversation idle for longer is not woken. */
+export const WAIT_HOOK_TIMEOUT_SEC = 3600;
 export const HOOK_TIMEOUT_SEC = 10;
 
 /** Name the MCP server is installed under; Claude's PreToolUse matcher depends on it. */

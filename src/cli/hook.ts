@@ -1,12 +1,15 @@
 /**
- * `n2n-nexus hook <claude|codex> [--endpoint <url>]`: forward one client hook
- * event to the daemon and print its output. Runs on every tool call, so it
- * loads only node built-ins (no MCP SDK, zod or SQLite), and every failure is
- * silent: exit 0 with nothing on stdout, so the client carries on unaffected.
+ * `n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]`: forward one client
+ * hook event to the daemon and print its output, or with `--wait` run the
+ * background wait that wakes an idle conversation. Runs on every tool call, so
+ * it loads only node built-ins (no MCP SDK, zod or SQLite), and every failure
+ * is silent: exit 0 with nothing on stdout, so the client carries on unaffected.
  */
+import { spawn, spawnSync } from "node:child_process";
+
 import {
-    HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, isHookClient,
-    type HookResponse
+    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC,
+    isHookClient, type HookClient, type HookResponse
 } from "../daemon/hook-contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
@@ -78,8 +81,70 @@ async function forward(argv: string[]): Promise<string> {
     return JSON.stringify(output) + "\n";
 }
 
-/** Run the hook command; always resolves to exit code 0. */
+/** The background wait ends before the client's hook timeout would kill it during a request. */
+const WAIT_DEADLINE_MS = (WAIT_HOOK_TIMEOUT_SEC - 10) * 1000;
+
+/**
+ * Ask the daemon until something arrives for the session (the notification
+ * text), the session becomes active again or the deadline passes (null).
+ */
+export async function waitForWake(client: HookClient, sessionId: string, endpoint: string, deadlineMs = WAIT_DEADLINE_MS): Promise<string | null> {
+    const nexus = new NexusClient({ endpoint });
+    // Start a request only if it can run to its own timeout before the deadline.
+    const deadline = Date.now() + deadlineMs - HOOK_STOP_REQUEST_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        const response = await nexus.hook({ client, input: { hook_event_name: BACKGROUND_WAIT_EVENT, session_id: sessionId } }, HOOK_STOP_REQUEST_TIMEOUT_MS);
+        const output = isPlainObject(response) ? response.output : null;
+        if (isPlainObject(output) && typeof output.wake === "string") return output.wake;
+        if (!(isPlainObject(output) && output.timeout === true)) return null;
+    }
+    return null;
+}
+
+/**
+ * `--wait`, started by a Stop hook when a turn ends. Claude runs it as an
+ * asyncRewake hook: exit code 2 with the notification on stderr wakes the
+ * conversation. Codex has no such hook, so its Stop hook starts a detached copy
+ * (`--session <id>`) and returns at once; the copy hands the notification to
+ * `codex queue` (NEXUS_CODEX_COMMAND, default `codex`), which starts a turn.
+ */
+async function runWait(argv: string[]): Promise<number> {
+    const client = argv[0];
+    if (!isHookClient(client)) throw new Error(`unknown client "${client ?? ""}" (expected claude or codex)`);
+    const configured = argValue(argv, "--endpoint") || process.env.NEXUS_ENDPOINT || LOCAL_ENDPOINT;
+    let sessionId = argValue(argv, "--session");
+    if (!sessionId) {
+        const stdin: unknown = JSON.parse(await readStdin());
+        if (!isPlainObject(stdin) || typeof stdin.session_id !== "string" || !stdin.session_id) return 0;
+        sessionId = stdin.session_id;
+        if (client === "codex") {
+            const { entryScript } = await import("./autostart.js");
+            const args = [entryScript(), "hook", "codex", "--wait", "--session", sessionId, ...(argValue(argv, "--endpoint") ? ["--endpoint", configured] : [])];
+            spawn(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
+            return 0;
+        }
+    }
+    const text = await waitForWake(client, sessionId, await resolveEndpoint(configured));
+    if (text === null) return 0;
+    if (client === "codex") {
+        spawnSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
+        return 0;
+    }
+    await new Promise<void>((resolve) => process.stderr.write(text + "\n", () => resolve()));
+    return 2;
+}
+
+/** Run the hook command; resolves to exit code 0, or 2 when a background wait wakes a Claude conversation. */
 export async function runHook(argv: string[]): Promise<number> {
+    if (argv.includes("--wait")) {
+        try {
+            return await runWait(argv);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            process.stderr.write(`[n2n-nexus] hook --wait: ${message.replace(/\s+/g, " ").slice(0, 300)}\n`);
+            return 0;
+        }
+    }
     let text = "";
     try {
         text = await forward(argv);

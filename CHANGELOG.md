@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - The SessionStart hook tells a new conversation its own session name and ID and which other sessions are not offline, so it can message them without being asked to look first.
 - The MCP adapter sends server instructions describing how to find and message other AI sessions.
 
+- Idle conversations are woken: `install` adds a second Stop hook (`n2n-nexus hook <client> --wait`) that waits up to an hour after a turn for new messages or notices and then starts a turn with them, through an `asyncRewake` hook in Claude Code and `codex queue` in Codex (`NEXUS_CODEX_COMMAND` overrides the command). The session shows as `listening` meanwhile; any new activity ends the wait. Run `n2n-nexus install <client>` again to add the hook.
+
 ### Changed
 
 - An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.

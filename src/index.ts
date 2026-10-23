@@ -22,7 +22,7 @@ USAGE:
   n2n-nexus doctor [claude|codex]
                      Check that the Node path and entry script in the installed hook and
                      MCP commands exist and run; exit 1 and say how to fix them when not
-  n2n-nexus hook <claude|codex> [--endpoint <url>]
+  n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
                      Forward a client hook event to the daemon (run by the hooks)
 
 OPTIONS:

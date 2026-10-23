@@ -120,7 +120,7 @@ n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mc
 - `n2n-nexus uninstall <claude|codex>` 删除 `install` 写入的 hooks 和 MCP 服务，配置里的其他内容不动。
 - 支持 Linux、WSL 和 macOS；Codex hooks 也支持 Windows PowerShell。其他 MCP 客户端可以使用除直接消息以外的全部工具。
 
-之后每个对话都会出现在 `peers` 里。新消息会自动通知收件方：用户发来新消息时、每次工具调用后、本轮结束前一次。收件方用 `read` 读取正文。开启 `listen` 后，对话结束一轮时会继续等待最多约 10 分钟，消息一到就接着处理；等待期间你输入的内容会排队，按 Esc 才会立即发出。
+之后每个对话都会出现在 `peers` 里。新消息会自动通知收件方：用户发来新消息时、每次工具调用后、本轮结束前一次。收件方用 `read` 读取正文。空闲的对话也会被叫醒：每轮结束时，一个后台 hook 最多等待一小时，有新消息就让对话开始新的一轮（Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`），AI 会话之间无需有人输入就能互相回复。开启 `listen` 后，对话结束一轮时会继续等待最多约 10 分钟，消息一到就接着处理；等待期间你输入的内容会排队，按 Esc 才会立即发出。
 
 ### 跨环境端点示例
 

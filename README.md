@@ -111,7 +111,7 @@ n2n-nexus install codex     # ~/.codex/hooks.json (or $CODEX_HOME) + codex mcp a
 - `n2n-nexus uninstall <claude|codex>` removes the hooks and the MCP server that `install` added and leaves the rest of the configuration alone.
 - Supported on Linux, WSL and macOS; Codex hooks also support Windows PowerShell. Other MCP clients can use every tool except direct messages.
 
-Each conversation then appears in `peers`. A new direct message is announced to the recipient automatically: when the user sends a prompt, after each tool call, and once before the turn ends. The recipient reads the text with `read`. With `listen` on, a conversation that finished its turn keeps waiting for up to about 10 minutes and continues when a message arrives; while it waits, input you type is queued until you press Esc.
+Each conversation then appears in `peers`. A new direct message is announced to the recipient automatically: when the user sends a prompt, after each tool call, and once before the turn ends. The recipient reads the text with `read`. An idle conversation is woken too: when a turn ends, a background hook waits up to an hour for anything new and then starts a turn with it (Claude Code through an `asyncRewake` hook, Codex through `codex queue`), so AI sessions can answer each other without anyone typing. With `listen` on, a conversation that finished its turn keeps waiting for up to about 10 minutes and continues when a message arrives; while it waits, input you type is queued until you press Esc.
 
 ### Cross-environment endpoint examples
 

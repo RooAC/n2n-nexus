@@ -51,7 +51,9 @@ const readJson = (file: string) => JSON.parse(fs.readFileSync(file, "utf8")) as 
 /** Commands of our hook entries in a config file. */
 function ourCommands(file: string, client: string): string[] {
     const hooks = readJson(file).hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-    return Object.values(hooks).flat().flatMap((group) => group.hooks).map((h) => h.command).filter((c) => c.includes(` hook ${client}`));
+    // The background wait entry is the same command with --wait appended.
+    return Object.values(hooks).flat().flatMap((group) => group.hooks).map((h) => h.command).filter((c) => c.includes(` hook ${client}`))
+        .map((c) => c.replace(/ --wait$/, ""));
 }
 /** An alias to the running Node; Windows directory junctions do not need symlink privileges. */
 function linkNode(relative: string): string {
@@ -119,7 +121,7 @@ describe("install claude", () => {
             permissions: { allow: ["Bash(ls:*)"] },
             hooks: {
                 PreToolUse: [userSettings.hooks.PreToolUse[0], { matcher: "mcp__n2n-nexus__.*", hooks: [entry(10)] }],
-                Stop: [userSettings.hooks.Stop[0], { hooks: [entry(600)] }],
+                Stop: [userSettings.hooks.Stop[0], { hooks: [entry(600)] }, { hooks: [{ type: "command", command: `${command("claude")} --wait`, asyncRewake: true, timeout: 3600 }] }],
                 Notification: userSettings.hooks.Notification,
                 SessionStart: [{ hooks: [entry(10)] }],
                 SessionEnd: [{ hooks: [entry(10)] }],
@@ -148,7 +150,7 @@ describe("install claude", () => {
 
         expect(run(["install", "claude", "--endpoint", "http://127.0.0.1:5799"]).code).toBe(0);
         const ours = ourCommands(claudeSettings(), "claude");
-        expect(ours).toHaveLength(6);
+        expect(ours).toHaveLength(7);
         for (const hook of ours) expect(hook).toBe(command("claude", "http://127.0.0.1:5799"));
         expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "-e", "NEXUS_ENDPOINT=http://127.0.0.1:5799", "--", NODE, ENTRY, "mcp"]);
     });
@@ -259,7 +261,7 @@ describe("install codex", () => {
                 SessionEnd: [{ hooks: [entry(10)] }],
                 UserPromptSubmit: [{ hooks: [entry(10)] }],
                 PostToolUse: [{ hooks: [entry(10)] }],
-                Stop: [{ hooks: [entry(600)] }]
+                Stop: [{ hooks: [entry(600)] }, { hooks: [{ ...entry(10), command: `${command("codex", "http://127.0.0.1:5799")} --wait`, commandWindows: `${codexWindowsCommand("http://127.0.0.1:5799")} '--wait'` }] }]
             }
         });
         expect(calls()).toEqual([
@@ -285,7 +287,11 @@ describe("install codex", () => {
         expect(run(["install", "codex"]).code).toBe(0);
         const once = fs.readFileSync(codexHooks(), "utf8");
         const hooks = readJson(codexHooks()).hooks as Record<string, unknown[]>;
-        expect(hooks.Stop).toEqual([original.hooks.Stop[0], { hooks: [{ type: "command", command: command("codex"), commandWindows: codexWindowsCommand(), timeout: 600 }] }]);
+        expect(hooks.Stop).toEqual([
+            original.hooks.Stop[0],
+            { hooks: [{ type: "command", command: command("codex"), commandWindows: codexWindowsCommand(), timeout: 600 }] },
+            { hooks: [{ type: "command", command: `${command("codex")} --wait`, commandWindows: `${codexWindowsCommand()} '--wait'`, timeout: 10 }] }
+        ]);
         expect(hooks.PreToolUse).toBeUndefined();
 
         expect(run(["install", "codex"]).code).toBe(0);
@@ -317,7 +323,7 @@ describe("node path", () => {
         const result = run(["install", "claude"]);
         expect(result.code).toBe(0);
         expect(link).not.toBe(NODE);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude", undefined, link)));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", undefined, link)));
         expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", link, ENTRY, "mcp"]);
         expect(result.stdout).toContain(`Node: ${link}\n`);
     });
@@ -329,7 +335,7 @@ describe("node path", () => {
         const link = linkNode("stable/node");
         const result = run(["install", "codex"], { PATH: [bin, other, path.dirname(link)].join(path.delimiter) });
         expect(result.code).toBe(0);
-        expect(ourCommands(codexHooks(), "codex")).toEqual(Array(5).fill(command("codex", undefined, link)));
+        expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
         expect(calls().at(-1)).toEqual(["codex", "mcp", "add", "n2n-nexus", "--", link, ENTRY, "mcp"]);
     });
 
@@ -342,19 +348,19 @@ describe("node path", () => {
             env: { SystemRoot: process.env.SystemRoot, PATH: [path.relative(path.join(dir, "cwd"), path.dirname(relative)) || ".", path.join("..", "cwd", process.platform === "win32" ? "node" : ""), bin, path.dirname(multishell)].join(path.delimiter), HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CALLS_LOG: callsLog }
         });
         expect(result.status).toBe(0);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude")));
         expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", NODE, ENTRY, "mcp"]);
         expect(run(["install", "codex", "--node", multishell]).stdout).toContain("--node <path>");
     });
 
     it("falls back to process.execPath when PATH has no node or a different one", () => {
         expect(run(["install", "claude"]).code).toBe(0);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude")));
 
         writeExecutable(path.join(bin, "node"), "process.exit(0);");
         const result = run(["install", "claude"]);
         expect(result.code).toBe(0);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude")));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude")));
         expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", NODE, ENTRY, "mcp"]);
         expect(result.stdout).toContain(`Node: ${NODE}\n`);
     });
@@ -363,11 +369,11 @@ describe("node path", () => {
         linkNode("bin/node");
         const link = linkNode("stable/node");
         expect(run(["install", "claude", "--node", link, "--endpoint", "http://127.0.0.1:5799"]).code).toBe(0);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude", "http://127.0.0.1:5799", link)));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", "http://127.0.0.1:5799", link)));
         expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "-e", "NEXUS_ENDPOINT=http://127.0.0.1:5799", "--", link, ENTRY, "mcp"]);
 
         expect(run(["install", "codex", "--node", link]).code).toBe(0);
-        expect(ourCommands(codexHooks(), "codex")).toEqual(Array(5).fill(command("codex", undefined, link)));
+        expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
         expect(calls().at(-1)).toEqual(["codex", "mcp", "add", "n2n-nexus", "--", link, ENTRY, "mcp"]);
     });
 
@@ -409,11 +415,11 @@ describe("node path", () => {
         const first = linkNode("node-v1.0.0/bin/node");
         const second = linkNode("stable/node");
         expect(run(["install", "claude", "--node", first]).code).toBe(0);
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude", undefined, first)));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", undefined, first)));
 
         expect(run(["install", "claude", "--node", second]).code).toBe(0);
         const once = fs.readFileSync(claudeSettings(), "utf8");
-        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(6).fill(command("claude", undefined, second)));
+        expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", undefined, second)));
         expect(once).not.toContain(first);
         expect(run(["install", "claude", "--node", second]).code).toBe(0);
         expect(fs.readFileSync(claudeSettings(), "utf8")).toBe(once);

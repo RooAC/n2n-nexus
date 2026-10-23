@@ -16,14 +16,14 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-    CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, isHookClient,
+    CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
     type HookClient
 } from "../daemon/hook-contract.js";
 import { pkg } from "../config/index.js";
 import { entryScript } from "./autostart.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
-type HookEntry = { type: "command"; command: string; commandWindows?: string; timeout: number };
+type HookEntry = { type: "command"; command: string; commandWindows?: string; asyncRewake?: boolean; timeout: number };
 export type HookGroup = { matcher?: string; hooks?: unknown[] } & Record<string, unknown>;
 export type HooksFile = { hooks?: Record<string, unknown> } & Record<string, unknown>;
 
@@ -185,6 +185,12 @@ function addOurEntries(config: HooksFile, client: HookClient, command: string, c
         if (Array.isArray(groups)) groups.push(group);
         else hooks[event] = [group];
     }
+    // The background wait that wakes an idle conversation (hook.ts --wait): Claude runs it as an
+    // asyncRewake hook; for Codex it starts a detached wait and returns at once.
+    const wait: HookEntry = client === "claude"
+        ? { type: "command", command: `${command} --wait`, asyncRewake: true, timeout: WAIT_HOOK_TIMEOUT_SEC }
+        : { type: "command", command: `${command} --wait`, ...(commandWindows ? { commandWindows: `${commandWindows} '--wait'` } : {}), timeout: HOOK_TIMEOUT_SEC };
+    (hooks.Stop as unknown[]).push({ hooks: [wait] });
 }
 
 function writeConfig(file: string, config: HooksFile): void {

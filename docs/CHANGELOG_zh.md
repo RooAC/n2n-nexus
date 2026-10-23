@@ -10,6 +10,8 @@
 - SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
 - MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
 
+- 空闲的对话会被叫醒：`install` 增加第二个 Stop hook（`n2n-nexus hook <client> --wait`），每轮结束后最多等待一小时，有新消息或通知就让对话开始新的一轮：Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`（可用 `NEXUS_CODEX_COMMAND` 指定命令）。等待期间会话显示为 `listening`，对话里有任何新活动就结束等待。重新运行 `n2n-nexus install <client>` 即可加上这个 hook。
+
 ### 变更
 
 - `idle` 或 `working` 状态的会话 30 分钟没有任何活动就标为 `offline`，因为客户端不一定发送 SessionEnd（已结束或关闭的 Codex 对话此前会一直"在线"）；它下一次有事件时恢复。`peers` 与 SessionStart 介绍会说明只有 `listening` 的会话能马上回复。

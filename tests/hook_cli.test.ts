@@ -13,10 +13,11 @@ const TMP = path.join(REPO, "tests", "tmp", "hook-cli");
 
 type RunResult = { code: number | null; stdout: string; stderr: string; ms: number };
 
-function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}): Promise<RunResult> {
+function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}, cwd?: string): Promise<RunResult> {
     const started = Date.now();
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [ENTRY, "hook", ...args], {
+            cwd,
             env: { ...process.env, NEXUS_ENDPOINT: "", ...env },
             stdio: ["pipe", "pipe", "pipe"]
         });
@@ -254,6 +255,54 @@ describe("n2n-nexus hook, forwarding", () => {
             expect(result.stderr.trim().split("\n")).toHaveLength(1);
         }
     }, 20_000);
+});
+
+describe("n2n-nexus hook --wait", () => {
+    let fake: FakeDaemon;
+    beforeEach(async () => { fake = await startFakeDaemon(); });
+    afterEach(async () => { await fake.close(); });
+    const waitRequest = (sessionId: string) => ({ url: "/api/hook", body: { client: expect.any(String), input: { hook_event_name: "BackgroundWait", session_id: sessionId } } });
+
+    it("claude: asks again after a timeout, then exits 2 with the notification on stderr", async () => {
+        let n = 0;
+        fake.respond = () => ({ raw: JSON.stringify({ output: ++n === 1 ? { timeout: true } : { wake: "[n2n-nexus] 1 new direct message" } }) });
+        const result = await runHook(["claude", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "s1" }));
+        expect(result).toMatchObject({ code: 2, stdout: "" });
+        expect(result.stderr).toBe("[n2n-nexus] 1 new direct message\n");
+        expect(fake.requests).toEqual([waitRequest("s1"), waitRequest("s1")]);
+    });
+
+    it("claude: exits 0 without output when the session became active", async () => {
+        const result = await runHook(["claude", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "s1" }));
+        expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });
+        expect(fake.requests).toHaveLength(1);
+    });
+
+    it("codex: returns at once and leaves a detached wait running for the session", async () => {
+        fake.respond = () => ({ delayMs: 500, raw: JSON.stringify({ output: null }) });
+        const result = await runHook(["codex", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "c1" }));
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(await waitFor(() => fake.requests.length === 1, 5000)).toBe(true);
+        expect(fake.requests[0]).toEqual(waitRequest("c1"));
+        expect(result.ms).toBeLessThan(3000);
+    });
+
+    it("codex: hands the notification to codex queue for the session", async () => {
+        const dir = path.join(TMP, "codex-queue");
+        fs.mkdirSync(dir, { recursive: true });
+        const record = path.join(dir, "queued.json");
+        fs.rmSync(record, { force: true });
+        // NEXUS_CODEX_COMMAND=node runs ./queue (the first argument) from the working directory, which records its arguments
+        // (an ES module: the repository's package.json sets "type": "module").
+        fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`);
+        fake.respond = () => ({ raw: JSON.stringify({ output: { wake: "hello from nexus" } }) });
+        const result = await runHook(
+            ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
+            { NEXUS_CODEX_COMMAND: process.execPath }, dir
+        );
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(JSON.parse(fs.readFileSync(record, "utf8"))).toEqual(["--thread", "c1", "--message", "hello from nexus"]);
+    });
 });
 
 describe("n2n-nexus hook, no daemon", () => {
