@@ -120,6 +120,7 @@ func serve(args []string) int {
 		logger.Print(err)
 		return 1
 	}
+	started := time.Now() // before the settings load: restart requests from now on are for this serve
 	settings, err := config.LoadSettings(dataDir)
 	if err != nil {
 		logger.Print(err)
@@ -148,7 +149,7 @@ func serve(args []string) int {
 		// The tray asks for a restart through a file; its supervisor then starts serve again.
 		done := make(chan struct{})
 		defer close(done)
-		host.WatchRestart(dataDir, time.Second, done, func() { close(restart) })
+		host.WatchRestart(dataDir, started, time.Second, done, func() { close(restart) })
 	}
 	select {
 	case <-stop:
@@ -229,7 +230,7 @@ func autostart(args []string) int {
 		return 2
 	}
 	on := args[0] == "on"
-	where, err := service.SetAutostartChoice(config.DataDir(), trayExecutable(executable()), on)
+	where, err := service.SetAutostartChoice(trayExecutable(executable()), on)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "autostart %s: %v\n", args[0], err)
 		return 1

@@ -20,10 +20,15 @@ func RequestRestart(dataDir string) error {
 }
 
 // WatchRestart polls for a restart request every interval until done closes;
-// it removes the request and calls onRequest once.
-func WatchRestart(dataDir string, interval time.Duration, done <-chan struct{}, onRequest func()) {
+// it removes the request and calls onRequest once. since is when this serve
+// began starting (before it took the lock): an older request was served by an
+// earlier serve and is removed, a newer one (written while this serve started,
+// with settings it may not have loaded) restarts it.
+func WatchRestart(dataDir string, since time.Time, interval time.Duration, done <-chan struct{}, onRequest func()) {
 	path := filepath.Join(dataDir, RestartRequestFile)
-	_ = os.Remove(path) // a request left from before this start is already served
+	if info, err := os.Stat(path); err == nil && info.ModTime().Before(since) {
+		_ = os.Remove(path)
+	}
 	go func() {
 		t := time.NewTicker(interval)
 		defer t.Stop()

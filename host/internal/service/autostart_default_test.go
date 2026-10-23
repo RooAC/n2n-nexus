@@ -13,8 +13,7 @@ func TestAutostartDefaultsOnOnce(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
-	data := t.TempDir()
-	if err := EnsureAutostartDefault(data, "/x/n2n-nexus-host"); err != nil {
+	if err := EnsureAutostartDefault("/x/n2n-nexus-host"); err != nil {
 		t.Fatal(err)
 	}
 	if !AutostartEnabled("/x/n2n-nexus-host") {
@@ -23,7 +22,7 @@ func TestAutostartDefaultsOnOnce(t *testing.T) {
 	if _, err := SetAutostart("/x/n2n-nexus-host", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureAutostartDefault(data, "/x/n2n-nexus-host"); err != nil {
+	if err := EnsureAutostartDefault("/x/n2n-nexus-host"); err != nil {
 		t.Fatal(err)
 	}
 	if AutostartEnabled("/x/n2n-nexus-host") {
@@ -38,11 +37,10 @@ func TestAutostartChoiceBeforeFirstTrayRun(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
-	data := t.TempDir()
-	if _, err := SetAutostartChoice(data, "/x/n2n-nexus-host", false); err != nil {
+	if _, err := SetAutostartChoice("/x/n2n-nexus-host", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := EnsureAutostartDefault(data, "/x/n2n-nexus-host"); err != nil {
+	if err := EnsureAutostartDefault("/x/n2n-nexus-host"); err != nil {
 		t.Fatal(err)
 	}
 	if AutostartEnabled("/x/n2n-nexus-host") {

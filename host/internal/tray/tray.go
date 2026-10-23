@@ -59,7 +59,7 @@ func newApp(o Options) (*app, io.Closer) {
 
 func (a *app) ready() {
 	// The tray starts at login by default (first run only; the menu toggle changes it).
-	if err := service.EnsureAutostartDefault(a.o.DataDir, a.o.Exe); err != nil {
+	if err := service.EnsureAutostartDefault(a.o.Exe); err != nil {
 		a.logger.Printf("start at login: %v", err)
 	}
 	systray.SetIcon(trayIcon())
