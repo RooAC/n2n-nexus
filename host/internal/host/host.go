@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/n2ns/n2n-nexus/host/internal/agents"
@@ -31,6 +32,9 @@ type Options struct {
 	Settings config.Settings
 	Logger   *log.Logger
 	Test     testhooks.Options
+	// SupervisorPID is the PID of the `serve --supervise` that started this
+	// host, 0 if none; it is recorded in host.lock.
+	SupervisorPID int
 }
 
 // Host is a running host.
@@ -42,10 +46,27 @@ type Host struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	logger *log.Logger
+	lock   *Lock
+	// stopDiscovery closes the discovery socket.
+	stopDiscovery func()
 }
 
-// Start opens the database and starts serving; it returns once the port is bound.
+// Start takes the data directory's single-instance lock, opens the database
+// and starts serving; it returns once the port is bound.
 func Start(o Options) (*Host, error) {
+	lock, err := AcquireLock(o.DataDir, os.Getpid(), o.SupervisorPID)
+	if err != nil {
+		return nil, err
+	}
+	h, err := start(o, lock)
+	if err != nil {
+		lock.Release()
+		return nil, err
+	}
+	return h, nil
+}
+
+func start(o Options, lock *Lock) (*Host, error) {
 	contract, err := protocol.Load()
 	if err != nil {
 		return nil, err
@@ -82,7 +103,7 @@ func Start(o Options) (*Host, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	h := &Host{Addr: ln.Addr().(*net.TCPAddr), store: st, agents: ag, cancel: cancel, done: make(chan struct{}), logger: o.Logger}
+	h := &Host{Addr: ln.Addr().(*net.TCPAddr), store: st, agents: ag, cancel: cancel, done: make(chan struct{}), logger: o.Logger, lock: lock}
 	h.server = &http.Server{Handler: srv, BaseContext: func(net.Listener) context.Context { return ctx }, ReadHeaderTimeout: 10 * time.Second}
 
 	maintain := func() {
@@ -95,8 +116,11 @@ func Start(o Options) (*Host, error) {
 			}
 		}
 	}
-	if err := discovery.Start(ctx, discovery.Options{Host: o.Settings.Host, HTTPPort: h.Addr.Port, DiscoveryPort: o.Settings.DiscoveryPort, Version: o.Version, Logger: o.Logger}); err != nil {
+	h.stopDiscovery = func() {}
+	if stop, err := discovery.Start(ctx, discovery.Options{Host: o.Settings.Host, HTTPPort: h.Addr.Port, DiscoveryPort: o.Settings.DiscoveryPort, Version: o.Version, Logger: o.Logger}); err != nil {
 		o.Logger.Printf("LAN discovery unavailable: %v", err)
+	} else {
+		h.stopDiscovery = stop
 	}
 	go func() {
 		maintain()
@@ -120,13 +144,16 @@ func Start(o Options) (*Host, error) {
 	return h, nil
 }
 
-// Stop ends held waits, lets in-flight requests finish (up to 5 s) and closes the database.
+// Stop ends held waits, lets in-flight requests finish (up to 5 s), closes the
+// database and releases the lock.
 func (h *Host) Stop() {
 	h.cancel()
+	h.stopDiscovery()
 	h.agents.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = h.server.Shutdown(ctx)
 	<-h.done
 	h.store.Close()
+	h.lock.Release()
 }

@@ -1,0 +1,84 @@
+package tray
+
+import (
+	"os"
+	"strings"
+)
+
+// texts are the tray's user-facing strings.
+type texts struct {
+	Tooltip          string
+	StatusInProcess  string // %s: address
+	StatusService    string // %s: address
+	StatusStopped    string // %s: error
+	OpenLogs         string
+	OpenData         string
+	LAN              string
+	Autostart        string
+	Restart          string
+	Quit             string
+	FirewallNotice   string // %d TCP port, %d UDP discovery port
+	FirewallFailed   string // %d TCP port, %d UDP discovery port, %s error
+	RestartNoControl string
+	Error            string // %s: error
+}
+
+var english = texts{
+	Tooltip:          "n2n-nexus host",
+	StatusInProcess:  "Running: http://%s",
+	StatusService:    "Running (background service): http://%s",
+	StatusStopped:    "Not running: %s",
+	OpenLogs:         "Open log folder",
+	OpenData:         "Open data folder",
+	LAN:              "Allow LAN access",
+	Autostart:        "Start at login",
+	Restart:          "Restart",
+	Quit:             "Quit",
+	FirewallNotice:   "LAN access is on. Allow TCP port %d and UDP port %d (discovery) in your firewall so other machines can reach this host.",
+	FirewallFailed:   "LAN access is on, but the firewall rules for TCP port %d and UDP port %d were not added: %s",
+	RestartNoControl: "The running host was not started by this tray or the background service; restart it where it was started.",
+	Error:            "n2n-nexus host: %s",
+}
+
+var chinese = texts{
+	Tooltip:          "n2n-nexus host",
+	StatusInProcess:  "运行中：http://%s",
+	StatusService:    "运行中（后台服务）：http://%s",
+	StatusStopped:    "未运行：%s",
+	OpenLogs:         "打开日志目录",
+	OpenData:         "打开数据目录",
+	LAN:              "允许局域网访问",
+	Autostart:        "登录后自启",
+	Restart:          "重启",
+	Quit:             "退出",
+	FirewallNotice:   "已开启局域网访问。请在防火墙中放行 TCP 端口 %d 和 UDP 端口 %d（发现），其他机器才能连接本机。",
+	FirewallFailed:   "已开启局域网访问，但没有添加 TCP 端口 %d 和 UDP 端口 %d 的防火墙规则：%s",
+	RestartNoControl: "正在运行的 host 不是由托盘或后台服务启动的，请在启动它的地方重启。",
+	Error:            "n2n-nexus host：%s",
+}
+
+// textsFor is the Chinese texts when zh, else the English ones.
+func textsFor(zh bool) texts {
+	if zh {
+		return chinese
+	}
+	return english
+}
+
+// isChineseLocale reports whether a POSIX locale (zh_CN.UTF-8, zh_TW, zh) is Chinese.
+func isChineseLocale(locale string) bool {
+	return locale == "zh" || strings.HasPrefix(locale, "zh_") || strings.HasPrefix(locale, "zh-") || strings.HasPrefix(locale, "zh.")
+}
+
+// envLocale is the first set of LC_ALL, LC_MESSAGES and LANG.
+func envLocale() string {
+	for _, name := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// isChineseLangID reports whether a Windows LANGID is Chinese (primary language LANG_CHINESE, 0x04).
+func isChineseLangID(id uint16) bool { return id&0x3ff == 0x04 }
