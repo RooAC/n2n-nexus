@@ -1,0 +1,106 @@
+name: Host Release
+
+# Tag host-vX.Y.Z: build n2n-nexus-host for every platform, attach the archives,
+# SHA256SUMS and build provenance to a GitHub release, then update the Homebrew
+# tap and the Scoop bucket. winget manifests are attached for submission.
+on:
+  push:
+    tags:
+      - 'host-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { runner: ubuntu-latest, goos: linux, goarch: amd64, cgo: '0' }
+          - { runner: ubuntu-latest, goos: linux, goarch: arm64, cgo: '0' }
+          - { runner: ubuntu-latest, goos: windows, goarch: amd64, cgo: '0' }
+          - { runner: ubuntu-latest, goos: windows, goarch: arm64, cgo: '0' }
+          # The macOS tray needs cgo (Cocoa), so macOS builds run on macOS.
+          - { runner: macos-latest, goos: darwin, goarch: arm64, cgo: '1' }
+          - { runner: macos-latest, goos: darwin, goarch: amd64, cgo: '1' }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: |
+          version="${GITHUB_REF_NAME#host-v}"
+          ldflags="-s -w -X main.version=${version}"
+          exe=n2n-nexus-host
+          if [ "$GOOS" = windows ]; then exe=n2n-nexus-host.exe; ldflags="$ldflags -H=windowsgui"; fi
+          mkdir -p stage dist
+          go build -trimpath -ldflags "$ldflags" -o "stage/$exe" ./host/cmd/n2n-nexus-host
+          cp LICENSE stage/
+          name="n2n-nexus-host_${version}_${GOOS}_${GOARCH}"
+          if [ "$GOOS" = windows ]; then (cd stage && zip -q "../dist/$name.zip" *); else tar -czf "dist/$name.tar.gz" -C stage .; fi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: host-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum n2n-nexus-host_* > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/n2n-nexus-host_*
+      - name: Manifests
+        run: |
+          version="${GITHUB_REF_NAME#host-v}"
+          source_sha=$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz" | sha256sum | cut -d' ' -f1)
+          node host/release/render.mjs "$version" dist "$source_sha"
+          (cd dist/manifests && zip -qr ../winget-manifests.zip winget)
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#host-v}"
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" $prerelease --title "n2n-nexus-host ${version}" \
+            --notes "n2n-nexus-host ${version}. Install: see host/README.md. Verify: gh attestation verify <file> --repo ${GITHUB_REPOSITORY}" \
+            dist/n2n-nexus-host_* dist/SHA256SUMS dist/winget-manifests.zip
+      - name: Homebrew tap and Scoop bucket
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          BUCKET_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+        run: |
+          version="${GITHUB_REF_NAME#host-v}"
+          publish() { # <repo> <key> <source file> <target path>
+            key=$(mktemp); printf '%s\n' "$2" > "$key"; chmod 600 "$key"
+            export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+            rm -rf repo && git clone -q "git@github.com:$1.git" repo
+            mkdir -p "repo/$(dirname "$4")" && cp "$3" "repo/$4"
+            git -C repo add -A
+            git -C repo diff --cached --quiet || git -C repo -c user.name="n2n-nexus release" -c user.email="release@n2ns.dev" commit -qm "n2n-nexus-host ${version}"
+            git -C repo push -q origin HEAD
+            rm -f "$key"
+          }
+          publish n2ns/homebrew-tap "$TAP_KEY" dist/manifests/n2n-nexus-host.rb Formula/n2n-nexus-host.rb
+          publish n2ns/scoop-bucket "$BUCKET_KEY" dist/manifests/n2n-nexus-host.json bucket/n2n-nexus-host.json
