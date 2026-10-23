@@ -69,6 +69,30 @@ Tool calls name their conversation outside the model's arguments. The adapter re
 
 Notifications carry the sender and the first line only; the text reaches the model through `read`, as tool output rather than injected context. A listening Stop hook is held open for up to 590 s and answered as soon as a message arrives; the client killing the hook (the user pressing Esc) or the daemon shutting down ends the wait. This remains a trusted local daemon, not an authentication boundary: every process of the same operating-system user is trusted and could act as any conversation, and agents that must be isolated run as different users with their own daemons (see the local trust model in [SECURITY.md](../SECURITY.md)). See [tool reference](TOOLS_REFERENCE.md#direct-messages-between-conversations).
 
+### Sessions, presence and waking idle conversations
+
+A new conversation's SessionStart hook prints an introduction: its own name and ID, the other sessions that are not offline (up to five) and how to use `peers`, `send` and `read`. The adapter also sends MCP server instructions with the same guidance. Clients do not always report the end of a conversation, so an `idle` or `working` session without activity for 30 minutes counts as `offline` until its next event.
+
+An idle conversation is not running, so hooks alone can only reach it when its user acts. To let AI sessions answer each other without anyone typing, `install` adds a second Stop hook, `n2n-nexus hook <client> --wait`, that starts a background wait when a turn ends:
+
+```
+turn ends ──▶ Stop hook (announces unread, or listens)
+          └─▶ Stop hook --wait ──▶ POST /api/hook {BackgroundWait}  (up to 590 s per request, repeated for up to 1 h)
+                                     │  session shows as "listening"
+                                     ├─ new message ─▶ { wake: notification }
+                                     │     Claude Code: asyncRewake hook exits 2, the notification starts a turn
+                                     │     Codex: detached process runs `codex queue --thread <id> --message <notification>`
+                                     ├─ any other event of the session ─▶ null (wait ends)
+                                     └─ time runs out ─▶ { timeout: true } (ask again)
+```
+
+The wait never delivers while the session is `working` or while a listening Stop hook is waiting, so a message is announced once. Verified on Windows with the Claude desktop app and the Codex desktop app (2026-10-23): both directions wake an idle conversation within seconds. Known limits:
+
+- Codex starts a queued turn only for a conversation loaded in the running Codex app. After Codex restarts, a conversation is loaded once the user opens it.
+- The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the daemon (not in Codex's own queue) until the user next prompts that conversation.
+- A Claude Code conversation is reachable for an hour after its last turn (the hook timeout).
+- Every AI reply wakes the recipient again; loops are avoided only by the instructions the agents follow.
+
 ---
 
 ## 💾 Data Persistence
@@ -156,6 +180,8 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 }
 ```
 
+**Standalone host on a LAN**: run one daemon with `--host 0.0.0.0` as a service (a systemd unit, a launchd agent, or a Windows scheduled task that starts at boot), independent of any IDE, and allow TCP and UDP 5688 from the local subnet. Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
+
 **No required startup order**: start the IDE before the daemon — tools appear automatically once the daemon comes up. Daemon restarts are transparent; MCP reconnects and notifies the IDE.
 
 ---
@@ -166,7 +192,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 ```
 GET  /api/tools              Return full tool definition list (JSON Schema)
 POST /api/tools/call         Execute tool call { tool, args, instanceId, caller? }
-POST /api/hook               Client hook event { client, input } → { output }
+POST /api/hook               Client hook event { client, input } → { output }; the BackgroundWait event is the background wait
 ```
 
 ### System

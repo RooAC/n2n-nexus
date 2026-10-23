@@ -69,6 +69,30 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 通知只带发送方和第一行，正文由模型通过 `read` 以工具结果的形式读取，不作为注入的上下文出现。待命中的 Stop hook 最长挂起 590 秒，消息一到立即返回；客户端杀掉 hook（用户按 Esc）或 daemon 关闭时结束等待。系统仍采用可信本地 daemon 边界，这不是身份认证机制：同一系统用户下的所有进程都被视为可信，可以冒充任何对话；需要互相隔离的代理应以不同的系统用户运行，各自使用自己的 daemon（见 [SECURITY.md](../SECURITY.md) 的本地信任模型）。精确契约见[工具参考](TOOLS_REFERENCE.md#direct-messages-between-conversations)。
 
+### 会话、在线状态与唤醒空闲对话
+
+新对话的 SessionStart hook 会输出一段介绍：它自己的名称和 ID、没有离线的其他会话（最多列 5 个），以及 `peers`、`send`、`read` 的用法。适配器也会在 MCP 的服务器 instructions 里给出同样的说明。客户端不一定会报告对话结束，所以 `idle` 或 `working` 的会话 30 分钟没有任何活动就算 `offline`，直到它下一次有事件。
+
+空闲的对话并没有在运行，只靠 hooks，要等它的用户有动作才能把消息送进去。为了让 AI 会话之间无需有人输入就能互相回复，`install` 会增加第二个 Stop hook `n2n-nexus hook <client> --wait`，每轮结束时启动一个后台等待：
+
+```
+一轮结束 ──▶ Stop hook（提醒未读，或进入 listen 等待）
+         └─▶ Stop hook --wait ──▶ POST /api/hook {BackgroundWait}（每次最多 590 秒，循环最长 1 小时）
+                                    │  等待期间会话显示为 "listening"
+                                    ├─ 有新消息 ─▶ { wake: 通知 }
+                                    │     Claude Code：asyncRewake hook 以退出码 2 结束，通知开启新的一轮
+                                    │     Codex：独立后台进程执行 `codex queue --thread <id> --message <通知>`
+                                    ├─ 该会话有其他任何事件 ─▶ null（等待结束）
+                                    └─ 时间到 ─▶ { timeout: true }（再次请求）
+```
+
+会话处于 `working`，或者 listen 模式的 Stop hook 正在等待时，后台等待不会送达，所以同一条消息只提醒一次。已在 Windows 上用 Claude 桌面应用和 Codex 桌面应用实测（2026-10-23）：两个方向都能在数秒内叫醒空闲的对话。已知限制：
+
+- Codex 只会为运行中的 Codex 应用里已加载的对话启动排队的一轮。Codex 重启后，用户点开对话才会加载。
+- Codex 的后台等待会随 Codex 应用退出而结束，要等该对话再结束一轮才会重新启动。这期间发来的消息留在 daemon 里为未读（不进入 Codex 自己的队列），直到用户下次在该对话里发消息。
+- Claude Code 的对话在最后一轮结束后一小时内可被叫醒（hook 的超时时间）。
+- 每次 AI 回复都会再次叫醒对方，避免无限循环目前只靠各方遵守的指令。
+
 ---
 
 ## 💾 数据持久化
@@ -156,6 +180,8 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 }
 ```
 
+**局域网中的独立 host**：用 `--host 0.0.0.0` 把一个 daemon 作为服务运行（systemd 单元、launchd agent，或开机启动的 Windows 计划任务），不依赖任何 IDE，并对本地子网放行 TCP 与 UDP 5688。之后每台客户端机器只需要客户端部分：`n2n-nexus install <claude|codex> --endpoint discover` 写入 MCP 服务和 hooks，它们通过 UDP 广播找到 host。在 Windows 上要在普通终端里执行 `npm install -g`：在 Codex 这类打包（MSIX）应用的终端里安装，会装进该应用私有的 `%APPDATA%` 副本，只有这个应用看得到，而且之后它会挡住真正的全局安装。
+
 **无强制启动顺序**：先开 IDE 再启动 daemon 也没问题，工具在 daemon 就绪后自动出现。Daemon 重启对 MCP 透明，自动重连后通知 IDE。
 
 ---
@@ -166,7 +192,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 ```
 GET  /api/tools              返回完整工具定义列表（JSON Schema）
 POST /api/tools/call         执行工具调用 { tool, args, instanceId, caller? }
-POST /api/hook               客户端 hook 事件 { client, input } → { output }
+POST /api/hook               客户端 hook 事件 { client, input } → { output }；BackgroundWait 事件即后台等待
 ```
 
 ### 系统
