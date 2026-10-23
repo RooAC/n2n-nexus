@@ -70,5 +70,5 @@ describe("Codex Windows hooks", () => {
         const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script], { encoding: "utf8", input });
         expect(result.status, result.stderr).toBe(0);
         expect(JSON.parse(result.stdout)).toEqual({ args: ["hook", "codex", "--endpoint", endpoint], input });
-    });
+    }, 30_000); // Windows PowerShell can take seconds to start on a CI runner
 });

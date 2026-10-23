@@ -100,7 +100,7 @@ beforeEach(() => {
     fs.mkdirSync(bin, { recursive: true });
     fakeCli("claude");
     fakeCli("codex");
-});
+}, 60_000); // removing the previous tree and writing the fake CLIs is slow on Windows runners
 
 afterAll(() => {
     fs.rmSync(TMP, { recursive: true, force: true });
