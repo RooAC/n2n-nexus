@@ -18,7 +18,7 @@ import path from "node:path";
 import {
     CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
     type HookClient
-} from "../daemon/hook-contract.js";
+} from "../contract.js";
 import { pkg } from "../config/index.js";
 import { spawnClientSync } from "./client-command.js";
 import { entryScript } from "./entry.js";

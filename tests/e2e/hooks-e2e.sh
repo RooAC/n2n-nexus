@@ -4,7 +4,9 @@
 # upgrading either client, since the identity it relies on (hook stdin `session_id`, Claude's
 # `_meta["claudecode/toolUseId"]`, Codex's `_meta.sessionId`) is client behaviour.
 #
-# Usage: npm run build && tests/e2e/hooks-e2e.sh        (E2E_PORT overrides the daemon port, default 5799)
+# Usage: go build -o host/bin/ ./host/cmd/n2n-nexus-host && npm run build && tests/e2e/hooks-e2e.sh
+#        (E2E_PORT overrides the host port, default 5799; NEXUS_HOST_BIN the host executable,
+#        default host/bin/n2n-nexus-host). Needs the sqlite3 command-line tool to inspect the host database.
 #
 # Automated (headless): 1. send / notify / read / reply between Claude and Codex
 #                       2+3. a message arriving during a tool call (PostToolUse), then Stop continuing once
@@ -22,10 +24,11 @@ PORT="${E2E_PORT:-5799}"
 ENDPOINT="http://127.0.0.1:$PORT"
 DIR="$(mktemp -d "${TMPDIR:-/tmp}/n2n-nexus-e2e.XXXXXX")"
 NODE="$(command -v node)"
-DAEMON_PID=""
+HOST_BIN="${NEXUS_HOST_BIN:-$REPO/host/bin/n2n-nexus-host}"
+HOST_PID=""
 
 cleanup() {
-    [ -n "$DAEMON_PID" ] && kill "$DAEMON_PID" 2>/dev/null || true
+    [ -n "$HOST_PID" ] && kill "$HOST_PID" 2>/dev/null || true
     if [ "${KEEP:-0}" = 1 ]; then echo "Kept $DIR"; else rm -rf "$DIR"; fi
 }
 trap cleanup EXIT
@@ -33,13 +36,9 @@ trap cleanup EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 pass() { echo "PASS: $*"; }
 
-# One SQL query against the test daemon's database, printed as JSON rows.
+# One SQL query against the test host's database, printed as JSON rows.
 query() {
-    "$NODE" -e '
-        const Database = require(process.argv[1]);
-        const db = new Database(process.argv[2], { readonly: true });
-        console.log(JSON.stringify(db.prepare(process.argv[3]).all()));
-    ' "$REPO/node_modules/better-sqlite3" "$DIR/nexus-root/nexus.db" "$1"
+    sqlite3 -readonly -json "$DIR/nexus-root/nexus.db" "$1"
 }
 
 claude_run() {   # claude_run <workdir> [--resume <id>] <prompt>  → prints the session id
@@ -62,10 +61,12 @@ cp "${CODEX_HOME:-$HOME/.codex}/auth.json" "$DIR/codex-home/"
 printf '[projects."%s"]\ntrust_level = "trusted"\n' "$DIR/work-b" > "$DIR/codex-home/config.toml"
 CLAUDE_CONFIG_DIR="$DIR/claude-home" "$NODE" "$REPO/build/index.js" install claude --endpoint "$ENDPOINT" >/dev/null
 CODEX_HOME="$DIR/codex-home" "$NODE" "$REPO/build/index.js" install codex --endpoint "$ENDPOINT" >/dev/null 2>&1
-"$NODE" "$REPO/build/index.js" daemon --root "$DIR/nexus-root" --port "$PORT" >"$DIR/daemon.log" 2>&1 &
-DAEMON_PID=$!
+[ -x "$HOST_BIN" ] || fail "no host executable at $HOST_BIN (go build -o host/bin/ ./host/cmd/n2n-nexus-host)"
+command -v sqlite3 >/dev/null || fail "the sqlite3 command-line tool is required"
+"$HOST_BIN" serve --root "$DIR/nexus-root" --port "$PORT" >"$DIR/host.log" 2>&1 &
+HOST_PID=$!
 for _ in $(seq 1 50); do curl -sf "$ENDPOINT/health" >/dev/null && break; sleep 0.1; done
-curl -sf "$ENDPOINT/health" >/dev/null || fail "daemon did not start (see $DIR/daemon.log)"
+curl -sf "$ENDPOINT/health" >/dev/null || fail "host did not start (see $DIR/host.log)"
 
 # --- 1. send / notify / read / reply -----------------------------------------------------------
 codex_run b1.log "Call the n2n-nexus peers tool and tell me your own session id."

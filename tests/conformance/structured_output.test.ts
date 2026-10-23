@@ -1,7 +1,7 @@
 // Every tool's result satisfies its output schema in contract/tools.json.
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
-import { IS_GO, TOOLS_CONTRACT, useHost } from "./harness.js";
+import { TOOLS_CONTRACT, useHost } from "./harness.js";
 
 const host = useHost({ rateLimit: 0 });
 const ajv = new Ajv({ allErrors: true });
@@ -66,7 +66,7 @@ describe("tool results", () => {
         const task = await call("create_task", { metadata: { k: "v" }, ttl: 60000 });
         await call("get_task", { taskId: task.task_id });
         await call("list_tasks", {});
-        if (IS_GO) await call("update_task", { taskId: task.task_id, status: "running", progress: 0.5, result_uri: "file:///r", metadata: { k: "w" } });
+        await call("update_task", { taskId: task.task_id, status: "running", progress: 0.5, result_uri: "file:///r", metadata: { k: "w" } });
         await call("cancel_task", { taskId: task.task_id });
         await call("list_events", { limit: 50 });
         await call("rename_project", { oldId: "web_b", newId: "web_c" });
@@ -74,7 +74,7 @@ describe("tool results", () => {
         await call("host_maintenance", { action: "clear" });
         await call("host_delete_project", { projectId: "web_c" });
 
-        const expected = TOOLS_CONTRACT.tools.map((t) => t.name).filter((n) => IS_GO || n !== "update_task");
+        const expected = TOOLS_CONTRACT.tools.map((t) => t.name);
         expect([...called].sort()).toEqual(expected.sort());
     });
 });

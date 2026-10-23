@@ -1,14 +1,18 @@
 /**
  * `n2n-nexus doctor [claude|codex]`: check that the Node path and the entry
  * script in the hook commands and in the MCP server command that `install`
- * wrote still exist and run, and say how to fix what does not. Without a
- * client both are checked; a client with nothing installed is only reported
- * when it was named. Exit code 1 when a check failed.
+ * wrote still exist and run, that the host those commands talk to answers
+ * GET /health as n2n-nexus-host with this client's contract version, and say
+ * how to fix what does not. Without a client both are checked; a client with
+ * nothing installed is only reported when it was named. Exit code 1 when a
+ * check failed.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 
-import { HOOK_CLIENTS, MCP_SERVER_NAME, isHookClient, type HookClient } from "../daemon/hook-contract.js";
+import { CONTRACT_VERSION, HOOK_CLIENTS, MCP_SERVER_NAME, isHookClient, noDaemonHint, type HookClient } from "../contract.js";
+import { NexusClient } from "../client/nexus-client.js";
+import { LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
 import { VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup } from "./install.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
@@ -42,9 +46,44 @@ export function checkNode(node: string): Check {
 
 const checkEntry = (entry: string): Check => fs.existsSync(entry) ? ok("ok") : bad("missing");
 
+/** The `--endpoint` a hook command was installed with, if any. */
+const hookEndpoint = (command: string): string | undefined => / --endpoint (\S+)/.exec(command)?.[1];
 
-/** Check one client; prints the report and returns whether everything passed, or undefined when nothing is installed. */
-function doctorClient(client: HookClient): boolean | undefined {
+/** Ask the host at `endpoint` for GET /health: it must be n2n-nexus-host speaking this client's contract version. */
+export async function checkHost(endpoint: string): Promise<Check> {
+    let health: { service?: unknown; version?: unknown; contractVersion?: unknown };
+    try {
+        health = await new NexusClient({ endpoint, timeoutMs: 3000 }).health();
+    } catch (error) {
+        return bad(`not reachable (${(error as Error).message}). ${noDaemonHint(endpoint)}`);
+    }
+    if (health.service !== "n2n-nexus") return bad("answers, but is not an n2n-nexus host");
+    const version = typeof health.version === "string" ? health.version : "unknown version";
+    if (health.contractVersion !== CONTRACT_VERSION) {
+        return bad(`n2n-nexus-host ${version} speaks contract version ${String(health.contractVersion)}, this client ${CONTRACT_VERSION}: upgrade the older of n2n-nexus-host and n2n-nexus`);
+    }
+    return ok(`n2n-nexus-host ${version}, contract version ${CONTRACT_VERSION}`);
+}
+
+/** Check the host at each endpoint; prints the report and returns whether all passed. */
+async function doctorHosts(endpoints: Set<string>): Promise<boolean> {
+    let passed = true;
+    for (const configured of endpoints) {
+        const endpoint = await resolveEndpoint(configured);
+        const check = await checkHost(endpoint);
+        if (!check.ok) passed = false;
+        const label = endpoint === configured ? endpoint : `${endpoint} (${configured})`;
+        process.stdout.write(`host ${label}\n  ${check.ok ? "ok  " : "FAIL"} ${check.text}\n`);
+    }
+    return passed;
+}
+
+
+/**
+ * Check one client; prints the report and returns whether everything passed, or undefined when nothing is installed.
+ * Adds the endpoints its hook commands use (`defaultEndpoint` for those without --endpoint) to `endpoints`.
+ */
+function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoint: string): boolean | undefined {
     const hooksFile = configFile(client);
     const mcpFile = mcpConfigFile(client);
     const lines: string[] = [];
@@ -71,6 +110,7 @@ function doctorClient(client: HookClient): boolean | undefined {
     const mcp = readMcpCommand(client, mcpFile);
     if (commands.size === 0 && !mcp) return undefined;
 
+    for (const command of commands) endpoints.add(hookEndpoint(command) ?? defaultEndpoint);
     lines.push(`${client}`);
     if (commands.size === 0) report(`hooks in ${hooksFile}`, bad("not installed"));
     for (const command of commands) {
@@ -100,7 +140,7 @@ function doctorClient(client: HookClient): boolean | undefined {
 }
 
 /** Parse `[claude|codex]`, run the checks and return the exit code. */
-export function runDoctor(argv: string[]): number {
+export async function runDoctor(argv: string[]): Promise<number> {
     const client = argv[0];
     if (client !== undefined && !isHookClient(client)) {
         process.stderr.write("Usage: n2n-nexus doctor [claude|codex]\n");
@@ -108,8 +148,10 @@ export function runDoctor(argv: string[]): number {
     }
     try {
         let failed = false;
+        const defaultEndpoint = process.env.NEXUS_ENDPOINT || LOCAL_ENDPOINT;
+        const endpoints = new Set<string>();
         for (const c of client ? [client] : HOOK_CLIENTS) {
-            const result = doctorClient(c);
+            const result = doctorClient(c, endpoints, defaultEndpoint);
             if (result === undefined) {
                 if (client) {
                     process.stdout.write(`${c}\n  FAIL nothing installed: run "n2n-nexus install ${c}".\n`);
@@ -121,6 +163,8 @@ export function runDoctor(argv: string[]): number {
                 failed = true;
             }
         }
+        if (endpoints.size === 0) endpoints.add(defaultEndpoint);
+        if (!await doctorHosts(endpoints)) failed = true;
         return failed ? 1 : 0;
     } catch (error) {
         process.stderr.write(`[n2n-nexus] doctor failed: ${(error as Error).message}\n`);

@@ -1,14 +1,11 @@
 // GET /api/tools against contract/tools.json, and argument validation of POST /api/tools/call.
 import { describe, expect, it } from "vitest";
-import { IS_GO, TOOLS_CONTRACT, goIt, tsIt, useHost, type JsonSchema } from "./harness.js";
+import { TOOLS_CONTRACT, useHost, type JsonSchema } from "./harness.js";
 
 type Definition = {
     name: string; title: string; description: string; annotations: Record<string, boolean>;
     inputSchema: JsonSchema & { properties: Record<string, JsonSchema>; required?: string[] }; outputSchema?: JsonSchema;
 };
-
-/** Tools the TypeScript daemon does not have yet (new in the contract). */
-const NEW_TOOLS = ["update_task"];
 
 const host = useHost();
 const definitions = async () => {
@@ -20,16 +17,14 @@ const definitions = async () => {
 describe("GET /api/tools", () => {
     it("publishes what contract/tools.json defines: name, title, description, annotations, inputSchema, and outputSchema only when publishOutputSchema", async () => {
         const byName = await definitions();
-        const expected = TOOLS_CONTRACT.tools.filter((t) => IS_GO || !NEW_TOOLS.includes(t.name));
+        const expected = TOOLS_CONTRACT.tools;
         expect(Object.keys(byName).sort()).toEqual(expected.map((t) => t.name).sort());
         for (const t of expected) {
             const want = {
                 name: t.name, title: t.title, description: t.description, annotations: t.annotations, inputSchema: t.inputSchema,
                 ...(t.publishOutputSchema ? { outputSchema: t.outputSchema } : {})
             };
-            // The TypeScript daemon still points create_task at the removed REST endpoint (checked below).
-            if (!IS_GO && t.name === "create_task") expect({ ...byName[t.name], description: want.description }, t.name).toEqual(want);
-            else expect(byName[t.name], t.name).toEqual(want);
+            expect(byName[t.name], t.name).toEqual(want);
         }
     });
 
@@ -68,16 +63,10 @@ describe("GET /api/tools", () => {
         expect(byName.send_message.inputSchema.required).toEqual(["message"]);
     });
 
-    goIt("create_task points to update_task", async () => {
+    it("create_task points to update_task", async () => {
         const byName = await definitions();
         expect(byName.create_task.description).toContain("update_task");
         expect(byName.update_task.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
-    });
-
-    tsIt("create_task points to the REST task update (TypeScript daemon)", async () => {
-        const byName = await definitions();
-        expect(byName.create_task.description).not.toMatch(/update it via/);
-        expect(byName.create_task.description).toContain("POST /api/tasks/{id}/update");
     });
 });
 
@@ -125,7 +114,7 @@ describe("POST /api/tools/call: arguments", () => {
         expect(noArgs.status).toBe(200);
     });
 
-    goIt("refuses tools that advance a read cursor without an instanceId", async () => {
+    it("refuses tools that advance a read cursor without an instanceId", async () => {
         const res = await host.callTool("read_messages", { count: 5 }, null);
         expect(res.status).toBe(400);
         expect(res.payload.ok).toBe(false);

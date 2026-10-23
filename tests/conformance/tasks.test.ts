@@ -1,6 +1,6 @@
 // Task tools: create, get, list, cancel, update_task (Go), and TTL expiry at host start.
 import { describe, expect, it } from "vitest";
-import { goIt, sleep, useHost } from "./harness.js";
+import { sleep, useHost } from "./harness.js";
 
 type Task = {
     id: string; status: string; progress: number; source_meeting_id: string | null; metadata: Record<string, unknown>;
@@ -53,7 +53,7 @@ describe("task tools", () => {
         expect((await get(noTtl.task_id))?.status).toBe("pending");
     });
 
-    goIt("update_task changes status, progress, result_uri, error_message and metadata and returns the task", async () => {
+    it("update_task changes status, progress, result_uri, error_message and metadata and returns the task", async () => {
         const task = await create({ metadata: { kind: "demo" } });
         const running = await host.callTool<Task>("update_task", { taskId: task.task_id, status: "running", progress: 0.25 });
         expect(running.status, running.body).toBe(200);
@@ -70,7 +70,7 @@ describe("task tools", () => {
         expect(err.payload.result).toMatchObject({ status: "failed", error_message: "boom" });
     });
 
-    goIt("update_task validates progress 0..1 and refuses unknown tasks", async () => {
+    it("update_task validates progress 0..1 and refuses unknown tasks", async () => {
         const task = await create();
         for (const progress of [-0.1, 1.5, 7]) {
             const res = await host.callTool("update_task", { taskId: task.task_id, progress });

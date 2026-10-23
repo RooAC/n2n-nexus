@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { MCP_SERVER_NAME, type HookClient } from "../daemon/hook-contract.js";
+import { MCP_SERVER_NAME, type HookClient } from "../contract.js";
 
 /** Where the client keeps the MCP server command. */
 export function mcpConfigFile(client: HookClient): string {

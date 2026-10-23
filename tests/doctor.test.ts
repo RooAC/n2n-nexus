@@ -1,9 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { execSync, spawnSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
+import { AddressInfo } from "node:net";
 import path from "node:path";
 
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
+import { HOOK, Host } from "./conformance/harness.js";
 
 import { readMcpCommand } from "../src/cli/mcp-config.js";
 
@@ -16,13 +19,41 @@ const NODE = process.execPath;
 let dir: string;
 let claudeDir: string;
 let codexHome: string;
+/** A real n2n-nexus-host (the test build); doctor checks it through NEXUS_ENDPOINT unless a test says otherwise. */
+const host = new Host();
+let hostEndpoint: string;
+let hostVersion: string;
 
-function run(args: string[]) {
-    const result = spawnSync(NODE, [ENTRY, "doctor", ...args], {
-        encoding: "utf8",
-        env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome }
+function run(args: string[], endpoint = hostEndpoint): Promise<{ code: number | null; stdout: string; stderr: string }> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(NODE, [ENTRY, "doctor", ...args], {
+            env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome, NEXUS_ENDPOINT: endpoint },
+            stdio: ["ignore", "pipe", "pipe"]
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk; });
+        child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
     });
-    return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** The report line doctor prints for a host that passes. */
+const hostOk = (endpoint = hostEndpoint) => `host ${endpoint}\n  ok   n2n-nexus-host ${hostVersion}, contract version ${HOOK.contractVersion}\n`;
+
+/** An HTTP server that answers GET /health with `health`. */
+async function fakeHealth(health: Record<string, unknown>): Promise<{ endpoint: string; close: () => Promise<void> }> {
+    const server = http.createServer((req, res) => {
+        req.resume();
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(req.url === "/health" ? health : { ok: false, error: "not found" }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return {
+        endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        close: () => new Promise<void>((resolve) => server.close(() => resolve()))
+    };
 }
 
 const hookCommand = (client: string, node = NODE, entry = ENTRY) => `"${node}" "${entry}" hook ${client}`;
@@ -61,8 +92,11 @@ function writeCodex(command: string, mcp?: { command: string; args: string[] }):
     }
 }
 
-beforeAll(() => {
+beforeAll(async () => {
     execSync("npm run build", { cwd: REPO, stdio: "ignore" });
+    await host.start();
+    hostEndpoint = `http://127.0.0.1:${host.port}`;
+    hostVersion = (await host.request<{ version: string }>("GET", "/health")).payload.version;
 }, 120_000);
 
 beforeEach(() => {
@@ -73,16 +107,17 @@ beforeEach(() => {
     fs.mkdirSync(dir, { recursive: true });
 });
 
-afterAll(() => {
+afterAll(async () => {
+    await host.dispose();
     fs.rmSync(TMP, { recursive: true, force: true });
     cleanupExecutables();
 });
 
 describe("doctor", () => {
-    it("passes when the hook and MCP commands use a Node that exists and runs", () => {
+    it("passes when the hook and MCP commands use a Node that exists and runs", async () => {
         writeClaude(hookCommand("claude"), { command: NODE, args: [ENTRY, "mcp"] });
         writeCodex(hookCommand("codex"), { command: NODE, args: [ENTRY, "mcp"] });
-        const result = run([]);
+        const result = await run([]);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain(`ok   hook Node ${NODE}: v${process.versions.node}`);
         expect(result.stdout).toContain(`ok   MCP Node ${NODE}: v${process.versions.node}`);
@@ -91,19 +126,20 @@ describe("doctor", () => {
         expect(result.stdout).not.toContain("FAIL");
         expect(result.stdout).not.toContain("fix:");
         expect(result.stdout.match(/hook Node/g)).toHaveLength(2);
+        expect(result.stdout.endsWith(hostOk())).toBe(true);
     });
 
-    it("reports a missing Node in the hooks and the MCP command and says how to fix it", () => {
+    it("reports a missing Node in the hooks and the MCP command and says how to fix it", async () => {
         const gone = path.join(dir, "node-v22.0.0", "bin", "node");
         writeClaude(hookCommand("claude", gone), { command: gone, args: [ENTRY, "mcp"] });
-        const result = run(["claude"]);
+        const result = await run(["claude"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${gone}: missing`);
         expect(result.stdout).toContain(`FAIL MCP Node ${gone}: missing`);
         expect(result.stdout).toContain('fix: run "n2n-nexus install claude" again (add --node <path>');
     });
 
-    it("reports a Node that does not run, an old Node, a missing entry script and warns about version directories", () => {
+    it("reports a Node that does not run, an old Node, a missing entry script and warns about version directories", async () => {
         const bin = path.join(dir, "bin");
         fs.mkdirSync(bin);
         const broken = writeExecutable(path.join(bin, "broken"), "process.exit(3);");
@@ -119,7 +155,7 @@ describe("doctor", () => {
         }
 
         writeCodex(hookCommand("codex", broken, "/nowhere/build/index.js"), { command: old, args: ["/nowhere/build/index.js", "mcp"] });
-        let result = run(["codex"]);
+        let result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${broken}: does not run`);
         expect(result.stdout).toContain("FAIL hook entry /nowhere/build/index.js: missing");
@@ -127,59 +163,103 @@ describe("doctor", () => {
         expect(result.stdout).toContain('fix: run "n2n-nexus install codex" again');
 
         writeCodex(hookCommand("codex", path.join(bin, "noexec")), { command: versioned, args: [ENTRY, "mcp"] });
-        result = run(["codex"]);
+        result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "noexec")}: ${process.platform === "win32" ? "does not run" : "not executable"}`);
         expect(result.stdout).toContain(`ok   MCP Node ${versioned}: v${process.versions.node}, in a version directory that an upgrade may remove`);
         expect(result.stdout).not.toContain("note:");
 
         writeCodex(hookCommand("codex", versioned), { command: versioned, args: [ENTRY, "mcp"] });
-        result = run(["codex"]);
+        result = await run(["codex"]);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain('note: after upgrading Node, run "n2n-nexus install codex" again, or install with --node <path>');
     });
 
-    it("ignores hook groups whose hooks field is not an array", () => {
+    it("ignores hook groups whose hooks field is not an array", async () => {
         fs.mkdirSync(claudeDir, { recursive: true });
         fs.writeFileSync(path.join(claudeDir, "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: "oops" }, { hooks: [{ type: "command", command: hookCommand("claude") }] }] } }));
         fs.writeFileSync(path.join(claudeDir, ".claude.json"), JSON.stringify({ mcpServers: { "n2n-nexus": { command: NODE, args: [ENTRY, "mcp"] } } }));
-        expect(run(["claude"]).code).toBe(0);
+        expect((await run(["claude"])).code).toBe(0);
     });
 
-    it("reports what is not installed: only for a named client, and the missing half of a partial install", () => {
-        expect(run([])).toEqual({ code: 0, stdout: "claude\n  not installed\ncodex\n  not installed\n", stderr: "" });
-        const named = run(["codex"]);
+    it("reports what is not installed: only for a named client, and the missing half of a partial install", async () => {
+        expect(await run([])).toEqual({ code: 0, stdout: `claude\n  not installed\ncodex\n  not installed\n${hostOk()}`, stderr: "" });
+        const named = await run(["codex"]);
         expect(named.code).toBe(1);
         expect(named.stdout).toContain('FAIL nothing installed: run "n2n-nexus install codex".');
 
         writeClaude(hookCommand("claude"));
-        let result = run([]);
+        let result = await run([]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL MCP server n2n-nexus in ${path.join(claudeDir, ".claude.json")}: not registered`);
         expect(result.stdout).toContain("codex\n  not installed");
 
         fs.rmSync(claudeDir, { recursive: true });
         writeCodex('"/x/node" "/x/index.js" hook claude', { command: NODE, args: [ENTRY, "mcp"] });
-        result = run(["codex"]);
+        result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hooks in ${path.join(codexHome, "hooks.json")}: not installed`);
         expect(result.stdout).toContain(`ok   MCP Node ${NODE}`);
     });
 
-    it("rejects an unknown client and a broken settings file", () => {
-        const usage = run(["cursor"]);
+    it("rejects an unknown client and a broken settings file", async () => {
+        const usage = await run(["cursor"]);
         expect(usage.code).toBe(1);
         expect(usage.stderr).toContain("Usage: n2n-nexus doctor [claude|codex]");
 
         fs.mkdirSync(claudeDir, { recursive: true });
         fs.writeFileSync(path.join(claudeDir, "settings.json"), "{ broken");
-        const result = run(["claude"]);
+        const result = await run(["claude"]);
         expect(result.code).toBe(1);
         expect(result.stderr).toContain("doctor failed");
         expect(result.stderr).toContain("not valid JSON");
     });
 
-    it("readMcpCommand parses the Claude JSON and the Codex TOML forms", () => {
+    it("checks the host each hook command talks to: --endpoint, else NEXUS_ENDPOINT", async () => {
+        const other = await fakeHealth({ ok: true, service: "n2n-nexus", version: "9.9.9", contractVersion: HOOK.contractVersion });
+        try {
+            writeClaude(`${hookCommand("claude")} --endpoint ${other.endpoint}`, { command: NODE, args: [ENTRY, "mcp"] });
+            writeCodex(hookCommand("codex"), { command: NODE, args: [ENTRY, "mcp"] });
+            const result = await run([]);
+            expect(result.code).toBe(0);
+            expect(result.stdout).toContain(`host ${other.endpoint}\n  ok   n2n-nexus-host 9.9.9, contract version ${HOOK.contractVersion}\n`);
+            expect(result.stdout).toContain(hostOk());
+        } finally {
+            await other.close();
+        }
+    });
+
+    it("fails when no host answers, and says how to start one", async () => {
+        const probe = http.createServer();
+        await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+        const closed = `http://127.0.0.1:${(probe.address() as AddressInfo).port}`;
+        await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+        const result = await run([], closed);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain(`host ${closed}\n  FAIL not reachable`);
+        expect(result.stdout).toContain("Install n2n-nexus-host (https://github.com/n2ns/n2n-nexus/releases)");
+        expect(result.stdout).toContain("n2n-nexus-host serve");
+    });
+
+    it("fails when the endpoint is not an n2n-nexus host or speaks another contract version", async () => {
+        const stranger = await fakeHealth({ ok: true, service: "something-else", version: "1.0.0" });
+        const newer = await fakeHealth({ ok: true, service: "n2n-nexus", version: "2.0.0", contractVersion: HOOK.contractVersion + 1 });
+        try {
+            let result = await run([], stranger.endpoint);
+            expect(result.code).toBe(1);
+            expect(result.stdout).toContain(`host ${stranger.endpoint}\n  FAIL answers, but is not an n2n-nexus host`);
+
+            result = await run([], newer.endpoint);
+            expect(result.code).toBe(1);
+            expect(result.stdout).toContain(`FAIL n2n-nexus-host 2.0.0 speaks contract version ${HOOK.contractVersion + 1}, this client ${HOOK.contractVersion}`);
+        } finally {
+            await stranger.close();
+            await newer.close();
+        }
+    });
+
+    it("readMcpCommand parses the Claude JSON and the Codex TOML forms", async () => {
         const toml = path.join(dir, "config.toml");
         fs.writeFileSync(toml, '[mcp_servers.n2n-nexus]\ncommand = "/a b/node"\nargs = ["/a b/index.js", "mcp"]\nenv = { NEXUS_ENDPOINT = "http://127.0.0.1:5799" }\n');
         expect(readMcpCommand("codex", toml)).toEqual({ command: "/a b/node", args: ["/a b/index.js", "mcp"] });
