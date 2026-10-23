@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/n2ns/n2n-nexus/host/internal/config"
 	"github.com/n2ns/n2n-nexus/host/internal/host"
@@ -141,12 +142,19 @@ func serve(args []string) int {
 	logger.Printf("data: %s", dataDir)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	restart := make(chan struct{})
 	if supervisor > 0 {
 		service.WatchSupervisor(supervisor, func() { stop <- syscall.SIGTERM })
+		// The tray asks for a restart through a file; its supervisor then starts serve again.
+		done := make(chan struct{})
+		defer close(done)
+		host.WatchRestart(dataDir, time.Second, done, func() { close(restart) })
 	}
 	select {
 	case <-stop:
 	case <-testhooks.Shutdown():
+	case <-restart:
+		logger.Print("restart requested")
 	}
 	logger.Print("shutting down")
 	h.Stop()

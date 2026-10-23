@@ -31,6 +31,8 @@ func TestMain(m *testing.M) {
 		if _, err := host.AcquireLock(dir, os.Getpid(), os.Getppid(), host.RoleSupervised); err != nil {
 			os.Exit(3)
 		}
+		// It restarts on request, as serve under a supervisor does.
+		host.WatchRestart(dir, 50*time.Millisecond, nil, func() { os.Exit(0) })
 		http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, `{"ok":true,"service":"n2n-nexus","version":"svc","sessions":{"online":2}}`)
 		})

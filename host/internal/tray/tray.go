@@ -220,8 +220,9 @@ func (a *app) open(dir string) {
 }
 
 // restartHost (a.mu held) applies settings.json: it restarts the in-process
-// host, or, in controller mode, stops the service's serve by the PID in
-// host.lock so its supervisor starts it again with the new settings, and
+// host, or, in controller mode, asks the service's serve to restart (a request
+// file in the data directory: the tray may not end a process of another logon
+// session) so its supervisor starts it again with the new settings, and
 // waits up to restartWait for it to answer. A controller stays a controller:
 // it never starts a host in-process, which would take the lock from the service.
 func (a *app) restartHost() {
@@ -235,11 +236,12 @@ func (a *app) restartHost() {
 		go notice(a.t.Tooltip, a.t.RestartNoControl)
 		return
 	}
-	if err := service.StopPID(info.PID); err != nil {
+	if err := host.RequestRestart(a.o.DataDir); err != nil {
+		a.logger.Printf("restart request: %v", err)
 		go notice(a.t.Tooltip, fmt.Sprintf(a.t.Error, err))
 		return
 	}
-	a.logger.Printf("stopped serve PID %d; its supervisor restarts it", info.PID)
+	a.logger.Printf("asked serve PID %d to restart; its supervisor starts it again", info.PID)
 	s := a.settings
 	a.mu.Unlock()
 	addr := awaitService(a.o.DataDir, s, info.PID, restartWait)
