@@ -39,7 +39,7 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 
 **Quick summary**
 
-- **安装**：host 用 Scoop / Homebrew / Release 压缩包安装 `n2n-nexus-host`；客户端 `npm i -g n2n-nexus` 后执行 `n2n-nexus install <claude|codex>`
+- **安装**：host 用 Scoop / Homebrew / Release 压缩包安装 `n2n-nexus-host`；客户端 `npm i -g n2n-nexus@latest` 后执行 `n2n-nexus install <claude|codex>`
 - **协议**：Model Context Protocol (MCP)，适配器通过 HTTP 连接 host
 - **存储**：host 数据目录下的一个 SQLite 数据库
 - **适合**：多助手编码会话、项目交接、共享决策、会议记录、任务跟踪、项目 Manifest
@@ -107,7 +107,7 @@ gh attestation verify n2n-nexus-host_<版本>_<os>_<arch>.tar.gz --repo n2ns/n2n
 运行环境要求 Node.js 22.x 中的 22.14.0 或更高版本，或 Node.js 23.6.0 及以上版本。
 
 ```bash
-npm i -g n2n-nexus
+npm i -g n2n-nexus@latest
 n2n-nexus install claude    # ~/.claude/settings.json（或 $CLAUDE_CONFIG_DIR）+ claude mcp add --scope user
 n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mcp add
 n2n-nexus doctor            # 检查已安装的命令，以及 host 是否应答

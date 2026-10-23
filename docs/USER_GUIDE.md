@@ -30,7 +30,7 @@ The binaries are not code-signed yet: Windows may show SmartScreen the first tim
 You need Node.js 22.14 or newer.
 
 ```bash
-npm i -g n2n-nexus
+npm i -g n2n-nexus@latest
 n2n-nexus install claude     # Claude Code: hooks + MCP server
 n2n-nexus install codex      # Codex: hooks + MCP server
 n2n-nexus doctor             # checks everything, including that the host answers
@@ -84,7 +84,7 @@ On macOS the first connection may trigger a **Local Network** permission prompt 
 
 ## 7. Upgrading
 
-- Client: `npm i -g n2n-nexus`. Hooks use the new version at once; the MCP server in a running conversation keeps the old one until you start a new conversation.
+- Client: `npm i -g n2n-nexus@latest`. Hooks use the new version at once; the MCP server in a running conversation keeps the old one until you start a new conversation.
 - Host: upgrade with the package manager you installed it with (`scoop update n2n-nexus-host`, `brew upgrade n2n-nexus-host`), or replace the program, then restart it (tray: **Restart**; service: run `n2n-nexus-host service install` again from an administrator terminal).
 
 ## 8. Troubleshooting

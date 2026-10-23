@@ -98,7 +98,7 @@ gh attestation verify n2n-nexus-host_<version>_<os>_<arch>.tar.gz --repo n2ns/n2
 Requires Node.js 22.14+ on the 22.x release line, or Node.js 23.6+.
 
 ```bash
-npm i -g n2n-nexus
+npm i -g n2n-nexus@latest
 n2n-nexus install claude    # ~/.claude/settings.json (or $CLAUDE_CONFIG_DIR) + claude mcp add --scope user
 n2n-nexus install codex     # ~/.codex/hooks.json (or $CODEX_HOME) + codex mcp add
 n2n-nexus doctor            # check the installed commands and that the host answers

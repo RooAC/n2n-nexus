@@ -30,7 +30,7 @@
 需要 Node.js 22.14 或更新版本。
 
 ```bash
-npm i -g n2n-nexus
+npm i -g n2n-nexus@latest
 n2n-nexus install claude     # Claude Code：hooks + MCP 服务器
 n2n-nexus install codex      # Codex：hooks + MCP 服务器
 n2n-nexus doctor             # 全面检查，包括 host 是否应答
@@ -84,7 +84,7 @@ macOS 上第一次连接时，系统可能会为运行客户端的应用（Claud
 
 ## 7. 升级
 
-- 客户端：`npm i -g n2n-nexus`。hooks 立即用上新版本；正在进行的对话里的 MCP 服务器仍是旧版本，新开对话后才换。
+- 客户端：`npm i -g n2n-nexus@latest`。hooks 立即用上新版本；正在进行的对话里的 MCP 服务器仍是旧版本，新开对话后才换。
 - host：用当初安装它的包管理器升级（`scoop update n2n-nexus-host`、`brew upgrade n2n-nexus-host`），或直接替换程序，然后重启（托盘：**重启**；服务：在管理员终端里再运行一次 `n2n-nexus-host service install`）。
 
 ## 8. 常见问题
