@@ -102,7 +102,7 @@ describe("direct-message tools: identity", () => {
 });
 
 describe("direct-message tools: peers, listen, set_profile", () => {
-    it("peers returns self and other sessions not offline or active within PEER_WINDOW_MS, most recent first", async () => {
+    it("peers returns self and the sessions not offline; includeOffline adds those active within PEER_WINDOW_MS; most recent first", async () => {
         const t0 = Date.now();
         vi.spyOn(Date, "now").mockReturnValue(t0 - PEER_WINDOW_MS - 60_000);
         await hook("codex", "SessionStart", "gone", "/work/old");
@@ -121,7 +121,10 @@ describe("direct-message tools: peers, listen, set_profile", () => {
             id: "claude:me", name: "claude@mine", client: "claude", cwd: "/work/mine", note: "", status: "idle",
             lastActiveAt: new Date(t0).toISOString()
         });
-        expect(payload.result?.peers.map(p => [p.id, p.status])).toEqual([
+        expect(payload.result?.peers.map(p => [p.id, p.status])).toEqual([["codex:busy", "working"]]);
+
+        const all = await claude<{ self: Profile; peers: Profile[] }>("me", "peers", { includeOffline: true });
+        expect(all.payload.result?.peers.map(p => [p.id, p.status])).toEqual([
             ["codex:busy", "working"], ["claude:recent-offline", "offline"]
         ]);
         expect(AgentStore.get("codex:stale")?.status).toBe("offline");

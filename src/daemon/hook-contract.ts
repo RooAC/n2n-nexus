@@ -84,7 +84,7 @@ export const TOOL_USE_BINDING_TTL_MS = 5 * 60_000;
 export const MESSAGE_TTL_MS = 24 * 60 * 60_000;
 /** notifyWhenIdle subscriptions lapse after this long. */
 export const IDLE_SUBSCRIPTION_TTL_MS = 24 * 60 * 60_000;
-/** peers lists offline sessions active within this window. */
+/** peers with includeOffline also lists offline sessions active within this window. */
 export const PEER_WINDOW_MS = 24 * 60 * 60_000;
 
 export const AGENT_STATUSES = ["working", "idle", "listening", "offline"] as const;

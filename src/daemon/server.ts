@@ -297,9 +297,10 @@ function deliver(from: AgentSession, to: AgentSession, text: string, replyTo: st
     return { messageId, to: { id: to.id, name: to.name, status: to.status } };
 }
 
-async function toolPeers(caller: Caller | undefined): Promise<ToolResult<"peers">> {
+async function toolPeers(args: ToolArgs<"peers">, caller: Caller | undefined): Promise<ToolResult<"peers">> {
     const self = resolveAgent(caller);
-    return { self: profileOf(self), peers: AgentStore.listPeers(self.id).map(profileOf) };
+    const peers = AgentStore.listPeers(self.id).filter(p => args.includeOffline || p.status !== "offline");
+    return { self: profileOf(self), peers: peers.map(profileOf) };
 }
 
 async function toolSend(args: ToolArgs<"send">, caller: Caller | undefined): Promise<ToolResult<"send">> {
@@ -569,7 +570,7 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
 
 async function dispatchTool(name: ToolName, rawArgs: unknown, instanceId: string, caller?: Caller): Promise<unknown> {
     switch (name) {
-        case "peers":                     parseToolArgs(name, rawArgs); return toolPeers(caller);
+        case "peers":                     return toolPeers(parseToolArgs(name, rawArgs), caller);
         case "send":                      return toolSend(parseToolArgs(name, rawArgs), caller);
         case "read":                      return toolRead(parseToolArgs(name, rawArgs), caller);
         case "reply":                     return toolReply(parseToolArgs(name, rawArgs), caller);

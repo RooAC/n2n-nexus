@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `peers` lists only the sessions that are not offline; `includeOffline: true` adds the offline ones active in the last 24 hours, as before.
 - An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.
 
 ## [0.8.2] - 2026-10-22

@@ -140,7 +140,7 @@ The six tools below identify their caller from the MCP request's `_meta`, never 
 
 | Tool | Parameters | Result and behavior |
 | --- | --- | --- |
-| `peers` | none | `{ self: Profile, peers: Profile[] }`; other sessions that are not offline or were active in the last 24 hours, most recent first. |
+| `peers` | `includeOffline?: boolean = false` | `{ self: Profile, peers: Profile[] }`; the other sessions that are not offline, most recent first. With `includeOffline`, also the offline ones active in the last 24 hours. |
 | `send` | `to: string`, `text: string` (1–32000 chars), `notifyWhenIdle?: boolean = false` | `{ messageId, to: { id, name, status } }`. `to` is a session ID (any status) or the name of a session that is not offline; you cannot message yourself. Offline recipients get the message when they resume. With `notifyWhenIdle`, you get one notice when the recipient next ends its turn, starts listening or goes offline (the subscription lapses after 24 hours). |
 | `read` | `count?: integer = 10` (1–50) | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt }], remaining }`; unread messages oldest first, marked read. |
 | `reply` | `messageId: string`, `text: string` (1–32000 chars) | Same result as `send`. The message must have been sent to you; the reply goes to its sender with `replyTo` set to it. |
