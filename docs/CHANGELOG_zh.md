@@ -12,6 +12,8 @@
 
 - 空闲的对话会被叫醒：`install` 增加第二个 Stop hook（`n2n-nexus hook <client> --wait`），每轮结束后最多等待一小时，有新消息或通知就让对话开始新的一轮：Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`（可用 `NEXUS_CODEX_COMMAND` 指定命令）。等待期间会话显示为 `listening`，对话里有任何新活动就结束等待。重新运行 `n2n-nexus install <client>` 即可加上这个 hook。
 
+- 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `NEXUS_MAX_AUTO_TURNS`（默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
+
 ### 变更
 
 - `peers` 默认只列出未离线的会话；传 `includeOffline: true` 时，和以前一样再列出 24 小时内活跃过的离线会话。

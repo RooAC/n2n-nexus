@@ -91,7 +91,7 @@ The wait never delivers while the session is `working` or while a listening Stop
 - Codex starts a queued turn only for a conversation loaded in the running Codex app. After Codex restarts, a conversation is loaded once the user opens it.
 - The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the daemon (not in Codex's own queue) until the user next prompts that conversation.
 - A Claude Code conversation is reachable for an hour after its last turn (the hook timeout).
-- Every AI reply wakes the recipient again; loops are avoided only by the instructions the agents follow.
+- Every AI reply wakes the recipient again. To stop two sessions waking each other forever, the daemon counts automatic turns (wakes, listening Stops, Stops held open for messages) since the user's last prompt and stops after `NEXUS_MAX_AUTO_TURNS` (default 8); a prompt within a minute of a wake is the woken turn starting and keeps the count. Messages past the limit wait until the user prompts.
 
 ---
 

@@ -260,6 +260,7 @@ n2n-nexus hook <claude|codex> [--endpoint <url>]
 | `NEXUS_ROOT` | daemon 存储根目录 | `~/.n2n-nexus` |
 | `NEXUS_HOST` | daemon 监听地址 | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | daemon 端口（`--port` 优先） | `5688` |
+| `NEXUS_MAX_AUTO_TURNS` | 两次用户输入之间，一个对话最多可以自动继续的轮数（包括被叫醒、listen 等待、因消息被拦下不结束）；超过后消息只排队，等用户下次输入。`0` 表示不限制 | `8` |
 | `NEXUS_DISCOVERY_PORT` | 局域网发现使用的 UDP 端口，daemon 与使用 `discover` 的客户端共用 | `5688` |
 | `NEXUS_RATE_LIMIT` | 每个实例每秒工具调用数，每个客户端地址为其 5 倍；`0` 关闭限流 | `20` |
 | `NEXUS_RATE_BURST` | 每个实例可一次性突发的调用数（最小为 1） | `60` |

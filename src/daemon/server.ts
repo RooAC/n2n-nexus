@@ -16,7 +16,7 @@ import { ADDRESS_LIMIT_FACTOR, RateLimitConfig, RateLimiter, rateLimitFromEnv } 
 import { ResultContractError, ToolResult, finalizeResult } from "./tool-outputs.js";
 import { TOOL_DEFINITIONS, ToolArgs, ToolName, isToolName, parseToolArgs, taskUpdateSchema, callerSchema, hookRequestSchema, ToolValidationError } from "./tools.js";
 import {
-    BACKGROUND_WAIT_EVENT, LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, STOP_CLOSING,
+    BACKGROUND_WAIT_EVENT, DEFAULT_MAX_AUTO_TURNS, LISTEN_WAIT_MS, MESSAGE_TRUST_NOTE, WAKE_PROMPT_WINDOW_MS, NO_AGENT_SESSION_ERROR, NOTICE_PREFIX, NOTIFY_CLOSING, NOTIFY_LIST_LIMIT, SESSION_START_CLOSING, STALE_SESSION_MS, STATUS_NOTE, STOP_CLOSING,
     agentSessionId, type Caller, type HookClient
 } from "./hook-contract.js";
 import { z } from "zod";
@@ -409,6 +409,38 @@ const contextOutput = (hookEventName: string, text: string | null): HookOutput =
 
 const blockOutput = (reason: string): HookOutput => ({ decision: "block", reason });
 
+/** NEXUS_MAX_AUTO_TURNS (set per server); 0 means no limit. */
+let maxAutoTurns = DEFAULT_MAX_AUTO_TURNS;
+/** Automatic turns per session since its user last prompted. */
+const autoTurns = new Map<string, number>();
+/** When a background wait last woke each session, to tell the woken turn's prompt from the user's. */
+const wokenAt = new Map<string, number>();
+
+function autoTurnsFromEnv(env = process.env): number {
+    const parsed = parseInt(env.NEXUS_MAX_AUTO_TURNS || "", 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_MAX_AUTO_TURNS;
+}
+
+/** Whether the session may continue on its own once more. */
+function autoTurnAllowed(sessionId: string): boolean {
+    return maxAutoTurns === 0 || (autoTurns.get(sessionId) ?? 0) < maxAutoTurns;
+}
+
+/** Count an automatic turn for `text` (a notification that continues the session) and say so in it. */
+function autoTurn(sessionId: string, text: string): string {
+    const n = (autoTurns.get(sessionId) ?? 0) + 1;
+    autoTurns.set(sessionId, n);
+    if (maxAutoTurns === 0) return text;
+    return `${text}\n${NOTICE_PREFIX} Automatic turn ${n} of ${maxAutoTurns} since your user's last prompt; after that, messages wait until your user prompts again.`;
+}
+
+/** A prompt resets the count, unless it starts the turn a wake just began. */
+function userPrompted(sessionId: string, now: number): void {
+    const woken = wokenAt.get(sessionId);
+    wokenAt.delete(sessionId);
+    if (woken === undefined || now - woken > WAKE_PROMPT_WINDOW_MS) autoTurns.delete(sessionId);
+}
+
 /** Sessions whose listening Stop hook is waiting; it delivers before any background wait. */
 const listeningStops = new Set<string>();
 
@@ -439,11 +471,11 @@ function waitForMessages(sessionId: string, waitMs: number, signal: AbortSignal)
             if (done) return;
             // SessionEnd (or listen off) during the wait: nobody will act on a block any more.
             // stopWaiting sets idle only while still "listening", so SessionEnd stays offline.
-            if (!AgentStore.get(sessionId)?.listening) return stopWaiting();
+            if (!AgentStore.get(sessionId)?.listening || !autoTurnAllowed(sessionId)) return stopWaiting();
             const text = notifyFresh(sessionId, STOP_CLOSING);
             if (text === null) return;
             AgentStore.setStatus(sessionId, "working");
-            finish(blockOutput(text));
+            finish(blockOutput(autoTurn(sessionId, text)));
         }
         const timer = setTimeout(stopWaiting, waitMs);
         agentWake.on(sessionId, check);
@@ -492,11 +524,13 @@ function backgroundWait(sessionId: string, waitMs: number, signal: AbortSignal):
             const session = AgentStore.get(sessionId);
             if (!session || session.status === "offline") return stopWaiting();
             if (session.status === "working" || listeningStops.has(sessionId)) return;
+            if (!autoTurnAllowed(sessionId)) return stopWaiting();     // messages wait for the user
             if (session.status === "idle") AgentStore.setStatus(sessionId, "listening");
             const text = notifyFresh(sessionId);
             if (text === null) return;
             AgentStore.setStatus(sessionId, "working");
-            finish({ wake: text });
+            wokenAt.set(sessionId, Date.now());
+            finish({ wake: autoTurn(sessionId, text) });
         }
         waits.add(stopWaiting);
         const timer = setTimeout(() => finish({ timeout: true }), waitMs);
@@ -508,11 +542,11 @@ function backgroundWait(sessionId: string, waitMs: number, signal: AbortSignal):
 }
 
 async function handleStop(sessionId: string, input: Record<string, unknown>, listenWaitMs: number, signal: AbortSignal): Promise<HookOutput> {
-    if (input.stop_hook_active !== true) {
+    if (input.stop_hook_active !== true && autoTurnAllowed(sessionId)) {
         const text = notifyAll(sessionId, STOP_CLOSING);
         if (text !== null) {
             AgentStore.setStatus(sessionId, "working");
-            return blockOutput(text);
+            return blockOutput(autoTurn(sessionId, text));
         }
     }
     if (AgentStore.get(sessionId)!.listening) {
@@ -543,6 +577,7 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
             AgentStore.setStatus(id, "idle");
             return contextOutput("SessionStart", introduce(id));
         case "UserPromptSubmit":
+            userPrompted(id, now);
             AgentStore.setStatus(id, "working");
             return contextOutput("UserPromptSubmit", notifyAll(id));
         case "PreToolUse":
@@ -765,11 +800,16 @@ export async function createDaemonServer(options: {
     rateLimit?: RateLimitConfig;
     /** Longest a listening session's Stop hook is held open (default LISTEN_WAIT_MS). */
     listenWaitMs?: number;
+    /** Automatic turns allowed between user prompts (default NEXUS_MAX_AUTO_TURNS, then DEFAULT_MAX_AUTO_TURNS; 0 = no limit). */
+    maxAutoTurns?: number;
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
     const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
     const allowedHosts = options.allowedHosts ?? allowedHostsFromEnv();
     const listenWaitMs = options.listenWaitMs ?? LISTEN_WAIT_MS;
+    maxAutoTurns = options.maxAutoTurns ?? autoTurnsFromEnv();
+    autoTurns.clear();
+    wokenAt.clear();
     const limit = options.rateLimit ?? rateLimitFromEnv();
     const instanceLimiter = new RateLimiter(limit.perSecond, limit.burst);
     const addressLimiter = new RateLimiter(limit.perSecond * ADDRESS_LIMIT_FACTOR, limit.burst * ADDRESS_LIMIT_FACTOR);

@@ -70,6 +70,15 @@ export const HOOK_STOP_REQUEST_TIMEOUT_MS = 595_000;
 export const HOOK_REQUEST_TIMEOUT_MS = 5_000;
 /** `timeout` (seconds) written into the client hook configuration. */
 export const HOOK_STOP_TIMEOUT_SEC = 600;
+/**
+ * Default limit on automatic turns: wakes, listening Stop hooks and Stops held
+ * open for messages since the user last prompted (NEXUS_MAX_AUTO_TURNS; 0 = no
+ * limit). Past it, messages wait unannounced until the user prompts, so two
+ * sessions cannot keep waking each other forever.
+ */
+export const DEFAULT_MAX_AUTO_TURNS = 8;
+/** A prompt this soon after a wake is the woken turn starting, not the user, and keeps the count. */
+export const WAKE_PROMPT_WINDOW_MS = 60_000;
 /** `timeout` (seconds) of the background wait hook; a conversation idle for longer is not woken. */
 export const WAIT_HOOK_TIMEOUT_SEC = 3600;
 export const HOOK_TIMEOUT_SEC = 10;

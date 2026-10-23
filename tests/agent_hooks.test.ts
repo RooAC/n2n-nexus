@@ -30,7 +30,7 @@ let port = 0;
 let server: http.Server | null = null;
 const previousRoot = process.env.NEXUS_ROOT;
 
-async function start(options: { rateLimit?: RateLimitConfig; listenWaitMs?: number } = {}) {
+async function start(options: { rateLimit?: RateLimitConfig; listenWaitMs?: number; maxAutoTurns?: number } = {}) {
     const root = path.join(process.cwd(), "tests", "tmp", "agent-hooks");
     closeDatabase();
     await fs.rm(root, { recursive: true, force: true });
@@ -72,6 +72,8 @@ async function claudeTool<T>(sessionId: string, tool: string, args: Record<strin
     expect(await hook("claude", "PreToolUse", sessionId, { tool_use_id: toolUseId, tool_name: `mcp__n2n-nexus__${tool}` })).toBeNull();
     return requestJson<ToolReply<T>>(port, "POST", "/api/tools/call", { tool, args, instanceId: "i1", caller: { client: "claude", toolUseId } });
 }
+
+const claudeRead = (sessionId: string) => claudeTool(sessionId, "read");
 
 const codexTool = <T>(sessionId: string, tool: string, args: Record<string, unknown> = {}) =>
     requestJson<ToolReply<T>>(port, "POST", "/api/tools/call", { tool, args, instanceId: "i2", caller: { client: "codex", sessionId } });
@@ -304,7 +306,7 @@ describe("POST /api/hook: notifications", () => {
         expect(blocked?.reason?.startsWith(`${NOTICE_PREFIX} 1 unread direct message:`)).toBe(true);
         expect(blocked?.reason).toContain("please look");
         // Continuing a turn that was about to end asks for read and reply, not just a look.
-        expect(blocked?.reason?.endsWith(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}`)).toBe(true);
+        expect(blocked?.reason).toContain(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}\n${NOTICE_PREFIX} Automatic turn 1 of 8`);
         expect(status("claude:r")).toBe("working");
 
         expect(await hook("claude", "Stop", "r", { stop_hook_active: true })).toBeNull();
@@ -401,6 +403,90 @@ describe("POST /api/hook: background wait", () => {
     });
 });
 
+describe("POST /api/hook: automatic turn limit", () => {
+    /** The woken turn as the client runs it: its prompt, then the end of the turn. */
+    async function wokenTurn(client: HookClient, sessionId: string) {
+        await hook(client, "UserPromptSubmit", sessionId);
+        await hook(client, "Stop", sessionId, { stop_hook_active: false });
+    }
+
+    it("wakes at most maxAutoTurns times until the user prompts; the woken turn's own prompt does not count", async () => {
+        await start({ listenWaitMs: 2000, maxAutoTurns: 2 });
+        await hook("codex", "SessionStart", "s");
+        await hook("claude", "SessionStart", "r");
+        await hook("claude", "Stop", "r", { stop_hook_active: false });
+
+        for (const n of [1, 2]) {
+            const waiting = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+            await until(() => status("claude:r") === "listening");
+            await send("s", "claude:r", `ping ${n}`);
+            const wake = (await waiting.response).payload.output?.wake ?? "";
+            expect(wake).toContain(`ping ${n}`);
+            expect(wake).toContain(`Automatic turn ${n} of 2`);
+            await claudeRead("r");
+            await wokenTurn("claude", "r");
+        }
+
+        // The limit is reached: the wait ends at once and the message only waits, unread and not announced.
+        const third = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        expect((await third.response).payload.output).toBeNull();
+        expect(status("claude:r")).toBe("idle");
+        await send("s", "claude:r", "ping 3");
+        expect(AgentStore.unread("claude:r", true)).toHaveLength(1);
+
+        // A real prompt (no wake just before it) starts counting again and announces the message.
+        expect(context(await hook("claude", "UserPromptSubmit", "r"))).toContain("ping 3");
+        await claudeRead("r");
+        await hook("claude", "Stop", "r", { stop_hook_active: false });
+        const again = openHook("claude", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("claude:r") === "listening");
+        await send("s", "claude:r", "ping 4");
+        expect((await again.response).payload.output?.wake).toContain("Automatic turn 1 of 2");
+    });
+
+    it("counts a Stop held open for unread messages, and lets the turn end once the limit is reached", async () => {
+        await start({ maxAutoTurns: 1 });
+        await hook("codex", "SessionStart", "s");
+        await hook("codex", "UserPromptSubmit", "r");
+        await send("s", "codex:r", "first");
+        const blocked = await hook("codex", "Stop", "r", { stop_hook_active: false });
+        expect(blocked?.decision).toBe("block");
+        expect(blocked?.reason).toContain("Automatic turn 1 of 1");
+
+        await send("s", "codex:r", "second");
+        expect(await hook("codex", "Stop", "r", { stop_hook_active: false })).toBeNull();
+        expect(status("codex:r")).toBe("idle");
+    });
+
+    it("ends a listening Stop hook without delivering once the limit is reached", async () => {
+        await start({ maxAutoTurns: 1 });
+        await hook("codex", "SessionStart", "s");
+        await hook("codex", "SessionStart", "r");
+        await codexTool("r", "listen", { on: true });
+        const first = openHook("codex", "Stop", "r", { stop_hook_active: false });
+        await until(() => status("codex:r") === "listening");
+        await send("s", "codex:r", "one");
+        expect((await first.response).payload.output?.reason).toContain("Automatic turn 1 of 1");
+
+        const second = await hook("codex", "Stop", "r", { stop_hook_active: true });
+        expect(second).toBeNull();
+        expect(status("codex:r")).toBe("idle");
+    });
+
+    it("never limits with maxAutoTurns 0 and adds no turn count", async () => {
+        await start({ maxAutoTurns: 0 });
+        await hook("codex", "SessionStart", "s");
+        await hook("codex", "UserPromptSubmit", "r");
+        for (let i = 0; i < 3; i++) {
+            await send("s", "codex:r", `m${i}`);
+            const out = await hook("codex", "Stop", "r", { stop_hook_active: false });
+            expect(out?.decision).toBe("block");
+            expect(out?.reason).not.toContain("Automatic turn");
+            await codexTool("r", "read");
+        }
+    });
+});
+
 describe("POST /api/hook: listen mode", () => {
     it("wakes a listening session as soon as a new message arrives", async () => {
         await start();
@@ -460,7 +546,8 @@ describe("POST /api/hook: listen mode", () => {
         await codexTool("target", "read");
         expect(await hook("codex", "Stop", "target")).toBeNull();
         const { payload } = await waiting.response;
-        expect(payload.output).toEqual({ decision: "block", reason: `${NOTICE_PREFIX} Notices:\n- codex@proj#2 (codex:target) finished its turn.` });
+        expect(payload.output?.decision).toBe("block");
+        expect(payload.output?.reason?.startsWith(`${NOTICE_PREFIX} Notices:\n- codex@proj#2 (codex:target) finished its turn.\n${NOTICE_PREFIX} Automatic turn 1 of 8`)).toBe(true);
     });
 
     it("cancels the wait and goes idle when the hook's client disconnects", async () => {

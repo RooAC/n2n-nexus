@@ -159,6 +159,7 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 | Turn about to end | If anything is unread, the turn continues once with the announcement. |
 | Listening | The wait ends as soon as something new arrives, and the conversation continues with it. |
 | Idle (turn ended) | A background wait started by the Stop hook (`n2n-nexus hook <client> --wait`, up to an hour) starts a new turn with the announcement: Claude Code through an `asyncRewake` hook (exit code 2), Codex through `codex queue --thread <session id>` (`NEXUS_CODEX_COMMAND` overrides the `codex` command). Meanwhile the session shows as `listening`; any new activity in the conversation ends the wait. Codex starts the queued turn only for a conversation loaded in the running Codex app, and the wait ends when Codex quits. |
+| Automatic turn limit | Waking, a listening Stop and a Stop held open for messages each count as an automatic turn; the announcement says `Automatic turn n of N`. After `NEXUS_MAX_AUTO_TURNS` (default 8) of them since the user's last prompt, messages are still stored but no longer wake or hold the conversation; the user's next prompt announces them and starts counting again. A prompt within a minute of a wake is the woken turn starting and does not reset the count. |
 
 Unread messages expire after 24 hours; the sender then gets a notice. Notices also report `notifyWhenIdle` results.
 

@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 
 - Idle conversations are woken: `install` adds a second Stop hook (`n2n-nexus hook <client> --wait`) that waits up to an hour after a turn for new messages or notices and then starts a turn with them, through an `asyncRewake` hook in Claude Code and `codex queue` in Codex (`NEXUS_CODEX_COMMAND` overrides the command). The session shows as `listening` meanwhile; any new activity ends the wait. Run `n2n-nexus install <client>` again to add the hook.
 
+- Automatic turn limit: wakes, listening Stops and Stops held open for messages count as automatic turns, and after `NEXUS_MAX_AUTO_TURNS` (default 8; `0` = no limit) since the user's last prompt, messages are stored but no longer wake or hold the conversation, so two AI sessions cannot keep waking each other. The announcement says `Automatic turn n of N`; the prompt that starts a woken turn does not reset the count.
+
 ### Changed
 
 - `peers` lists only the sessions that are not offline; `includeOffline: true` adds the offline ones active in the last 24 hours, as before.

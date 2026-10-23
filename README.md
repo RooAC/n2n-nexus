@@ -217,6 +217,7 @@ n2n-nexus hook <claude|codex> [--endpoint <url>]
 | `NEXUS_ROOT` | Storage root for daemon | `~/.n2n-nexus` |
 | `NEXUS_HOST` | Daemon bind host | `127.0.0.1` |
 | `NEXUS_DAEMON_PORT` | Daemon port (overridden by `--port`) | `5688` |
+| `NEXUS_MAX_AUTO_TURNS` | Automatic turns a conversation may take between its user's prompts (wakes, listening and Stops held open for messages); past it, messages wait until the user prompts. `0` disables the limit | `8` |
 | `NEXUS_DISCOVERY_PORT` | UDP port of LAN discovery, for the daemon and for clients using `discover` | `5688` |
 | `NEXUS_RATE_LIMIT` | Tool calls per second per instance; each client address gets 5x. `0` disables rate limiting | `20` |
 | `NEXUS_RATE_BURST` | Calls an instance may make at once before the per-second limit applies (minimum 1) | `60` |
