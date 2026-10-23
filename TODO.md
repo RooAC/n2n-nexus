@@ -35,6 +35,7 @@
 
 ### Future
 - [ ] Split the package into host (daemon, service install) and client (MCP adapter, hooks, install) so clients do not need SQLite; consider a Go host built from the HTTP contract
+- [ ] Code signing for the Go host binaries — the first releases ship unsigned (Windows SmartScreen / Defender warnings; macOS avoided with a Homebrew formula built from source). Windows: apply for free open-source signing at SignPath.io (n2n-nexus is Apache-2.0), or buy a Certum open-source code signing certificate; macOS notarization needs the Apple Developer Program ($99/year). Signing adds one release step and changes nothing else
 - [ ] Authentication layer — API key for daemon access (production deployments)
 - [ ] Cross-machine live sync — daemon-to-daemon bridge (beyond baseline scope)
 - [ ] IDE sidebar integration — optional SSE endpoint for real-time message display
