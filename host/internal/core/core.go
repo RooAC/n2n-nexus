@@ -4,13 +4,25 @@ package core
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
+	"math/rand/v2"
+	"strings"
+	"time"
 
 	"github.com/n2ns/n2n-nexus/host/internal/api"
 	"github.com/n2ns/n2n-nexus/host/internal/clock"
 	"github.com/n2ns/n2n-nexus/host/internal/protocol"
 	"github.com/n2ns/n2n-nexus/host/internal/store"
 )
+
+// TaskRetention is how long a finished task is kept.
+const TaskRetention = 7 * 24 * time.Hour
+
+// EventRetention is how long an event is kept.
+const EventRetention = 30 * 24 * time.Hour
 
 // Deps are what the core tools need.
 type Deps struct {
@@ -30,11 +42,129 @@ func New(d Deps) *Core { return &Core{d: d} }
 
 // Register adds every core tool to srv.
 func (c *Core) Register(srv *api.Server) {
-	// TODO(core): register sync_project_assets ... host_delete_project, update_task.
+	// Projects
+	srv.Register("sync_project_assets", tool(syncArgs{}, c.syncProjectAssets))
+	srv.Register("upload_project_asset", tool(uploadArgs{}, c.uploadProjectAsset))
+	srv.Register("update_project", tool(updateProjectArgs{}, c.updateProject))
+	srv.Register("rename_project", tool(renameArgs{}, c.renameProject))
+	srv.Register("search_projects", tool(searchArgs{Limit: 10}, c.searchProjects))
+	srv.Register("get_global_topology", tool(topologyArgs{}, c.getGlobalTopology))
+	srv.Register("get_project", tool(getProjectArgs{IncludeDocs: true}, c.getProject))
+	srv.Register("host_delete_project", tool(projectIDArgs{}, c.deleteProject))
+	// Chat and events
+	srv.Register("send_message", tool(sendMessageArgs{}, c.sendMessage))
+	srv.Register("read_messages", tool(readMessagesArgs{Count: 10}, c.readMessages))
+	srv.Register("list_events", tool(listEventsArgs{Limit: 20}, c.listEvents))
+	srv.Register("host_maintenance", tool(maintenanceArgs{}, c.hostMaintenance))
+	// Strategy and shared documents
+	srv.Register("get_global_strategy", tool(struct{}{}, c.getGlobalStrategy))
+	srv.Register("update_global_strategy", tool(strategyArgs{}, c.updateGlobalStrategy))
+	srv.Register("list_global_docs", tool(struct{}{}, c.listGlobalDocs))
+	srv.Register("get_global_doc", tool(docIDArgs{}, c.getGlobalDoc))
+	srv.Register("sync_global_doc", tool(syncDocArgs{}, c.syncGlobalDoc))
+	// Meetings
+	srv.Register("list_meetings", tool(listMeetingsArgs{Limit: 20}, c.listMeetings))
+	srv.Register("start_meeting", tool(startMeetingArgs{}, c.startMeeting))
+	srv.Register("end_meeting", tool(endMeetingArgs{}, c.endMeeting))
+	srv.Register("archive_meeting", tool(meetingIDArgs{}, c.archiveMeeting))
+	srv.Register("reopen_meeting", tool(meetingIDArgs{}, c.reopenMeeting))
+	// Tasks
+	srv.Register("create_task", tool(createTaskArgs{}, c.createTask))
+	srv.Register("get_task", tool(taskIDArgs{}, c.getTask))
+	srv.Register("list_tasks", tool(listTasksArgs{Limit: 50}, c.listTasks))
+	srv.Register("update_task", tool(updateTaskArgs{}, c.updateTask))
+	srv.Register("cancel_task", tool(taskIDArgs{}, c.cancelTask))
+}
+
+// tool decodes the (already schema-validated) arguments over defaults, which
+// carries the defaults the JSON Schema declares but does not apply.
+func tool[A any](defaults A, fn func(c api.Call, args A) (any, error)) api.ToolFunc {
+	return func(c api.Call) (any, error) {
+		args := defaults
+		if err := json.Unmarshal(c.Args, &args); err != nil {
+			return nil, api.Errorf("Invalid arguments: %v", err)
+		}
+		return fn(c, args)
+	}
 }
 
 // Maintain expires and purges old core rows (events after 30 days, tasks per
 // their TTL and 7 days after they finish); it returns a log line or "".
 func (c *Core) Maintain(ctx context.Context) (string, error) {
-	return "", nil
+	now := c.d.Clock.Now()
+	var expired, removed, events int64
+	err := c.d.Store.Tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		if expired, err = expireTasks(tx, now); err != nil {
+			return err
+		}
+		if removed, err = exec(tx, `DELETE FROM tasks WHERE status IN ('completed', 'failed', 'cancelled') AND updated_at < ?`,
+			store.ISO(now.Add(-TaskRetention))); err != nil {
+			return err
+		}
+		events, err = exec(tx, `DELETE FROM events WHERE timestamp < ?`, store.ISO(now.Add(-EventRetention)))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if expired+removed+events == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("maintenance: %d tasks expired, %d finished tasks removed, %d events removed", expired, removed, events), nil
+}
+
+// tx runs fn in one transaction of the call.
+func (c *Core) tx(call api.Call, fn func(tx *sql.Tx) error) error {
+	return c.d.Store.Tx(call.Ctx, fn)
+}
+
+func (c *Core) now() string { return store.ISO(c.d.Clock.Now()) }
+
+func exec(tx *sql.Tx, query string, args ...any) (int64, error) {
+	res, err := tx.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// recordEvent appends to the activity log; target "" and detail nil are stored as NULL.
+func (c *Core) recordEvent(tx *sql.Tx, actor, action, target string, detail any) error {
+	var t, d any
+	if target != "" {
+		t = target
+	}
+	if detail != nil {
+		raw, err := json.Marshal(detail)
+		if err != nil {
+			return err
+		}
+		d = string(raw)
+	}
+	_, err := tx.Exec(`INSERT INTO events (timestamp, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)`,
+		c.now(), actor, action, t, d)
+	return err
+}
+
+// randomSuffix is like JavaScript's Math.random().toString(36).substring(2, 6).
+func randomSuffix() string {
+	const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var b strings.Builder
+	for range 4 {
+		b.WriteByte(digits[rand.IntN(len(digits))])
+	}
+	return b.String()
+}
+
+// compactTime is the ISO timestamp without separators, to the second: 20261023123456.
+func compactTime(t time.Time) string {
+	return t.UTC().Format("20060102150405")
+}
+
+func nullString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
