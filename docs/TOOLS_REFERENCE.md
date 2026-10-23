@@ -1,5 +1,7 @@
 # n2n-nexus tools reference
 
+[中文版](TOOLS_REFERENCE_zh.md)
+
 This document describes the MCP tools exposed by the n2n-nexus adapter. Tool calls are forwarded to the host (`n2n-nexus-host`) running at `NEXUS_ENDPOINT`.
 
 Parameter tables below are derived from `contract/tools.json`, the JSON Schema the host serves through `GET /api/tools` and validates every call against before a handler runs. Invalid arguments are rejected with a descriptive error (`Invalid arguments for <tool>: ...`); keys the schema does not declare are dropped before validation.
