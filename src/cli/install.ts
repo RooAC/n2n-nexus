@@ -15,13 +15,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import crossSpawn from "cross-spawn";
-
 import {
     CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
     type HookClient
 } from "../daemon/hook-contract.js";
 import { pkg } from "../config/index.js";
+import { spawnClientSync } from "./client-command.js";
 import { entryScript } from "./entry.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
@@ -215,12 +214,11 @@ function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: 
 }
 
 /**
- * Run `<client> <args>` and throw like execFileSync when it fails. cross-spawn
- * finds and launches the `.cmd` shims npm installs on Windows, which Node
- * cannot start without a shell; elsewhere it is a plain spawnSync.
+ * Run `<client> <args>` and throw like execFileSync when it fails. On Windows
+ * spawnClientSync runs the script behind npm's `.cmd` shim, never cmd.exe.
  */
 function runClient(client: HookClient, args: string[], stdio: ["ignore", "ignore", "pipe" | "inherit"]): void {
-    const result = crossSpawn.sync(client, args, { encoding: "utf8", stdio });
+    const result = spawnClientSync(client, args, { encoding: "utf8", stdio });
     if (result.error) throw result.error;
     if (result.status !== 0) {
         throw Object.assign(new Error(`Command failed: ${client} ${args.join(" ")}`), { status: result.status, stderr: result.stderr });
@@ -266,7 +264,7 @@ export function runInstall(options: InstallOptions): number {
         if (action === "install" && /[/\\]_npx[/\\]/.test(entry)) {
             throw new InstallError(`n2n-nexus is running from an npx cache (${entry}), which can be cleared at any time. Install it first: npm i -g n2n-nexus`);
         }
-        const probe = crossSpawn.sync(client, ["--version"], { stdio: "ignore" });
+        const probe = spawnClientSync(client, ["--version"], { stdio: "ignore" });
         if (probe.error || probe.status !== 0) {
             throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
         }

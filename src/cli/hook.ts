@@ -2,8 +2,7 @@
  * `n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]`: forward one client
  * hook event to the daemon and print its output, or with `--wait` run the
  * background wait that wakes an idle conversation. Runs on every tool call, so
- * it loads only node built-ins (no MCP SDK, zod or SQLite; the background wait
- * also loads cross-spawn to run `codex queue`), and every failure
+ * it loads only node built-ins (no MCP SDK, zod or SQLite), and every failure
  * is silent: exit 0 with nothing on stdout, so the client carries on unaffected.
  */
 import { spawn } from "node:child_process";
@@ -125,9 +124,9 @@ async function runWait(argv: string[]): Promise<number> {
     const text = await waitForWake(client, sessionId, await resolveEndpoint(configured));
     if (text === null) return 0;
     if (client === "codex") {
-        // cross-spawn launches npm's codex.cmd shim on Windows, with the text escaped for cmd.
-        const { default: crossSpawn } = await import("cross-spawn");
-        crossSpawn.sync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
+        // Never through cmd.exe: the text comes from another session and spans several lines.
+        const { spawnClientSync } = await import("./client-command.js");
+        spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
         return 0;
     }
     await new Promise<void>((resolve) => process.stderr.write(text + "\n", () => resolve()));

@@ -6,8 +6,8 @@ import path from "node:path";
 
 import { runInstall } from "../src/cli/install.js";
 
-// install launches claude / codex through cross-spawn; these tests never run the real clients.
-vi.mock("cross-spawn", () => ({ default: { sync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) } }));
+// install launches claude / codex through spawnClientSync; these tests never run the real clients.
+vi.mock("../src/cli/client-command.js", () => ({ spawnClientSync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) }));
 
 let dir: string;
 let entry: string;

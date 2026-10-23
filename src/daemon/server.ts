@@ -566,7 +566,10 @@ async function handleHook(client: HookClient, input: Record<string, unknown>, li
     if (typeof input.session_id !== "string" || !input.session_id) return null;
     const id = agentSessionId(client, input.session_id);
     if (input.hook_event_name === BACKGROUND_WAIT_EVENT) {
-        return AgentStore.get(id) ? backgroundWait(id, listenWaitMs, signal) : null;
+        if (!AgentStore.get(id)) return null;
+        // The client is waiting on its behalf: activity, so a long wait does not let the session go stale.
+        AgentStore.touch(id, client, "", Date.now());
+        return backgroundWait(id, listenWaitMs, signal);
     }
     const now = Date.now();
     AgentStore.touch(id, client, typeof input.cwd === "string" ? input.cwd : "", now);

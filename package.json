@@ -17,7 +17,13 @@
     "docs/README_zh.md",
     "docs/ARCHITECTURE.md",
     "docs/ARCHITECTURE_zh.md",
-    "docs/ASSISTANT_GUIDE.md"
+    "docs/ASSISTANT_GUIDE.md",
+    "docs/ASSISTANT_GUIDE_zh.md",
+    "docs/TOOLS_REFERENCE.md",
+    "docs/MEETING_MINUTES_2025-12-29.md",
+    "docs/discussion_2025-12-29.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md"
   ],
   "keywords": [
     "mcp",
@@ -84,14 +90,12 @@
   "dependencies": {
     "@modelcontextprotocol/server": "^2.3.1",
     "better-sqlite3": "^13.0.3",
-    "cross-spawn": "^7.0.6",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.3.1",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.6.5",
     "eslint": "^10.13.0",
     "lefthook": "^2.2.2",

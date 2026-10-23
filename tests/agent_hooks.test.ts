@@ -409,6 +409,21 @@ describe("POST /api/hook: background wait", () => {
         expect(status("codex:r")).toBe("idle");             // the client asks no more: it can go stale
     });
 
+    it("a background wait counts as activity, so the session does not go stale between two waits", async () => {
+        await start();
+        const t0 = Date.now();
+        vi.spyOn(Date, "now").mockReturnValue(t0);
+        await hook("codex", "SessionStart", "r");
+        await hook("codex", "Stop", "r", { stop_hook_active: false });
+
+        vi.spyOn(Date, "now").mockReturnValue(t0 + STALE_SESSION_MS + 1000);
+        const background = openHook("codex", BACKGROUND_WAIT_EVENT, "r");
+        expect((await background.response).payload.output).toEqual({ timeout: true });
+        expect(status("codex:r")).toBe("idle");
+        await hook("claude", "SessionStart", "other");         // any event expires stale sessions before the next wait
+        expect(status("codex:r")).toBe("idle");
+    });
+
     it("never runs for an unknown session", async () => {
         await start();
         expect(await hook("claude", BACKGROUND_WAIT_EVENT, "nobody")).toBeNull();

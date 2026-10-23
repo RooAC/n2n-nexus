@@ -6,9 +6,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
-// npm installs claude and codex on Windows as .cmd shims, which Node cannot start without a shell.
-// The platform is set before the modules under test (and cross-spawn) load, then the real
-// child_process.spawnSync records the launches instead of running them.
+// npm installs claude and codex on Windows as .cmd shims, which Node cannot start without a shell,
+// and cmd.exe would reinterpret the arguments. The platform is set before the modules under test
+// load, then the real child_process.spawnSync records the launches instead of running them.
 const savedPlatform = vi.hoisted(() => {
     const saved = Object.getOwnPropertyDescriptor(process, "platform")!;
     Object.defineProperty(process, "platform", { value: "win32" });
@@ -27,7 +27,8 @@ beforeEach(() => {
     vi.stubEnv("CLAUDE_CONFIG_DIR", dir);
     vi.stubEnv("NEXUS_CODEX_COMMAND", "");
     vi.spyOn(childProcess, "spawnSync").mockImplementation(((command: string, args: string[], options: object) => {
-        if (command !== (process.env.comspec || "cmd.exe") && command !== "codex" && command !== "claude") return realSpawnSync(command, args, options);
+        const shimScript = command === process.execPath && typeof args[0] === "string" && args[0].startsWith(dir);
+        if (!shimScript && command !== (process.env.comspec || "cmd.exe") && command !== "codex" && command !== "claude") return realSpawnSync(command, args, options);
         launches.push({ command, args });
         return { pid: 1, status: 0, signal: null, output: [], stdout: "", stderr: "" };
     }) as typeof childProcess.spawnSync);
@@ -45,27 +46,56 @@ afterAll(() => {
     Object.defineProperty(process, "platform", savedPlatform);
 });
 
-/** The command line cmd.exe runs for a launch (`/d /s /c "<line>"`), or undefined when it was not run through cmd. */
-const cmdLine = (launch: { command: string; args: string[] }) =>
-    launch.command === (process.env.comspec || "cmd.exe") && launch.args.slice(0, 3).join(" ") === "/d /s /c" ? launch.args[3] : undefined;
+/** npm's .cmd shim for a package bin script, as cmd-shim writes it. */
+const npmShim = (script: string) => `@ECHO off
+GOTO start
+:find_dp0
+SET dp0=%~dp0
+EXIT /b
+:start
+SETLOCAL
+CALL :find_dp0
+
+IF EXIST "%dp0%\\node.exe" (
+  SET "_prog=%dp0%\\node.exe"
+) ELSE (
+  SET "_prog=node"
+  SET PATHEXT=%PATHEXT:;.JS;=;%
+)
+
+endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${script.replace(/\//g, "\\")}" %*
+`;
+
+/** Put npm-style claude.cmd / codex.cmd shims on PATH; returns the bin scripts they run. */
+function installShims(): { claude: string; codex: string } {
+    const bin = path.join(dir, "npm");
+    fs.mkdirSync(bin);
+    const scripts = { claude: "node_modules/@anthropic-ai/claude-code/cli.js", codex: "node_modules/@openai/codex/bin/codex.js" };
+    for (const [name, script] of Object.entries(scripts)) fs.writeFileSync(path.join(bin, `${name}.cmd`), npmShim(script));
+    vi.stubEnv("PATH", bin);
+    vi.stubEnv("PATHEXT", ".COM;.EXE;.BAT;.CMD");
+    return { claude: path.join(bin, ...scripts.claude.split("/")), codex: path.join(bin, ...scripts.codex.split("/")) };
+}
 
 describe("Windows .cmd shims", () => {
-    it("install runs claude --version and claude mcp through cmd.exe", async () => {
+    it("install runs the scripts behind npm's claude.cmd with this Node, never through cmd.exe", async () => {
+        const scripts = installShims();
         const { runInstall } = await import("../src/cli/install.js");
         const entry = path.join(dir, "index.js");
         expect(runInstall({ action: "install", client: "claude", node: process.execPath, entry })).toBe(0);
-        const lines = launches.map(cmdLine);
-        expect(lines).toHaveLength(3);
-        expect(lines[0]).toMatch(/^"claude \^"--version\^""$/);
-        expect(lines[1]).toContain(`claude ^"mcp^" ^"remove^"`);
-        expect(lines[2]).toContain(`claude ^"mcp^" ^"add^"`);
+        expect(launches.map((l) => l.command)).toEqual([process.execPath, process.execPath, process.execPath]);
+        expect(launches.map((l) => l.args.slice(0, 3))).toEqual([
+            [scripts.claude, "--version"], [scripts.claude, "mcp", "remove"], [scripts.claude, "mcp", "add"]
+        ]);
     });
 
-    it("the background wait hands the notification to codex queue through cmd.exe, with the text escaped", async () => {
+    it("the background wait passes the notification to codex queue unchanged, newlines and cmd metacharacters included", async () => {
+        const scripts = installShims();
         const { runHook } = await import("../src/cli/hook.js");
+        const text = `New message\n- From x" & calc & ": hi %TEMP% ^ |\nRead it with read.`;
         const server = http.createServer((req, res) => {
             req.resume();
-            req.on("end", () => res.end(JSON.stringify({ output: { wake: `hi "you" & del %TEMP%` } })));
+            req.on("end", () => res.end(JSON.stringify({ output: { wake: text } })));
         });
         await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
         try {
@@ -74,10 +104,21 @@ describe("Windows .cmd shims", () => {
         } finally {
             await new Promise<void>((resolve) => server.close(() => resolve()));
         }
-        expect(launches).toHaveLength(1);
-        const line = cmdLine(launches[0]);
-        expect(line).toContain(`codex ^"queue^" ^"--thread^" ^"c1^" ^"--message^"`);
-        // cmd metacharacters in the message are escaped, so they reach codex as text.
-        expect(line).toContain(String.raw`^"hi^ \^"you\^"^ ^&^ del^ ^%TEMP^%^"`);
+        expect(launches).toEqual([{ command: process.execPath, args: [scripts.codex, "queue", "--thread", "c1", "--message", text] }]);
+    });
+
+    it("a .cmd that is not an npm shim is not run, since only cmd.exe could start it", async () => {
+        installShims();
+        fs.writeFileSync(path.join(dir, "npm", "codex.cmd"), "@echo off\r\nC:\\tools\\codex-real.exe %*\r\n");
+        const { runInstall } = await import("../src/cli/install.js");
+        expect(runInstall({ action: "install", client: "codex", node: process.execPath, entry: path.join(dir, "index.js") })).toBe(1);
+        expect(launches).toEqual([]);
+    });
+
+    it("a codex that is not found is not run at all", async () => {
+        vi.stubEnv("PATH", path.join(dir, "empty"));
+        const { runInstall } = await import("../src/cli/install.js");
+        expect(runInstall({ action: "install", client: "codex", node: process.execPath, entry: path.join(dir, "index.js") })).toBe(1);
+        expect(launches).toEqual([]);
     });
 });
