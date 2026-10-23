@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net, { AddressInfo } from "node:net";
@@ -84,75 +84,6 @@ async function toolsAnswer(port: number): Promise<boolean> {
     });
 }
 
-/** PID of the process listening on a port (the daemon this test started). */
-function listenerPid(port: number): number | undefined {
-    let pid: number | undefined;
-    if (process.platform === "win32") {
-        const out = execFileSync("netstat.exe", ["-ano", "-p", "TCP"], { encoding: "utf8" });
-        const line = out.split("\n").find((line) => {
-            const fields = line.trim().split(/\s+/);
-            return fields[1] === `127.0.0.1:${port}` && fields[3] === "LISTENING";
-        });
-        pid = line ? Number(line.trim().split(/\s+/)[4]) : undefined;
-    } else {
-        pid = posixListenerPid(port);
-    }
-    if (!pid) return undefined;
-    try {
-        if (process.platform === "win32") {
-            return windowsDaemonPids(port, "ProcessId", pid).includes(pid) ? pid : undefined;
-        }
-        const command = execFileSync("ps", ["-p", String(pid), "-o", "args="], { encoding: "utf8" });
-        const entry = ENTRY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return new RegExp(`(?:^|\\s)"?${entry}"?\\s+daemon\\s+--port\\s+${port}(?:\\s|$)`).test(command) ? pid : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-/** `ss` (Linux), else `lsof` (macOS has no ss). */
-function posixListenerPid(port: number): number | undefined {
-    try {
-        const out = execFileSync("ss", ["-ltnpH", `sport = :${port}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-        const match = /pid=(\d+)/.exec(out);
-        return match ? Number(match[1]) : undefined;
-    } catch {
-        try {
-            const out = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
-            return Number(out.trim().split("\n")[0]) || undefined;
-        } catch {
-            return undefined;                          // lsof exits 1 when nothing listens
-        }
-    }
-}
-
-function windowsDaemonPids(port: number, selector: "ParentId" | "ProcessId", pid: number): number[] {
-    const out = execFileSync("powershell.exe", [
-        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-        "-File", path.join(REPO, "tests", "helpers", "hook-processes.ps1"),
-        `-${selector}`, String(pid), "-Entry", ENTRY, "-Port", String(port)
-    ], { encoding: "utf8" });
-    return out.trim() ? out.trim().split(/\s+/).map(Number) : [];
-}
-
-/** PIDs of this test process's own children running `daemon --port <port>`. */
-function ownDaemonChildren(port: number): number[] {
-    let out: string;
-    try {
-        if (process.platform === "win32") {
-            return windowsDaemonPids(port, "ParentId", process.pid);
-        }
-        // -A and -o pid=,ppid=,args= mean the same to GNU and BSD (macOS) ps; --ppid is GNU only.
-        out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,args="], { encoding: "utf8" });
-    } catch {
-        return [];
-    }
-    return out.split("\n")
-        .map((line) => line.trim().split(/\s+/))
-        .filter((fields) => Number(fields[1]) === process.pid && fields.slice(2).join(" ").includes(`daemon --port ${port}`))
-        .map((fields) => Number(fields[0]));
-}
-
 async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -162,35 +93,11 @@ async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean
     return check();
 }
 
-function isAlive(pid: number): boolean {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch {
-        return false;
-    }
-}
-
-const started: number[] = [];
-const startedPorts: number[] = [];
-async function stopStarted(): Promise<void> {
-    for (const port of startedPorts.splice(0)) {
-        started.push(...ownDaemonChildren(port));
-        const pid = listenerPid(port);
-        if (pid) started.push(pid);
-    }
-    for (const pid of new Set(started.splice(0))) {
-        try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
-        expect(await waitFor(() => !isAlive(pid), 5000)).toBe(true);
-    }
-}
-
 beforeAll(() => {
     execSync("npm run build", { cwd: REPO, stdio: "ignore" });
 }, 120_000);
 
 afterAll(async () => {
-    await stopStarted();
     fs.rmSync(TMP, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
@@ -322,8 +229,6 @@ describe("n2n-nexus hook --wait", () => {
 });
 
 describe("n2n-nexus hook, no daemon", () => {
-    afterEach(stopStarted);
-
     it("exits 0 without output when a non-local daemon is unreachable", async () => {
         const result = await runHook(["claude", "--endpoint", "http://127.0.0.2:1"], JSON.stringify({ hook_event_name: "PostToolUse", session_id: "x" }));
         expect(result).toMatchObject({ code: 0, stdout: "" });
@@ -335,7 +240,8 @@ describe("n2n-nexus hook, no daemon", () => {
         const result = await runHook(["claude", "--endpoint", `http://127.0.0.1:${port}`], JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }));
         expect(result).toMatchObject({ code: 0, stdout: "" });
         expect(result.stderr).toContain(`No daemon at http://127.0.0.1:${port}`);
-        expect(result.stderr).toContain("n2n-nexus install host");
+        expect(result.stderr).toContain("Install n2n-nexus-host (https://github.com/n2ns/n2n-nexus/releases)");
+        expect(result.stderr).toContain("n2n-nexus-host serve");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         expect(await toolsAnswer(port)).toBe(false);
     }, 15_000);
@@ -349,70 +255,7 @@ describe("n2n-nexus hook, no daemon", () => {
         expect(result).toMatchObject({ code: 0, stdout: "" });
         expect(result.stderr).toContain(`No daemon at ${endpoint}`);
         expect(result.stderr).toContain("on that machine");
-        expect(result.stderr).not.toContain("(a service that starts at boot)");
-    }, 15_000);
-});
-
-describe("daemons started at the same time", () => {
-    afterEach(stopStarted);
-
-    /** Start daemons on `ports` from this process (so they are our children) with an isolated home and storage root; resolves once one answers on each port. */
-    async function startConcurrently(home: string, ports: number[]): Promise<void> {
-        const logDir = path.join(home, ".n2n-nexus");
-        fs.mkdirSync(logDir, { recursive: true });
-        startedPorts.push(...ports);
-        for (const port of ports) {
-            const log = fs.openSync(path.join(logDir, "daemon.log"), "a");
-            spawn(process.execPath, [ENTRY, "daemon", "--port", String(port)], {
-                env: { ...process.env, HOME: home, USERPROFILE: home, NEXUS_ROOT: path.join(home, "root"), NEXUS_HOST: "" },
-                stdio: ["ignore", log, log]
-            });
-            fs.closeSync(log);
-        }
-        for (const port of new Set(ports)) {
-            const deadline = Date.now() + 5000;
-            while (!await toolsAnswer(port) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-    }
-
-    const readLog = (home: string) => {
-        const file = path.join(home, ".n2n-nexus", "daemon.log");
-        return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-    };
-
-    it("leaves one serving daemon when two start on the same port", async () => {
-        const home = path.join(TMP, "race-home");
-        fs.rmSync(home, { recursive: true, force: true });
-
-        // Initialise the storage root first, so both racers reach listen().
-        const setupPort = await freePort();
-        await startConcurrently(home, [setupPort]);
-        await stopStarted();
-        fs.rmSync(path.join(home, ".n2n-nexus"), { recursive: true, force: true });
-
-        const port = await freePort();
-        await startConcurrently(home, [port, port]);
-        // The loser exits on EADDRINUSE, the winner keeps serving.
-        expect(await waitFor(() => readLog(home).includes("EADDRINUSE"), 5000)).toBe(true);
-        expect(readLog(home).match(/listening on/g)).toHaveLength(1);
-        expect(await waitFor(() => ownDaemonChildren(port).length === 1, 5000)).toBe(true);
-        expect(ownDaemonChildren(port)).toEqual([listenerPid(port)]);
-        expect(await toolsAnswer(port)).toBe(true);
-    }, 20_000);
-
-    it("leaves one serving daemon when two race on a fresh storage root", async () => {
-        const home = path.join(TMP, "race-fresh-home");
-        fs.rmSync(home, { recursive: true, force: true });
-        const port = await freePort();
-        await startConcurrently(home, [port, port]);
-
-        expect(await waitFor(() => (readLog(home).match(/Fatal error/g) ?? []).length === 1, 5000)).toBe(true);
-        // The loser gets as far as listen(): storage initialisation tolerates a concurrent first start.
-        expect(readLog(home)).toContain("EADDRINUSE");
-        expect(readLog(home)).not.toContain("SqliteError");
-        expect(readLog(home).match(/listening on/g)).toHaveLength(1);
-        expect(await waitFor(() => ownDaemonChildren(port).length === 1, 5000)).toBe(true);
-        expect(ownDaemonChildren(port)).toEqual([listenerPid(port)]);
-        expect(await toolsAnswer(port)).toBe(true);
+        expect(result.stderr).toContain("n2n-nexus-host serve --host <address>");
+        expect(result.stderr).not.toContain("Install n2n-nexus-host");
     }, 15_000);
 });

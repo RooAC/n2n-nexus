@@ -10,7 +10,7 @@ import { serveStdio, StdioServerTransport, type StdioServerHandle } from "@model
 import { NexusClient, NexusToolError, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, cachedEndpoint, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
-import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, noDaemonHint, type Caller } from "../daemon/hook-contract.js";
+import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, noDaemonHint, type Caller } from "../contract.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
@@ -45,7 +45,7 @@ export type NexusServerOptions = {
 /**
  * MCP adapter in front of the daemon. It holds no session of its own: each
  * tool call carries the caller the client named in the request's `_meta`
- * (see hook-contract.ts), so one adapter can serve several conversations.
+ * (see contract.ts), so one adapter can serve several conversations.
  *
  * Served through the v2 SDK's serveStdio entry, which answers both
  * protocol eras on one connection: 2026-07-28 clients (per-request `_meta`

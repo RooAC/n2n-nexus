@@ -1,10 +1,10 @@
 /**
- * LAN discovery of a daemon. A daemon bound to a non-loopback address answers
- * UDP queries on the discovery port; a client configured with the endpoint
- * `discover` broadcasts a query, uses the first daemon that answers and caches
- * it in `~/.n2n-nexus/discovered-endpoint`. When none answers it falls back to
- * the local default endpoint (a daemon running as a service on this machine);
- * it never starts a daemon or makes one reachable from the LAN.
+ * LAN discovery of a host, query side. An n2n-nexus-host bound to a
+ * non-loopback address answers UDP queries on the discovery port; a client
+ * configured with the endpoint `discover` broadcasts a query, uses the first
+ * host that answers and caches it in `~/.n2n-nexus/discovered-endpoint`. When
+ * none answers it falls back to the local default endpoint (a host running on
+ * this machine); it never starts a host or makes one reachable from the LAN.
  *
  * Node built-ins only: the hook command imports this on every client event.
  */
@@ -17,13 +17,12 @@ import path from "node:path";
 export const DISCOVER_ENDPOINT = "discover";
 export const LOCAL_ENDPOINT = "http://127.0.0.1:5688";
 export const DISCOVERY_QUERY = "n2n-nexus/discover";
-export const DEFAULT_DISCOVERY_PORT = 5688;
+const DEFAULT_DISCOVERY_PORT = 5688;
 const DISCOVERY_WAIT_MS = 1000;
 /** How long "no daemon answered" stays cached before the next lookup. */
 const NOT_FOUND_TTL_MS = 60_000;
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
-/** `host` is the daemon's bind address: a client on the same machine needs it unless it covers all interfaces. */
+/** `host` is the host's bind address: a client on the same machine needs it unless it covers all interfaces. */
 type DiscoveryReply = { service: "n2n-nexus"; version: string; host: string; port: number };
 const ALL_INTERFACES = new Set(["0.0.0.0", "::", ""]);
 
@@ -31,28 +30,6 @@ const ALL_INTERFACES = new Set(["0.0.0.0", "::", ""]);
 export function discoveryPort(): number {
     const parsed = parseInt(process.env.NEXUS_DISCOVERY_PORT || "", 10);
     return parsed > 0 ? parsed : DEFAULT_DISCOVERY_PORT;
-}
-
-/** Whether a daemon bound to `host` is reachable from the LAN and so answers discovery. */
-export function answersDiscovery(host: string): boolean {
-    return !LOOPBACK_HOSTS.has(host) && !host.startsWith("127.");
-}
-
-/** Answer discovery queries with the daemon's bind address and HTTP port. Resolves once bound. */
-export function startDiscoveryResponder(httpPort: number, version: string, host: string, udpPort = discoveryPort()): Promise<dgram.Socket> {
-    const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
-    const reply = Buffer.from(JSON.stringify({ service: "n2n-nexus", version, host, port: httpPort } satisfies DiscoveryReply));
-    socket.on("message", (msg, rinfo) => {
-        if (msg.toString("utf8") === DISCOVERY_QUERY) socket.send(reply, rinfo.port, rinfo.address, () => { });
-    });
-    return new Promise((resolve, reject) => {
-        socket.once("error", reject);
-        socket.bind(udpPort, () => {
-            socket.off("error", reject);
-            socket.on("error", () => { });
-            resolve(socket);
-        });
-    });
 }
 
 /** IPv4 LAN interfaces of this machine. */

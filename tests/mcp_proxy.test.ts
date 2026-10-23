@@ -4,12 +4,19 @@ import { PassThrough } from "node:stream";
 
 import { NexusServer } from "../src/server/nexus.js";
 import { NexusClient, NexusToolError, NexusTransportError } from "../src/client/nexus-client.js";
-import { startTestDaemon, DaemonHarness } from "./helpers/daemon.js";
+import { Host } from "./conformance/harness.js";
+
+/** A real n2n-nexus-host (the test build from tests/setup/go-host.ts) on a fresh temporary root. */
+async function startHost(): Promise<Host> {
+    const host = new Host();
+    await host.start();
+    return host;
+}
 
 describe("NexusClient error classification", () => {
-    let daemon: DaemonHarness;
-    beforeEach(async () => { daemon = await startTestDaemon("nexus-client"); });
-    afterEach(async () => { await daemon.close(); });
+    let daemon: Host;
+    beforeEach(async () => { daemon = await startHost(); });
+    afterEach(async () => { await daemon.dispose(); });
 
     it("reports a failed tool call as NexusToolError", async () => {
         const client = new NexusClient({ endpoint: `http://127.0.0.1:${daemon.port}` });
@@ -19,7 +26,7 @@ describe("NexusClient error classification", () => {
 
     it("reports an unreachable daemon as NexusTransportError", async () => {
         const port = daemon.port;
-        await daemon.close();
+        await daemon.stop();
         const client = new NexusClient({ endpoint: `http://127.0.0.1:${port}`, timeoutMs: 500 });
         await expect(client.fetchTools()).rejects.toBeInstanceOf(NexusTransportError);
         await expect(client.callTool("get_task", { taskId: "x" }, "t")).rejects.toBeInstanceOf(NexusTransportError);
@@ -34,12 +41,12 @@ const ERAS = {
 } as const;
 
 describe.each(Object.entries(ERAS))("MCP proxy, %s client", (_era, versionNegotiation) => {
-    let daemon: DaemonHarness;
+    let daemon: Host;
     const proxies: NexusServer[] = [];
-    beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy"); });
+    beforeEach(async () => { daemon = await startHost(); });
     afterEach(async () => {
         await Promise.all(proxies.splice(0).map((proxy) => proxy.shutdown()));
-        await daemon.close();
+        await daemon.dispose();
     });
 
     const newClient = (name: string) => new Client({ name, version: "1.0" }, versionNegotiation ? { versionNegotiation } : {});
@@ -134,10 +141,10 @@ describe("MCP proxy lifecycle", () => {
 });
 
 describe("MCP proxy instance id on 2026-07-28 connections", () => {
-    let daemon: DaemonHarness;
+    let daemon: Host;
     let proxy: NexusServer | undefined;
-    beforeEach(async () => { daemon = await startTestDaemon("mcp-proxy-raw"); });
-    afterEach(async () => { await proxy?.shutdown(); await daemon.close(); });
+    beforeEach(async () => { daemon = await startHost(); });
+    afterEach(async () => { await proxy?.shutdown(); await daemon.dispose(); });
 
     it("keeps one instance id when later requests omit clientInfo", async () => {
         delete process.env.NEXUS_INSTANCE_ID;

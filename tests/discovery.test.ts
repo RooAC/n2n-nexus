@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import dgram from "node:dgram";
 import fs from "node:fs";
 import http from "node:http";
@@ -7,13 +7,11 @@ import { AddressInfo } from "node:net";
 import path from "node:path";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
-import {
-    DISCOVER_ENDPOINT, LOCAL_ENDPOINT, discoverEndpoint, resolveEndpoint, startDiscoveryResponder
-} from "../src/client/discovery.js";
+import { DISCOVER_ENDPOINT, DISCOVERY_QUERY, LOCAL_ENDPOINT, discoverEndpoint, resolveEndpoint } from "../src/client/discovery.js";
 import { NexusServer } from "../src/server/nexus.js";
-import { startTestDaemon } from "./helpers/daemon.js";
+import { Host } from "./conformance/harness.js";
 
-// The daemon and hook cases run the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
+// The hook cases run the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
 const ENTRY = path.join(REPO, "build", "index.js");
 const TMP = path.join(REPO, "tests", "tmp", "discovery");
@@ -24,7 +22,6 @@ const ENDPOINT = /^http:\/\/\d+\.\d+\.\d+\.\d+:(\d+)$/;
 const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, NEXUS_DISCOVERY_PORT: process.env.NEXUS_DISCOVERY_PORT, NEXUS_ENDPOINT: process.env.NEXUS_ENDPOINT };
 let udpPort = 0;
 const sockets: dgram.Socket[] = [];
-const children: ChildProcess[] = [];
 
 /** A UDP port that was free a moment ago. */
 async function freeUdpPort(): Promise<number> {
@@ -35,8 +32,17 @@ async function freeUdpPort(): Promise<number> {
     return port;
 }
 
+/**
+ * A stand-in for the discovery responder of n2n-nexus-host bound to `host`: answers
+ * DISCOVERY_QUERY on the test's UDP port with the host's reply.
+ */
 async function responder(httpPort: number, host = "0.0.0.0"): Promise<dgram.Socket> {
-    const socket = await startDiscoveryResponder(httpPort, "test", host, udpPort);
+    const socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    const reply = Buffer.from(JSON.stringify({ service: "n2n-nexus", version: "test", host, port: httpPort }));
+    socket.on("message", (msg, rinfo) => {
+        if (msg.toString("utf8") === DISCOVERY_QUERY) socket.send(reply, rinfo.port, rinfo.address, () => { });
+    });
+    await new Promise<void>((resolve) => socket.bind(udpPort, () => resolve()));
     sockets.push(socket);
     return socket;
 }
@@ -59,12 +65,6 @@ beforeEach(async () => {
 afterEach(async () => {
     vi.restoreAllMocks();
     for (const socket of sockets.splice(0)) socket.close();
-    for (const child of children.splice(0)) {
-        if (child.exitCode === null) {
-            child.kill();
-            await new Promise((resolve) => child.once("exit", resolve));
-        }
-    }
     for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
@@ -126,40 +126,6 @@ describe("resolveEndpoint", () => {
     });
 });
 
-describe("daemon", () => {
-    async function startDaemon(host: string): Promise<number> {
-        const server = http.createServer();
-        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-        const port = (server.address() as AddressInfo).port;
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-
-        const child = spawn(process.execPath, [ENTRY, "daemon", "--host", host, "--port", String(port)], {
-            env: { ...process.env, NEXUS_HOST: "", NEXUS_ROOT: path.join(TMP, `root-${port}`) },
-            stdio: ["ignore", "ignore", "pipe"]
-        });
-        children.push(child);
-        let log = "";
-        await new Promise<void>((resolve, reject) => {
-            child.stderr!.on("data", (chunk) => {
-                log += chunk;
-                if (log.includes("listening on")) setTimeout(resolve, 200);     // the responder binds right after
-            });
-            child.once("exit", () => reject(new Error(`daemon exited: ${log}`)));
-        });
-        return port;
-    }
-
-    it("answers discovery when bound to all interfaces", async () => {
-        const port = await startDaemon("0.0.0.0");
-        expect(portOf(await discoverEndpoint(udpPort))).toBe(port);
-    }, 15_000);
-
-    it("stays silent when bound to loopback", async () => {
-        await startDaemon("127.0.0.1");
-        expect(await discoverEndpoint(udpPort, 500)).toBeNull();
-    }, 15_000);
-});
-
 describe("hook with --endpoint discover", () => {
     type Fake = { port: number; hits: number; close: () => Promise<void> };
     async function fakeDaemon(): Promise<Fake> {
@@ -212,7 +178,8 @@ describe("hook with --endpoint discover", () => {
 
 describe("MCP adapter with NEXUS_ENDPOINT=discover", () => {
     it("connects to the daemon a lookup finds", async () => {
-        const daemon = await startTestDaemon("discovery-adapter");
+        const daemon = new Host();
+        await daemon.start();
         try {
             await responder(daemon.port);
             process.env.NEXUS_ENDPOINT = DISCOVER_ENDPOINT;
@@ -246,7 +213,7 @@ describe("MCP adapter with NEXUS_ENDPOINT=discover", () => {
             await client.close();
             await adapter.shutdown();
         } finally {
-            await daemon.close();
+            await daemon.dispose();
         }
     }, 15_000);
 });

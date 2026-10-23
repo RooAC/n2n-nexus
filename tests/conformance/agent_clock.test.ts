@@ -1,9 +1,8 @@
-// Time-dependent agent-session behaviour, driven by POST /test/clock (Go test build only;
-// the TypeScript daemon has no settable clock, so the whole file is skipped for it).
+// Time-dependent agent-session behaviour, driven by POST /test/clock (test build only).
 // Each test pins the clock to its own base, ten days after the previous one, so
 // sessions and messages of earlier tests are far outside every time window.
-import { afterEach, describe, expect } from "vitest";
-import { HOOK, IS_GO, goIt, until, useHost, type Caller } from "./harness.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { HOOK, until, useHost, type Caller } from "./harness.js";
 import { BACKGROUND_WAIT_EVENT, NOTICE_PREFIX, NO_AGENT_SESSION_ERROR, agentKit, context, ids, type Profile } from "./agents.js";
 
 const { staleSessionMs: STALE_SESSION_MS, peerWindowMs: PEER_WINDOW_MS, idleSubscriptionTtlMs: IDLE_SUBSCRIPTION_TTL_MS,
@@ -11,7 +10,7 @@ const { staleSessionMs: STALE_SESSION_MS, peerWindowMs: PEER_WINDOW_MS, idleSubs
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (ms: number) => new Date(ms).toISOString();
 
-describe.skipIf(!IS_GO)("agent sessions over time", () => {
+describe("agent sessions over time", () => {
     const host = useHost({ listenWaitMs: 1000, rateLimit: 0 });
     const { hook, openHook, claudeTool, codexTool, send, sessions, profile, status, endSessions } = agentKit(host);
     afterEach(() => endSessions());
@@ -19,7 +18,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
     let base = Date.now();
     const nextBase = () => (base += 10 * DAY);
 
-    goIt("refreshes last activity on every hook event and direct-message tool call", async () => {
+    it("refreshes last activity on every hook event and direct-message tool call", async () => {
         const s = ids();
         const a = `claude:${s("a")}`;
         const t0 = nextBase();
@@ -37,7 +36,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect((await profile(`codex:${s("b")}`))?.lastActiveAt).toBe(iso(t0 + 65_000));
     });
 
-    goIt("counts idle and working sessions without activity for STALE_SESSION_MS as offline until they are active again", async () => {
+    it("counts idle and working sessions without activity for STALE_SESSION_MS as offline until they are active again", async () => {
         const s = ids();
         const t0 = nextBase();
         await host.setClock(t0);
@@ -70,7 +69,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect((await waiting.response).payload.output).toBeNull();             // the listening wait ran out
     });
 
-    goIt("counts a background wait as activity, so the session does not go stale between two waits", async () => {
+    it("counts a background wait as activity, so the session does not go stale between two waits", async () => {
         const s = ids();
         const r = `codex:${s("r")}`;
         const t0 = nextBase();
@@ -86,7 +85,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect(await status(r)).toBe("idle");
     });
 
-    goIt("drops idle subscriptions older than IDLE_SUBSCRIPTION_TTL_MS without a notice", async () => {
+    it("drops idle subscriptions older than IDLE_SUBSCRIPTION_TTL_MS without a notice", async () => {
         const s = ids();
         const t0 = nextBase();
         await host.setClock(t0);
@@ -99,7 +98,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect(await hook("codex", "UserPromptSubmit", s("w"))).toBeNull();
     });
 
-    goIt("expires unread messages after MESSAGE_TTL_MS and tells the sender", async () => {
+    it("expires unread messages after MESSAGE_TTL_MS and tells the sender", async () => {
         const s = ids();
         const t0 = nextBase();
         await host.setClock(t0);
@@ -115,7 +114,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect((await claudeTool<{ messages: unknown[] }>(s("r"), "read")).payload.result?.messages).toEqual([]);
     });
 
-    goIt("resolves a Claude tool call through the PreToolUse binding until it expires", async () => {
+    it("resolves a Claude tool call through the PreToolUse binding until it expires", async () => {
         const s = ids();
         const t0 = nextBase();
         await host.setClock(t0);
@@ -131,7 +130,7 @@ describe.skipIf(!IS_GO)("agent sessions over time", () => {
         expect(expired.payload).toEqual({ ok: false, error: NO_AGENT_SESSION_ERROR });
     });
 
-    goIt("peers returns self and the sessions not offline; includeOffline adds those active within PEER_WINDOW_MS; most recent first", async () => {
+    it("peers returns self and the sessions not offline; includeOffline adds those active within PEER_WINDOW_MS; most recent first", async () => {
         const s = ids();
         const t0 = nextBase();
         await host.setClock(t0 - PEER_WINDOW_MS - 60_000);

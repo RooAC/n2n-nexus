@@ -1,7 +1,7 @@
 // Host / browser-origin guard, Content-Type, body limit and body shape (contract/errors.json).
 import http from "node:http";
 import { describe, expect, it } from "vitest";
-import { ERRORS, IS_GO, RawBody, useHost } from "./harness.js";
+import { ERRORS, RawBody, useHost } from "./harness.js";
 
 const MAX_BODY = ERRORS.maxBodyBytes;
 const host = useHost({ allowedHosts: ["nexus.lan"] });
@@ -35,7 +35,6 @@ describe("HTTP guards", () => {
     it.each(["[", "localhost:bad", "[::1]:65536"])("rejects malformed Host %s with 400 and continues serving", async (name) => {
         const res = await host.request<{ error: string }>("GET", "/health", undefined, { Host: name });
         expect(res.status).toBe(400);
-        if (!IS_GO) expect(res.payload.error).toContain("Invalid request URL or Host header");
         expect((await host.request("GET", "/health")).status).toBe(200);
     });
 
@@ -61,7 +60,7 @@ describe("HTTP guards", () => {
     it("rejects DNS-rebinding style Host names but accepts IPs, localhost and configured names", async () => {
         const rebind = await host.request<{ error: string }>("GET", "/api/tools", undefined, { Host: "evil.example:5688", "Sec-Fetch-Site": "same-origin" });
         expect(rebind.status).toBe(403);
-        expect(rebind.payload.error).toContain(IS_GO ? "allowedHosts" : "NEXUS_ALLOWED_HOSTS");
+        expect(rebind.payload.error).toContain("allowedHosts");
 
         for (const name of ["127.0.0.1:1", "localhost:5688", "[::1]:5688", "192.168.1.20:5688", "host.docker.internal:5688", "nexus.lan:5688"]) {
             const ok = await host.request("GET", "/api/tools", undefined, { Host: name });

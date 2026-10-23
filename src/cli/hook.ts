@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import {
     BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
     isHookClient, type HookClient, type HookResponse
-} from "../daemon/hook-contract.js";
+} from "../contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
 

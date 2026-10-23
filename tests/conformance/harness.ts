@@ -5,8 +5,8 @@
  *   <bin> serve --host 127.0.0.1 --port 0 --root <fresh temp dir> [--test-listen-wait-ms <ms>]
  *
  * The bound address is read from the first stderr line matching READY_LINE.
- * NEXUS_HOST_KIND ("go" or "ts") says which behaviours to expect. One host per
- * test file: `useHost()` starts it in beforeAll and kills it in afterAll.
+ * One host per test file: `useHost()` starts it in beforeAll and kills it in
+ * afterAll. The host is the n2n-nexus-host test build (`go build -tags testclock`).
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import http from "node:http";
@@ -15,19 +15,9 @@ import { promises as fsp, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, it } from "vitest";
+import { afterAll, beforeAll } from "vitest";
 
 export const READY_LINE = /listening on http:\/\/(\S+)/;
-
-const kind = process.env.NEXUS_HOST_KIND ?? "go";
-if (kind !== "go" && kind !== "ts") throw new Error(`NEXUS_HOST_KIND must be "go" or "ts", not '${kind}'`);
-export const HOST_KIND: "go" | "ts" = kind;
-export const IS_GO = HOST_KIND === "go";
-
-/** A test that runs only against the Go host (new contract behaviour, or needs POST /test/clock). */
-export const goIt = it.skipIf(!IS_GO);
-/** A test of behaviour only the TypeScript daemon has (replaced in the new contract). */
-export const tsIt = it.skipIf(IS_GO);
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -82,7 +72,7 @@ function toResponse<T>(res: http.IncomingMessage, body: string): HttpResponse<T>
 // Host process
 // ---------------------------------------------------------------------------
 
-/** Per-file host settings, applied as settings.json (Go) or environment variables (TypeScript). */
+/** Per-file host settings, written to the root's settings.json. */
 export type HostSettings = {
     /** Tool calls per second per instance; 0 disables rate limiting. */
     rateLimit?: number;
@@ -113,10 +103,8 @@ export class Host {
     /** Start the host on a fresh temporary root. */
     async start(): Promise<void> {
         this.root = await fsp.mkdtemp(path.join(os.tmpdir(), "n2n-nexus-conformance-"));
-        if (IS_GO) {
-            const { listenWaitMs: _wait, ...file } = this.settings;
-            await fsp.writeFile(path.join(this.root, "settings.json"), JSON.stringify(file));
-        }
+        const { listenWaitMs: _wait, ...file } = this.settings;
+        await fsp.writeFile(path.join(this.root, "settings.json"), JSON.stringify(file));
         await this.spawn();
     }
 
@@ -154,16 +142,8 @@ export class Host {
         // The host must not pick up configuration from the developer's environment.
         const env: NodeJS.ProcessEnv = {};
         for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("NEXUS_")) env[k] = v;
-        if (!IS_GO) {
-            const s = this.settings;
-            if (s.rateLimit !== undefined) env.NEXUS_RATE_LIMIT = String(s.rateLimit);
-            if (s.rateBurst !== undefined) env.NEXUS_RATE_BURST = String(s.rateBurst);
-            if (s.maxAutoTurns !== undefined) env.NEXUS_MAX_AUTO_TURNS = String(s.maxAutoTurns);
-            if (s.allowedHosts !== undefined) env.NEXUS_ALLOWED_HOSTS = s.allowedHosts.join(",");
-        }
 
-        const script = /\.[cm]?js$/.test(bin);
-        const proc = spawn(script ? process.execPath : bin, script ? [bin, ...args] : args, { env, stdio: ["ignore", "ignore", "pipe"] });
+        const proc = spawn(bin, args, { env, stdio: ["ignore", "ignore", "pipe"] });
         this.proc = proc;
         this.output = "";
         this.port = await new Promise<number>((resolve, reject) => {
@@ -224,9 +204,8 @@ export class Host {
         });
     }
 
-    /** Pin the host clock (ms since the epoch) or release it with null. Go test build only. */
+    /** Pin the host clock (ms since the epoch) or release it with null. Test build only. */
     async setClock(now: number | null): Promise<void> {
-        if (!IS_GO) throw new Error("the TypeScript daemon has no settable clock");
         const res = await this.request("POST", "/test/clock", { now });
         if (res.status !== 200) throw new Error(`POST /test/clock answered ${res.status}: ${res.body} (build the host with -tags testclock)`);
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { HOOK, goIt, useHost } from "./harness.js";
+import { HOOK, useHost } from "./harness.js";
 
 describe("GET /health and routing", () => {
     const host = useHost();
@@ -12,7 +12,7 @@ describe("GET /health and routing", () => {
         expect(typeof res.payload.version).toBe("string");
     });
 
-    goIt("names the service and the contract version in health", async () => {
+    it("names the service and the contract version in health", async () => {
         const res = await host.request<Record<string, unknown>>("GET", "/health");
         expect(res.payload).toEqual({ ok: true, service: "n2n-nexus", version: expect.any(String), contractVersion: HOOK.contractVersion });
     });
@@ -25,7 +25,7 @@ describe("GET /health and routing", () => {
         }
     });
 
-    goIt("no longer serves the removed REST endpoints", async () => {
+    it("no longer serves the removed REST endpoints", async () => {
         const removed: [string, string][] = [
             ["GET", "/api/projects/search?query=x"], ["POST", "/api/projects/sync"], ["GET", "/api/projects/topology"],
             ["GET", "/api/messages/unread?instanceId=r"], ["POST", "/api/messages/send"],

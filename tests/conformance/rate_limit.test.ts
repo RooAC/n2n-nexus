@@ -2,7 +2,7 @@
 // that no token comes back during a test, so the counts do not depend on machine speed.
 // Each test restarts the host for fresh buckets.
 import { beforeEach, describe, expect, it } from "vitest";
-import { goIt, tsIt, useHost } from "./harness.js";
+import { useHost } from "./harness.js";
 
 const BURST = 3;
 const ADDRESS_BURST = BURST * 5;
@@ -43,14 +43,7 @@ describe("rate limiting", () => {
         expect(statuses.slice(ADDRESS_BURST).every((s) => s === 429)).toBe(true);
     });
 
-    tsIt("counts hooks only per address, never against an instance", async () => {
-        for (let i = 0; i < BURST; i++) expect((await send("busy")).status).toBe(200);
-        expect((await send("busy")).status).toBe(429);                          // instance exhausted (4 of 15 address tokens)
-        for (let i = 0; i < ADDRESS_BURST - BURST - 1; i++) expect((await hook("a")).status).toBe(200);
-        expect((await hook("a")).status).toBe(429);                             // address exhausted
-    });
-
-    goIt("limits hooks per session, apart from tool calls and from other sessions", async () => {
+    it("limits hooks per session, apart from tool calls and from other sessions", async () => {
         for (let i = 0; i < BURST; i++) expect((await send("busy")).status).toBe(200);
         expect((await send("busy")).status).toBe(429);                          // instance exhausted: hooks still run
         for (let i = 0; i < BURST; i++) expect((await hook("a")).status).toBe(200);

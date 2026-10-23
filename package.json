@@ -9,7 +9,7 @@
   },
   "files": [
     "build",
-    "contract",
+    "contract/*.json",
     "assets",
     "README.md",
     "llms.txt",
@@ -76,29 +76,24 @@
   "scripts": {
     "build": "node -e \"fs.rmSync('build', { recursive: true, force: true })\" && tsc",
     "start": "node build/index.js",
-    "daemon": "node build/index.js daemon",
     "dev": "tsc -w",
     "test": "vitest run",
+    "host:build-test": "go build -tags testclock -o host/bin/test/ ./host/cmd/n2n-nexus-host",
     "test:conformance": "vitest run -c vitest.conformance.config.ts",
-    "test:conformance:ts": "NEXUS_HOST_BIN=tests/conformance/ts-host.mjs NEXUS_HOST_KIND=ts vitest run -c vitest.conformance.config.ts",
     "audit": "npm audit",
     "audit:prod": "npm audit --omit=dev",
     "pack:dry-run": "npm pack --dry-run",
     "check": "npm run lint && npm test && npm run build && npm run audit && npm run pack:dry-run",
     "test:publish": "npm run build && npm test && npm pack --dry-run",
-    "test:integration": "vitest run tests/daemon_projects.test.ts tests/daemon_messages.test.ts tests/message_cursor.test.ts",
     "lint": "eslint src tests",
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.3.1",
-    "better-sqlite3": "^13.0.3",
-    "zod": "^4.6.7"
+    "@modelcontextprotocol/server": "^2.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.3.1",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "eslint": "^10.13.0",
     "lefthook": "^2.2.2",

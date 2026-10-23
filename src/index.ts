@@ -13,42 +13,33 @@ if (command === "--help" || command === "-h") {
 n2n-nexus v${pkg.version} — Multi-AI assistant coordination hub
 
 USAGE:
-  n2n-nexus daemon   Start the Nexus server (run once, stays alive)
   n2n-nexus mcp      Start the MCP proxy (launched by IDE automatically)
-  n2n-nexus install host [--host <addr>] [--port <port>] [--root <path>] [--node <path>]
-                     Run the daemon as a service that starts at boot (Windows scheduled task;
-                     needs an elevated terminal). Clients never start a daemon themselves.
-  n2n-nexus uninstall host
-                     Remove that service and stop its daemon
   n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
                      Register the hooks and the MCP server with Claude Code or Codex
   n2n-nexus uninstall <claude|codex>
                      Remove the hooks and the MCP server installed by install
   n2n-nexus doctor [claude|codex]
                      Check that the Node path and entry script in the installed hook and
-                     MCP commands exist and run; exit 1 and say how to fix them when not
+                     MCP commands exist and run, and that the host answers with the same
+                     contract version; exit 1 and say how to fix them when not
   n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
-                     Forward a client hook event to the daemon (run by the hooks)
+                     Forward a client hook event to the host (run by the hooks)
+
+The host is a separate program, n2n-nexus-host:
+  https://github.com/n2ns/n2n-nexus/releases
 
 OPTIONS:
-  --root <path>      Storage directory for daemon (default: ~/.n2n-nexus)
-  --port <port>      HTTP port for daemon (default: 5688)
-  --host <host>      Host address for daemon (default: 127.0.0.1)
   --id <id>          Instance ID for MCP proxy (default: mcp-<hostname>-<cwd hash>-<IDE name>)
-  --endpoint <url>   Daemon URL for hook (default: NEXUS_ENDPOINT, then http://127.0.0.1:5688),
-                     or "discover" to find a daemon on the LAN;
+  --endpoint <url>   Host URL for hook (default: NEXUS_ENDPOINT, then http://127.0.0.1:5688),
+                     or "discover" to find a host on the LAN;
                      install writes it into the hook and MCP commands
-  --node <path>      Node executable written into the hook and MCP commands by install,
-                     and into the scheduled task by install host
+  --node <path>      Node executable written into the hook and MCP commands by install
                      (default: the node on PATH when it is the running one, else its real path)
   --version, -v      Show version
   --help, -h         Show this help
 
 ENVIRONMENT:
-  NEXUS_ROOT         Override --root
-  NEXUS_DAEMON_PORT  Override --port
-  NEXUS_HOST         Override --host
-  NEXUS_ENDPOINT     Daemon URL for MCP proxy and hook (default: http://127.0.0.1:5688), or "discover"
+  NEXUS_ENDPOINT     Host URL for MCP proxy, hook and doctor (default: http://127.0.0.1:5688), or "discover"
   NEXUS_DISCOVERY_PORT  UDP port of LAN discovery (default: 5688)
   NEXUS_INSTANCE_ID  Override --id for MCP proxy
 `);
@@ -61,11 +52,6 @@ async function main() {
         process.exit(await runHook(process.argv.slice(3)));
     }
 
-    if ((command === "install" || command === "uninstall") && process.argv[3] === "host") {
-        const { runHostCommand } = await import("./cli/host.js");
-        process.exit(runHostCommand(command, process.argv.slice(4)));
-    }
-
     if (command === "install" || command === "uninstall") {
         const { runInstallCommand } = await import("./cli/install.js");
         process.exit(runInstallCommand(command, process.argv.slice(3)));
@@ -73,13 +59,7 @@ async function main() {
 
     if (command === "doctor") {
         const { runDoctor } = await import("./cli/doctor.js");
-        process.exit(runDoctor(process.argv.slice(3)));
-    }
-
-    if (command === "daemon") {
-        const { runDaemon } = await import("./daemon/index.js");
-        await runDaemon();
-        return;
+        process.exit(await runDoctor(process.argv.slice(3)));
     }
 
     // Default: mcp

@@ -2,7 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
 
-import type { Caller, HookRequest, HookResponse } from "../daemon/hook-contract.js";
+import type { Caller, HookRequest, HookResponse } from "../contract.js";
 
 export type ToolDefinition = {
     name: string;
@@ -102,6 +102,11 @@ export class NexusClient {
             if (payload) req.write(payload);
             req.end();
         });
+    }
+
+    /** GET /health: n2n-nexus-host answers `{ ok, service: "n2n-nexus", version, contractVersion }`. */
+    async health(): Promise<{ ok?: unknown; service?: unknown; version?: unknown; contractVersion?: unknown }> {
+        return this.request("GET", "/health");
     }
 
     async fetchTools(): Promise<ToolDefinition[]> {

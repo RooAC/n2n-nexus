@@ -127,7 +127,9 @@ describe("No daemon", () => {
 
         const failed = await client.callTool({ name: "echo", arguments: {} });
         expect(failed.isError).toBe(true);
-        expect(JSON.stringify(failed.content)).toContain("n2n-nexus install host");
+        const hint = JSON.stringify(failed.content);
+        expect(hint).toContain("Install n2n-nexus-host (https://github.com/n2ns/n2n-nexus/releases)");
+        expect(hint).toContain("n2n-nexus-host serve");
         await new Promise((resolve) => setTimeout(resolve, 300));     // several retry intervals
         expect(await answers(port)).toBe(false);
 
@@ -154,7 +156,8 @@ describe("No daemon", () => {
         const text = JSON.stringify(failed.content);
         expect(text).toContain("192.0.2.1");
         expect(text).toContain("on that machine");
-        expect(text).not.toContain("n2n-nexus install host\\\" (a service");
+        expect(text).toContain("n2n-nexus-host serve --host <address>");
+        expect(text).not.toContain("Install n2n-nexus-host");
     });
 
     it("a call the daemon does not answer in time fails alone: the tool list stays and nothing is resent", async () => {
@@ -203,6 +206,6 @@ describe("No daemon", () => {
         await new Promise((resolve) => setTimeout(resolve, 50));   // let the client see its pooled socket close
         const failed = await client.callTool({ name: "echo", arguments: {} });
         expect(failed.isError).toBe(true);
-        expect(JSON.stringify(failed.content)).toContain("n2n-nexus install host");
+        expect(JSON.stringify(failed.content)).toContain("Install n2n-nexus-host");
     });
 });
