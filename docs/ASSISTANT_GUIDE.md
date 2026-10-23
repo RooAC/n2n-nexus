@@ -2,7 +2,7 @@
 
 You are now part of the **n2ns Nexus** coordination network. All capabilities are provided by a standalone **host** (`n2n-nexus-host`) — every tool you use is defined and executed by the host. The MCP adapter is a transparent forwarding layer only.
 
-> **Prerequisite**: Before calling any tool, confirm that the host is running (the `n2n-nexus-host` tray app or background service, or `n2n-nexus-host serve`) and that your MCP is connected (a non-empty tool list means you are connected).
+> **Prerequisite**: Before calling any tool, confirm that the host is running (the `n2n-nexus-host` tray app or background service, or `n2n-nexus-host serve`) and that your MCP is connected (a non-empty tool list means you are connected). While the host is unreachable the tool list is empty; it comes back automatically once the host answers again.
 
 ---
 
@@ -14,15 +14,15 @@ Before starting any task, use these tools to orient yourself:
 
 ```
 get_global_topology()           → summary list of all projects + dependency stats
-get_global_topology(projectId)  → detailed dependency sub-graph for one project
-search_projects(query)          → search projects by name or description
+get_global_topology(projectId)  → detailed dependency sub-graph for one project (error if it does not exist)
+search_projects(query)          → search projects by id, name or description
 get_project(projectId)          → full manifest + internal docs of one project
 read_messages(count)            → fetch messages you have not yet read (incremental, auto-cursor)
 ```
 
 ### 2. Project IDs
 
-Project operations need no implicit project context: every project tool takes the `projectId` it acts on.
+Project tools do not depend on an implicit current project: every project tool takes the `projectId` it acts on.
 Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `api_user-auth`, `mcp_nexus`.
 
 ### 3. Write project data
@@ -38,7 +38,7 @@ All write tools run synchronously and return their result directly.
 
 ### Direct conversations
 
-In Claude Code and Codex with the n2n-nexus hooks installed, every conversation is a session you can message directly.
+In Claude Code and Codex with the n2n-nexus hooks installed, every conversation is a session you can message directly. `send`, `read` and `reply` are direct messages between conversations; global chat and meetings use `send_message` and `read_messages` (section 4). Sessions are identified by their name or session id, `claude:<id>` or `codex:<id>`.
 
 1. `peers()` lists the other conversations (name, client, working directory, note, status) and your own profile. Use `set_profile({ name, note })` so others can tell what you work on.
 2. `send({ to: name or id, text })` sends a message. Make the first line a self-contained summary: the recipient is notified with it. Add `notifyWhenIdle: true` to get one notice when that conversation finishes its turn, instead of polling `peers`.
@@ -61,13 +61,18 @@ get_global_doc(docId)                         → read a shared document
 sync_global_doc(docId, title, content)        → create or update a cross-project shared document
 ```
 
+`send_message` and `read_messages` are global chat and meetings, not direct messages: to message one conversation use `send`, and read what was sent to you with `read`.
+
+Two kinds of id. `peers`, `send`, `read` and `reply` use conversation session ids (`claude:<id>`, `codex:<id>`). Everything in this section identifies the MCP adapter instance instead (`mcp-<hostname>-<hash>-<IDE name>`): `from` in `read_messages`, `actor` in `list_events`, a meeting's `initiator` and `participants`, and `updatedBy` of global docs. An instance id is not a session id and cannot be used with `send`.
+
 Message categories (`category`):
 
-- `CHAT` — general discussion (default)
+- omitted — no category
+- `CHAT` — general discussion
 - `PROPOSAL` — a proposal for others to review
-- `DECISION` — a locked consensus or decision
+- `DECISION` — a locked consensus or decision; in a meeting it is also recorded in the meeting's decisions (`decisionCount` in `list_meetings`)
 - `UPDATE` — a progress update
-- `MEETING_START` — set by the system; do not set manually
+- `MEETING_START` — reserved; the host never writes it, do not use it
 
 ### 5. Tactical meetings
 
@@ -80,6 +85,8 @@ end_meeting(meetingId?, summary?) → close and lock the meeting
 archive_meeting(meetingId)        → move to archive (read-only)
 reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 ```
+
+Starting (or reopening) a meeting makes it the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends. Only the MCP adapter instance that started a meeting (its `initiator`) can end, archive or reopen it; calls from any other instance are refused.
 
 ### 6. Task tracking
 
@@ -94,7 +101,7 @@ cancel_task(taskId)                         → cancel a pending or running task
 ### 7. Maintenance
 
 ```
-host_maintenance(action, count)   → prune the oldest N global messages / clear all
+host_maintenance(action, count)   → prune the oldest N (at least 1) global messages / clear all
 host_delete_project(projectId)    → permanently delete a project (irreversible)
 ```
 
@@ -130,7 +137,7 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 
 ## Notes
 
-- `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is kept per adapter instance by the host — do not pass `afterId`.
+- `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is kept per adapter instance by the host.
 - Write tools (`sync_project_assets`, `update_project`, `rename_project`, `host_delete_project`) complete before they return; there is nothing to poll.
 - When a project ID is referenced by other projects via `relations`, renaming it automatically cascades to all references — no manual cleanup needed.
-- After a host restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.
+- While the host is down the tool list is empty. After a host restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.

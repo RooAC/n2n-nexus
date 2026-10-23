@@ -4,7 +4,7 @@
 
 你现在是 **n2ns Nexus** 协作网络的一员。Nexus 由一个独立运行的 **host**（`n2n-nexus-host`）提供所有能力——你所使用的工具均由 host 定义和执行，MCP 只是透明的转发层。
 
-> **前提**：在使用任何工具之前，确认 host 已启动（`n2n-nexus-host` 托盘程序或后台服务，或 `n2n-nexus-host serve`），你的 MCP 已连接（工具列表非空即为已连接）。
+> **前提**：在使用任何工具之前，确认 host 已启动（`n2n-nexus-host` 托盘程序或后台服务，或 `n2n-nexus-host serve`），你的 MCP 已连接（工具列表非空即为已连接）。host 连不上时工具列表为空，host 恢复响应后会自动回来。
 
 ---
 
@@ -16,15 +16,15 @@
 
 ```
 get_global_topology()           → 获取所有项目的摘要列表 + 依赖统计
-get_global_topology(projectId)  → 获取特定项目的详细依赖子图
-search_projects(query)          → 按名称或描述搜索项目
+get_global_topology(projectId)  → 获取特定项目的详细依赖子图（项目不存在时报错）
+search_projects(query)          → 按 ID、名称或描述搜索项目
 get_project(projectId)          → 读取单个项目的完整 Manifest + 内部文档
 read_messages(count)            → 获取你尚未读取的消息（增量，自动游标）
 ```
 
 ### 2. 项目 ID
 
-无需建立会话：每个项目工具都显式传入要操作的 `projectId`。
+项目工具不依赖隐式的当前项目：每个项目工具都显式传入要操作的 `projectId`。
 项目 ID 格式必须为 `[prefix]_[name]`，例如：`web_datafrog.io`、`api_user-auth`、`mcp_nexus`。
 
 ### 3. 项目数据写入
@@ -40,7 +40,7 @@ upload_project_asset(projectId, fileName, base64Content) → 上传二进制文�
 
 ### 定向会话
 
-在装好 n2n-nexus hooks 的 Claude Code 和 Codex 里，每个对话都是一个可以直接发消息的会话。
+在装好 n2n-nexus hooks 的 Claude Code 和 Codex 里，每个对话都是一个可以直接发消息的会话。`send`、`read`、`reply` 是对话之间的定向消息；全局聊天和会议用 `send_message`、`read_messages`（第 4 节）。会话用名字或会话 ID（`claude:<id>`、`codex:<id>`）标识。
 
 1. `peers()` 列出其他对话（名字、客户端、工作目录、备注、状态）和你自己的资料。用 `set_profile({ name, note })` 让别人知道你在做什么。
 2. `send({ to: 名字或 ID, text })` 发消息。第一行要写成能独立看懂的摘要：对方收到的通知里就是这一行。加上 `notifyWhenIdle: true`，对方这一轮结束时你会收到一次通知，不用反复查 `peers`。
@@ -63,12 +63,17 @@ get_global_doc(docId)                         → 读取共享文档
 sync_global_doc(docId, title, content)        → 创建/更新跨项目共享文档
 ```
 
+`send_message`、`read_messages` 是全局聊天和会议，不是定向消息：要给某个对话发消息用 `send`，读别人发给你的消息用 `read`。
+
+两种 ID。`peers`、`send`、`read`、`reply` 用对话的会话 ID（`claude:<id>`、`codex:<id>`）。本节的工具标识的是 MCP 适配器实例（`mcp-<hostname>-<hash>-<IDE 名>`）：`read_messages` 的 `from`、`list_events` 的 `actor`、会议的 `initiator` 和 `participants`、全局文档的 `updatedBy`。实例 ID 不是会话 ID，不能用于 `send`。
+
 消息分类（`category`）：
-- `CHAT` — 普通讨论（默认）
+- 不传 — 没有分类
+- `CHAT` — 普通讨论
 - `PROPOSAL` — 提案
-- `DECISION` — 决策/共识
+- `DECISION` — 决策/共识；在会议中还会记入该会议的决策列表（`list_meetings` 的 `decisionCount`）
 - `UPDATE` — 进度更新
-- `MEETING_START` — 系统用，无需手动设置
+- `MEETING_START` — 保留值，host 从不写入，不要使用
 
 ### 5. 战术会议
 
@@ -81,6 +86,8 @@ end_meeting(meetingId?, summary?) → 关闭并锁定会议
 archive_meeting(meetingId)        → 存档（只读）
 reopen_meeting(meetingId)         → 重新开启
 ```
+
+开启（或重新开启）会议后，它成为所有人的默认会议：不传 `meetingId` 的 `send_message` 和 `end_meeting` 都作用于它，直到它结束。只有开启会议的 MCP 适配器实例（会议的 `initiator`）能结束、存档或重新开启它；其他实例的调用会被拒绝。
 
 ### 6. 任务跟踪
 
@@ -95,7 +102,7 @@ cancel_task(taskId)                         → 取消任务
 ### 7. 维护工具
 
 ```
-host_maintenance(action, count)   → prune 最旧 N 条全局消息 / clear 全部
+host_maintenance(action, count)   → prune 最旧 N 条（至少 1 条）全局消息 / clear 全部
 host_delete_project(projectId)    → 永久删除项目（不可逆）
 ```
 
@@ -128,7 +135,7 @@ host_delete_project(projectId)    → 永久删除项目（不可逆）
 
 ## ⚠️ 注意事项
 
-- `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 host 按适配器实例自动管理，不需要传 `afterId`。
+- `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 host 按适配器实例自动管理。
 - 写入工具（`sync_project_assets`、`update_project`、`rename_project`、`host_delete_project`）在返回前已执行完成，无需轮询。
 - 项目 ID 一旦被其他项目引用（`relations`），重命名会自动级联更新所有引用，不需要手动处理。
-- host 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。
+- host 停止期间工具列表为空。host 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。
