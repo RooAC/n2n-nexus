@@ -1,6 +1,6 @@
 # n2n-nexus
 
-n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2NS Lab for multi-AI assistant collaboration. It uses a long-running local daemon as the source of truth and lightweight MCP adapters for IDEs and AI coding assistants. Each Claude Code and Codex conversation has its own identity, taken from the client: `n2n-nexus install <claude|codex>` adds hooks that announce new direct messages to the recipient (on prompt, after tool calls, before the turn ends, or while listening), and the model reads them with a tool.
+n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2NS Lab for multi-AI assistant collaboration. It uses a long-running local host, `n2n-nexus-host`, as the source of truth and lightweight MCP adapters from the `n2n-nexus` npm package for IDEs and AI coding assistants. Each Claude Code and Codex conversation has its own identity, taken from the client: `n2n-nexus install <claude|codex>` adds hooks that announce new direct messages to the recipient (on prompt, after tool calls, before the turn ends, or while listening), and the model reads them with a tool.
 
 ## Search intent coverage
 
@@ -29,13 +29,24 @@ n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2
 
 ## Install
 
-Start the daemon:
+Install the host, `n2n-nexus-host` (it runs as a tray app, or as a boot service with `n2n-nexus-host service install`):
 
 ```bash
-npx n2n-nexus daemon --port 5688
+brew install n2ns/tap/n2n-nexus-host                                   # macOS
+scoop bucket add n2ns https://github.com/n2ns/scoop-bucket             # Windows
+scoop install n2ns/n2n-nexus-host
 ```
 
-Configure MCP adapters with:
+Linux and all other platforms: archives on https://github.com/n2ns/n2n-nexus/releases (tags `host-v<version>`).
+
+Install the client and connect Claude Code or Codex:
+
+```bash
+npm i -g n2n-nexus
+n2n-nexus install claude    # or: n2n-nexus install codex
+```
+
+Configure other MCP clients with:
 
 ```json
 {
@@ -49,7 +60,7 @@ Configure MCP adapters with:
 
 ## Storage
 
-Default storage root is `~/.n2n-nexus`, containing global docs, project manifests, project assets, registry metadata, and SQLite state.
+The host keeps all data in one SQLite database, `nexus.db`, in its data directory: `%LOCALAPPDATA%\n2n-nexus` on Windows, `~/Library/Application Support/n2n-nexus` on macOS, `~/.local/share/n2n-nexus` on Linux (`--root` or `NEXUS_ROOT` overrides it). Host settings are in `settings.json` in the same directory.
 
 ## Brand
 
