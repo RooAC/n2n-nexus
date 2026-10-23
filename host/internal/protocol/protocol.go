@@ -1,0 +1,180 @@
+// Package protocol loads the embedded contract (contract/*.json): the tool
+// definitions with their compiled input and output schemas, and the hook
+// constants shared with the TypeScript clients.
+package protocol
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/n2ns/n2n-nexus/contract"
+)
+
+// Tool is one entry of contract/tools.json.
+type Tool struct {
+	Name                string         `json:"name"`
+	Title               string         `json:"title"`
+	Description         string         `json:"description"`
+	Annotations         map[string]any `json:"annotations"`
+	InputSchema         map[string]any `json:"inputSchema"`
+	OutputSchema        map[string]any `json:"outputSchema"`
+	PublishOutputSchema bool           `json:"publishOutputSchema"`
+
+	input  *jsonschema.Schema
+	output *jsonschema.Schema
+}
+
+// Definition is the tool as GET /api/tools lists it.
+func (t *Tool) Definition() map[string]any {
+	def := map[string]any{
+		"name":        t.Name,
+		"title":       t.Title,
+		"description": t.Description,
+		"inputSchema": t.InputSchema,
+		"annotations": t.Annotations,
+	}
+	if t.PublishOutputSchema {
+		def["outputSchema"] = t.OutputSchema
+	}
+	return def
+}
+
+// ValidateArgs checks call arguments against the input schema; the error text is for the caller.
+func (t *Tool) ValidateArgs(args json.RawMessage) error {
+	return validate(t.input, args)
+}
+
+// ValidateResult checks a handler result against the output schema; a failure is a host defect.
+func (t *Tool) ValidateResult(result json.RawMessage) error {
+	return validate(t.output, result)
+}
+
+func validate(schema *jsonschema.Schema, raw json.RawMessage) error {
+	value, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+	if err := schema.Validate(value); err != nil {
+		var verr *jsonschema.ValidationError
+		if ok := asValidationError(err, &verr); ok {
+			return fmt.Errorf("%s", strings.TrimSpace(verr.Error()))
+		}
+		return err
+	}
+	return nil
+}
+
+func asValidationError(err error, target **jsonschema.ValidationError) bool {
+	v, ok := err.(*jsonschema.ValidationError)
+	if ok {
+		*target = v
+	}
+	return ok
+}
+
+// Contract is the loaded contract.
+type Contract struct {
+	Version int
+	Tools   []*Tool
+	byName  map[string]*Tool
+	Hook    Hook
+}
+
+// Tool returns the named tool, or nil.
+func (c *Contract) Tool(name string) *Tool { return c.byName[name] }
+
+// Hook mirrors contract/hook.json.
+type Hook struct {
+	ContractVersion     int               `json:"contractVersion"`
+	Clients             []string          `json:"clients"`
+	ClientInfoNames     map[string]string `json:"clientInfoNames"`
+	MCPServerName       string            `json:"mcpServerName"`
+	HookInputFields     []string          `json:"hookInputFields"`
+	BackgroundWaitEvent string            `json:"backgroundWaitEvent"`
+	AgentStatuses       []string          `json:"agentStatuses"`
+	Timing              struct {
+		ListenWaitMs             int64 `json:"listenWaitMs"`
+		HookStopRequestTimeoutMs int64 `json:"hookStopRequestTimeoutMs"`
+		HookRequestTimeoutMs     int64 `json:"hookRequestTimeoutMs"`
+		HookStopTimeoutSec       int64 `json:"hookStopTimeoutSec"`
+		WaitHookTimeoutSec       int64 `json:"waitHookTimeoutSec"`
+		HookTimeoutSec           int64 `json:"hookTimeoutSec"`
+		WakePromptWindowMs       int64 `json:"wakePromptWindowMs"`
+		ToolUseBindingTtlMs      int64 `json:"toolUseBindingTtlMs"`
+		MessageTtlMs             int64 `json:"messageTtlMs"`
+		IdleSubscriptionTtlMs    int64 `json:"idleSubscriptionTtlMs"`
+		PeerWindowMs             int64 `json:"peerWindowMs"`
+		StaleSessionMs           int64 `json:"staleSessionMs"`
+	} `json:"timing"`
+	Limits struct {
+		DefaultMaxAutoTurns int    `json:"defaultMaxAutoTurns"`
+		MaxMessageChars     int    `json:"maxMessageChars"`
+		MaxNoteChars        int    `json:"maxNoteChars"`
+		SessionNamePattern  string `json:"sessionNamePattern"`
+		PreviewChars        int    `json:"previewChars"`
+		NotifyListLimit     int    `json:"notifyListLimit"`
+	} `json:"limits"`
+	Texts struct {
+		NoticePrefix        string `json:"noticePrefix"`
+		NotifyClosing       string `json:"notifyClosing"`
+		StopClosing         string `json:"stopClosing"`
+		StatusNote          string `json:"statusNote"`
+		SessionStartClosing string `json:"sessionStartClosing"`
+		MessageTrustNote    string `json:"messageTrustNote"`
+		NoAgentSessionError string `json:"noAgentSessionError"`
+	} `json:"texts"`
+}
+
+// Load parses and compiles the embedded contract.
+func Load() (*Contract, error) {
+	var tools struct {
+		ContractVersion int     `json:"contractVersion"`
+		Tools           []*Tool `json:"tools"`
+	}
+	if err := json.Unmarshal(contract.ToolsJSON, &tools); err != nil {
+		return nil, fmt.Errorf("contract/tools.json: %w", err)
+	}
+	c := &Contract{Version: tools.ContractVersion, Tools: tools.Tools, byName: map[string]*Tool{}}
+	if err := json.Unmarshal(contract.HookJSON, &c.Hook); err != nil {
+		return nil, fmt.Errorf("contract/hook.json: %w", err)
+	}
+	if c.Hook.ContractVersion != c.Version {
+		return nil, fmt.Errorf("contract version mismatch: tools.json %d, hook.json %d", c.Version, c.Hook.ContractVersion)
+	}
+	compiler := jsonschema.NewCompiler()
+	for _, t := range c.Tools {
+		var err error
+		if t.input, err = compile(compiler, t.Name+"/input", t.InputSchema); err != nil {
+			return nil, err
+		}
+		if t.output, err = compile(compiler, t.Name+"/output", t.OutputSchema); err != nil {
+			return nil, err
+		}
+		c.byName[t.Name] = t
+	}
+	return c, nil
+}
+
+func compile(compiler *jsonschema.Compiler, id string, schema map[string]any) (*jsonschema.Schema, error) {
+	url := "contract:///" + id + ".json"
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if err := compiler.AddResource(url, doc); err != nil {
+		return nil, fmt.Errorf("schema %s: %w", id, err)
+	}
+	s, err := compiler.Compile(url)
+	if err != nil {
+		return nil, fmt.Errorf("schema %s: %w", id, err)
+	}
+	return s, nil
+}
