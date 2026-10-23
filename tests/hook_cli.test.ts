@@ -229,8 +229,9 @@ describe("n2n-nexus hook --wait", () => {
 });
 
 describe("n2n-nexus hook, no daemon", () => {
-    it("exits 0 without output when a non-local daemon is unreachable", async () => {
-        const result = await runHook(["claude", "--endpoint", "http://127.0.0.2:1"], JSON.stringify({ hook_event_name: "PostToolUse", session_id: "x" }));
+    it("exits 0 without output when the daemon is unreachable", async () => {
+        const port = await freePort();
+        const result = await runHook(["claude", "--endpoint", `http://127.0.0.1:${port}`], JSON.stringify({ hook_event_name: "PostToolUse", session_id: "x" }));
         expect(result).toMatchObject({ code: 0, stdout: "" });
         expect(result.ms).toBeLessThan(1_500);
     });

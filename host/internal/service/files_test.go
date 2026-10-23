@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"encoding/xml"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -183,12 +184,12 @@ func TestDesktopEntry(t *testing.T) {
 
 func TestAutostartPaths(t *testing.T) {
 	p, c, _ := autostartFileIn("darwin", "/Users/ann", "/x/host")
-	if p != "/Users/ann/Library/LaunchAgents/io.n2ns.n2n-nexus-host.tray.plist" || !strings.Contains(c, "<string>/x/host</string>") {
+	if p != filepath.Join("/Users/ann", "Library", "LaunchAgents", "io.n2ns.n2n-nexus-host.tray.plist") || !strings.Contains(c, "<string>/x/host</string>") {
 		t.Fatal(p, c)
 	}
 	t.Setenv("XDG_CONFIG_HOME", "")
 	p, c, _ = autostartFileIn("linux", "/home/ann", "/x/host")
-	if p != "/home/ann/.config/autostart/n2n-nexus-host.desktop" || !strings.Contains(c, `Exec="/x/host"`) {
+	if p != filepath.Join("/home/ann", ".config", "autostart", "n2n-nexus-host.desktop") || !strings.Contains(c, `Exec="/x/host"`) {
 		t.Fatal(p, c)
 	}
 	if p, _, _ := autostartFileIn("windows", "C:/Users/ann", "x"); p != "" {

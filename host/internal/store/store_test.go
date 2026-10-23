@@ -3,12 +3,17 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 // The database lands in the data directory whatever characters its path holds.
 func TestOpenPathWithURICharacters(t *testing.T) {
-	for _, name := range []string{"hash#dir", "pct%41dir", "q?dir", "space dir"} {
+	names := []string{"hash#dir", "pct%41dir", "space dir"}
+	if runtime.GOOS != "windows" { // Windows file names cannot hold '?'
+		names = append(names, "q?dir")
+	}
+	for _, name := range names {
 		dir := filepath.Join(t.TempDir(), name)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)

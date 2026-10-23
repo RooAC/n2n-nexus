@@ -1,0 +1,3 @@
+# Embedded into the Go host byte for byte: a checkout must not turn them into CRLF.
+*.sql text eol=lf
+contract/*.json text eol=lf

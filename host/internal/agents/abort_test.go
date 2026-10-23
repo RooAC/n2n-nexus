@@ -15,11 +15,11 @@ func TestAbortedBeforeFirstCheckListening(t *testing.T) {
 	h.send("s", "codex:r", "pending", false)
 	eq(t, h.count("SELECT COUNT(*) FROM agent_messages WHERE to_id = 'codex:r' AND notified_at IS NULL"), 1)
 
-	h.ag.mu.Lock() // the coordinator is busy
+	h.ag.mu.Lock()                                       // the coordinator is busy
 	held := h.openHook("codex", "Stop", "r", stopActive) // continuing a stop: it waits for messages
-	time.Sleep(100 * time.Millisecond) // request arrives, blocks on mu
-	held.cancel()                      // client killed
-	time.Sleep(100 * time.Millisecond) // server notices the closed connection
+	time.Sleep(100 * time.Millisecond)                   // request arrives, blocks on mu
+	held.cancel()                                        // client killed
+	time.Sleep(100 * time.Millisecond)                   // server notices the closed connection
 	h.ag.mu.Unlock()
 	res := <-held.done
 	time.Sleep(300 * time.Millisecond) // let the handler run
