@@ -22,13 +22,25 @@ func DataDir() string {
 		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
 			return filepath.Join(dir, appDir)
 		}
-		return filepath.Join(home, "AppData", "Local", appDir)
 	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", appDir)
 	default:
 		if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
 			return filepath.Join(dir, appDir)
 		}
+	}
+	return DataDirIn(home)
+}
+
+// DataDirIn is the default data directory of the user whose home is home,
+// without environment overrides (`sudo service install` uses it for the
+// invoking user).
+func DataDirIn(home string) string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(home, "AppData", "Local", appDir)
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support", appDir)
+	default:
 		return filepath.Join(home, ".local", "share", appDir)
 	}
 }
@@ -41,13 +53,24 @@ func LogDir() string {
 		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
 			return filepath.Join(dir, appDir, "logs")
 		}
-		return filepath.Join(home, "AppData", "Local", appDir, "logs")
 	case "darwin":
-		return filepath.Join(home, "Library", "Logs", appDir)
 	default:
 		if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
 			return filepath.Join(dir, appDir)
 		}
+	}
+	return LogDirIn(home)
+}
+
+// LogDirIn is the default log directory of the user whose home is home,
+// without environment overrides.
+func LogDirIn(home string) string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(home, "AppData", "Local", appDir, "logs")
+	case "darwin":
+		return filepath.Join(home, "Library", "Logs", appDir)
+	default:
 		return filepath.Join(home, ".local", "state", appDir)
 	}
 }
