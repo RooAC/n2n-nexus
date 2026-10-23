@@ -1,6 +1,8 @@
 # Nexus Project TODO List
 
-## ✅ 2026-06-14: Daemon + MCP Architecture Refactor (DONE)
+## ✅ 2026-06-14: Daemon + MCP Architecture Refactor (DONE, history)
+
+> History only: this TypeScript daemon was later replaced by the Go host (`host/`, `n2n-nexus-host`). `src/daemon/` no longer exists; see `docs/ARCHITECTURE.md` for the current design.
 
 **Objective**: Replace the flawed Host/Guest election mechanism with a standalone daemon as the single source of truth.
 

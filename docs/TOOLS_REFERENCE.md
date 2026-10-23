@@ -11,6 +11,7 @@ Parameter tables below are derived from `contract/tools.json`, the JSON Schema t
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
 - Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive; `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
 - Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). Read cursors and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call; `read_messages` fails without one.
+- Two kinds of id appear in results. The direct-message tools (`peers`, `send`, `read`, `reply`) use conversation session ids, `claude:<id>` or `codex:<id>`. `from` in `read_messages`, `actor` in `list_events`, a meeting's `initiator` and `participants`, and `updatedBy` of global docs are adapter instance ids (`mcp-…`); they are not sessions and cannot be used with `send`.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `update_task`, `cancel_task`) track work that assistants manage themselves.
 - Project tools take `projectId` explicitly.
@@ -28,12 +29,12 @@ Used by `sync_project_assets` and partially by `update_project`.
 | `name` | string | yes | Human-readable project name. |
 | `description` | string | yes | Project summary. |
 | `techStack` | string[] | yes | Technologies used by the project. |
-| `relations` | object[] | yes | Project relationships. TypeScript shape is `{ targetId, type }`, where `type` is `dependency`, `parent`, `child`, or `related`. |
+| `relations` | object[] | yes | Project relationships. Shape: `{ targetId, type }`, where `type` is `dependency`, `parent`, `child`, or `related`. |
 | `repositoryUrl` | string | yes | Source repository URL. |
 | `localPath` | string | yes | Local filesystem path for the project. |
-| `endpoints` | object[] | yes | TypeScript shape is `{ name, url, description }`. |
-| `apiSpec` | object[] | yes | TypeScript shape is `{ method, path, summary }`. |
-| `billing` | object | no | Optional TypeScript field: `{ plain, price }`. |
+| `endpoints` | object[] | yes | Shape: `{ name, url, description }`. |
+| `apiSpec` | object[] | yes | Shape: `{ method, path, summary }`. |
+| `billing` | object | no | `{ plain, price }`: the billing plan or terms as free text (`plain`) and the price (`price`), both strings. |
 | `lastUpdated` | string | no | Stored manifest field. |
 | `apiDependencies` | object | no | Optional map of project ID to version constraint. |
 | `gatewayCompatibility` | string | no | Optional gateway version compatibility string. |
@@ -105,7 +106,7 @@ Search the project registry.
 
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `query` | string | yes |  | Matches project ID, name, or summary. |
+| `query` | string | yes |  | Case-insensitive substring of the project ID, name, or description. |
 | `limit` | integer | no | `10` | Maximum number of returned projects (1–200). |
 
 ### `get_global_topology`
@@ -115,6 +116,10 @@ Read the project topology.
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `projectId` | string | no | When provided, returns a focused subgraph for that project. Without it, returns a global project list and stats. |
+
+Behavior:
+
+- Fails if `projectId` is given and the project does not exist.
 
 ### `get_project`
 
@@ -136,7 +141,9 @@ Behavior:
 
 Every Claude Code and Codex conversation is one session with ID `claude:<session id>` or `codex:<session id>`, taken from the client. The hooks that `n2n-nexus install <claude|codex>` writes create the session and keep its status current; a sub-agent shares its parent conversation's session. Resuming a conversation keeps its session. A new conversation in the same client, such as after `/clear` in Claude Code, is a new session; Claude Code also ends the old one, which goes offline.
 
-The six tools below identify their caller from the MCP request's `_meta`, never from arguments: Claude Code attaches `claudecode/toolUseId`, which its PreToolUse hook bound to the conversation just before the call; Codex attaches `sessionId`. Other clients, conversations without the hooks, or a binding older than five minutes get the error `Direct messaging needs Claude Code or Codex with n2n-nexus hooks installed. Run: n2n-nexus install <claude|codex>`. Every other tool ignores the caller.
+The six tools below identify their caller from the MCP request's `_meta`, never from arguments: Claude Code attaches `claudecode/toolUseId`, which its PreToolUse hook bound to the conversation just before the call; Codex attaches `sessionId`. Other clients, conversations without the hooks, or a binding older than five minutes get an error that says direct messaging needs Claude Code or Codex with n2n-nexus hooks installed (`n2n-nexus install <claude|codex>`), that hooks apply to conversations started after they were installed, that the MCP server must be registered under the name `n2n-nexus`, and that an expired PreToolUse binding is fixed by calling the tool again. Every other tool ignores the caller.
+
+These six tools are direct messages between conversations. Global chat and meetings are separate: `send_message` posts there and `read_messages` reads there; neither reaches or reads a conversation's direct messages.
 
 | Tool | Parameters | Result and behavior |
 | --- | --- | --- |
@@ -147,7 +154,7 @@ The six tools below identify their caller from the MCP request's `_meta`, never 
 | `listen` | `on: boolean` | `{ listening }`. While on, each time the conversation ends a turn its Stop hook waits up to 590 seconds and continues the conversation when a message or notice arrives. Pressing Esc in the client ends one wait. |
 | `set_profile` | `name?: string` (1–48 of `A–Z a–z 0–9 . _ @ # -`), `note?: string` (≤ 200 chars); at least one | `{ profile }`. Names are unique among sessions that are not offline. |
 
-`Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended), `listening` (waiting in listen mode) or `offline` (the conversation ended). Clients do not always report the end of a conversation, so an `idle` or `working` session without any activity for 30 minutes becomes `offline` too; its next event brings it back. Only a `listening` session answers right away; `idle` and `working` ones see a message when their user next sends a prompt or they next call a tool.
+`Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended; a session with a background wait for messages shows as `listening` instead), `listening` (waiting in listen mode) or `offline` (the conversation ended). Clients do not always report the end of a conversation, so an `idle` or `working` session without any activity for 30 minutes becomes `offline` too; its next event brings it back. Only a `listening` session answers right away; `idle` and `working` ones see a message when their user next sends a prompt or they next call a tool.
 
 Delivery. The recipient's hooks announce new messages; notifications carry only the sender, the time and the first line (up to 100 characters), and the text arrives through `read`, as tool output:
 
@@ -167,12 +174,12 @@ HTTP clients: hooks call `POST /api/hook` with `{ client: "claude" | "codex", in
 
 ### `send_message`
 
-Post to a meeting or to global chat. For a message to one conversation, use `send`.
+Post to a meeting or to global chat. For a message to one conversation, use `send`; `send_message` never reaches a conversation's direct messages.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `message` | string | yes | Message body. |
-| `category` | string | no | One of `MEETING_START`, `PROPOSAL`, `DECISION`, `UPDATE`, or `CHAT`. |
+| `category` | string | no | One of `PROPOSAL`, `DECISION`, `UPDATE`, `CHAT` or `MEETING_START` (reserved; the host never writes it). Omitted, the message has no category. |
 | `meetingId` | string | no | Target meeting. Must be active. |
 
 Behavior:
@@ -180,11 +187,13 @@ Behavior:
 - With `meetingId`, the message goes to that meeting.
 - Otherwise, if a meeting is active, the message goes to it.
 - Otherwise it is written to global chat.
+- A `DECISION` message in a meeting is also recorded in that meeting's decisions (`decisionCount` in `list_meetings`).
+- The sender stored with the message is the calling adapter instance ID.
 - Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId?, message }`; global chat message IDs are numbers.
 
 ### `read_messages`
 
-Read recent or unread messages.
+Read unread global chat or meeting messages. Direct messages sent to your conversation are read with `read`.
 
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
@@ -194,6 +203,7 @@ Read recent or unread messages.
 Behavior:
 
 - Both global and meeting reads are incremental per adapter instance: each call returns only messages not yet returned to that instance, oldest first, and advances the cursor.
+- Each message's `from` is the sending adapter instance ID, not a session ID: you cannot `send` to it.
 - Needs the calling instance: a call without `instanceId` fails with `read_messages needs an instanceId: unread cursors are kept per instance.` The MCP adapter always sends one.
 
 ### `list_events`
@@ -208,7 +218,7 @@ Read the structured activity log.
 Behavior:
 
 - Every state change made through the host's tools is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
-- Each event carries `timestamp`, `actor` (instance ID), `action`, optional `target` and `detail`.
+- Each event carries `timestamp`, `actor` (adapter instance ID, not a session ID), `action`, optional `target` and `detail`.
 
 ### `update_global_strategy`
 
@@ -285,6 +295,11 @@ Open a new meeting session.
 | --- | --- | --- | --- |
 | `topic` | string | yes | Meeting topic. Used to create the meeting record. |
 
+Behavior:
+
+- The calling adapter instance becomes the meeting's `initiator`.
+- The new meeting becomes the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends (then the most recently activated meeting still active, if any). `reopen_meeting` makes the reopened meeting the default the same way.
+
 ### `end_meeting`
 
 Close and lock a meeting.
@@ -312,13 +327,13 @@ Reactivate a closed or archived meeting.
 
 Behavior:
 
-- Only the meeting initiator can end, archive or reopen a meeting.
+- Only the adapter instance that started the meeting (its `initiator`) can end, archive or reopen it; calls from any other instance fail with `Permission denied`.
 
 ## Task management
 
 ### `create_task`
 
-Create a background task.
+Create a task record that you track and update yourself with `update_task`; the host does not run tasks.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
@@ -358,7 +373,7 @@ Update a task you created.
 | `progress` | number | no | Progress from `0` to `1`. |
 | `result_uri` | string | no | Where the result is. |
 | `error_message` | string | no | Why the task failed. |
-| `metadata` | object | no | Replaces the task's metadata. |
+| `metadata` | object | no | Replaces the task's whole metadata object; keys not given are not kept. |
 
 Behavior:
 
@@ -383,7 +398,7 @@ Prune or clear the global chat stream.
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `action` | string | yes | `prune` or `clear`. |
-| `count` | integer | no | Number of oldest messages to remove for `prune` (default `0`); ignored by `clear`. |
+| `count` | integer | for `prune` | Number of oldest messages to remove; at least `1` for `prune`. Ignored by `clear`. |
 
 Behavior:
 

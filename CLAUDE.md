@@ -59,7 +59,9 @@ The single source of the protocol: `tools.json` (every tool's name, title, descr
 1. Add it to `contract/tools.json`: name, title, description, annotations, `inputSchema`, `outputSchema`, `publishOutputSchema`.
 2. Write the handler in `host/internal/core` (or `host/internal/agents` for conversation tools) and register it in that package's `Register`; the result must satisfy the output schema, which the host checks on every call.
 3. Cover it in `tests/conformance/` (`structured_output.test.ts` calls every tool and validates its result) and in the Go tests of the package.
-4. Document it in `docs/TOOLS_REFERENCE.md` and the assistant guides.
+4. Document it in `docs/TOOLS_REFERENCE.md`, and in `docs/ASSISTANT_GUIDE.md` and `docs/ASSISTANT_GUIDE_zh.md` whenever how an assistant uses the tools changes (keep the two guides in sync).
+
+Changing a hook or error text the model reads: edit the text in `contract/hook.json`, then check the expectations in the `host/internal/agents` tests and in `tests/conformance/agents.ts`.
 
 ### Key SDK patterns
 ```typescript
