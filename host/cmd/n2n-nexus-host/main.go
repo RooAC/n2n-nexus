@@ -33,9 +33,14 @@ const usage = `usage:
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
+		// Windows: the console build hands the tray to the GUI build next to it and returns.
+		if launchTray(executable()) {
+			fmt.Println("Started the n2n-nexus-host tray.")
+			return
+		}
 		os.Exit(runTray())
 	}
-	// A release build on Windows has no console (-H=windowsgui): print to the
+	// The Windows tray build has no console (-H=windowsgui): print to the
 	// terminal it was started from, if any.
 	attachConsole()
 	cmd, args := args[0], args[1:]
@@ -216,7 +221,7 @@ func autostart(args []string) int {
 		return 2
 	}
 	on := args[0] == "on"
-	where, err := service.SetAutostart(executable(), on)
+	where, err := service.SetAutostart(trayExecutable(executable()), on)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "autostart %s: %v\n", args[0], err)
 		return 1

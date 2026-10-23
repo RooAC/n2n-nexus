@@ -137,7 +137,7 @@ n2n-nexus-host version
 - 切到局域网时：Windows 用 UAC 提权执行 `netsh advfirewall` 添加 TCP 和 UDP 入站规则；macOS、Linux 只提示需要放行的端口。
 - 控制模式下“重启”按 `host.lock` 里的 PID 结束服务的 `serve`，由其监护进程重启，托盘最多等 20 秒等它重新应答 `/health`，始终只做控制界面，不在进程内起服务器；没等到就提示。
 - 中英文文本放在 `internal/tray/i18n.go`，按系统语言选择（Windows 读界面语言；macOS 环境变量没设时读 `defaults read -g AppleLanguages`，再退到 `AppleLocale`；Linux 读 `LC_ALL` / `LC_MESSAGES` / `LANG`）。
-- Windows 编译加 `-ldflags -H=windowsgui`，不出控制台窗口。
+- Windows 发布两个构建：`n2n-nexus-host.exe`（控制台，用于命令；不带参数时启动同目录的托盘构建）和 `n2n-nexus-host-tray.exe`（`-ldflags -H=windowsgui`，不出控制台窗口；登录后自启注册它）。GUI 程序无法让终端等待它的输出，所以命令要用控制台构建。
 
 ### 4.9 服务与自启
 

@@ -47,7 +47,7 @@ go run ./host/cmd/n2n-nexus-host serve --port 5799 --root /tmp/x
 
 `serve` logs to standard error; the first line `<version> listening on http://<addr>` tells the address (`--port 0` picks a free port). Point a client at it with `NEXUS_ENDPOINT=http://127.0.0.1:5799`.
 
-The macOS tray needs cgo (Cocoa): a macOS build with `CGO_ENABLED=0` has `serve`, `service` and `autostart` but no tray. Windows and Linux build with `CGO_ENABLED=0`. Release builds of Windows add `-ldflags -H=windowsgui` so the tray opens no console window; commands still print to the terminal they were started from.
+The macOS tray needs cgo (Cocoa): a macOS build with `CGO_ENABLED=0` has `serve`, `service` and `autostart` but no tray. Windows and Linux build with `CGO_ENABLED=0`. Windows releases contain two builds: `n2n-nexus-host.exe` (console, for commands; without arguments it starts the tray build next to it) and `n2n-nexus-host-tray.exe` (`-ldflags -H=windowsgui`, so the tray opens no console window). A GUI program cannot make the terminal wait for it, which is why commands need the console build.
 
 ## Test
 

@@ -39,10 +39,14 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#host-v}"
           ldflags="-s -w -X main.version=${version}"
-          exe=n2n-nexus-host
-          if [ "$GOOS" = windows ]; then exe=n2n-nexus-host.exe; ldflags="$ldflags -H=windowsgui"; fi
           mkdir -p stage dist
-          go build -trimpath -ldflags "$ldflags" -o "stage/$exe" ./host/cmd/n2n-nexus-host
+          if [ "$GOOS" = windows ]; then
+            # Commands need a console program; the tray a GUI one that opens no console window.
+            go build -trimpath -ldflags "$ldflags" -o stage/n2n-nexus-host.exe ./host/cmd/n2n-nexus-host
+            go build -trimpath -ldflags "$ldflags -H=windowsgui" -o stage/n2n-nexus-host-tray.exe ./host/cmd/n2n-nexus-host
+          else
+            go build -trimpath -ldflags "$ldflags" -o stage/n2n-nexus-host ./host/cmd/n2n-nexus-host
+          fi
           cp LICENSE stage/
           name="n2n-nexus-host_${version}_${GOOS}_${GOARCH}"
           if [ "$GOOS" = windows ]; then (cd stage && zip -q "../dist/$name.zip" *); else tar -czf "dist/$name.tar.gz" -C stage .; fi

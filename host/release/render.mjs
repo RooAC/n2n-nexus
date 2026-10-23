@@ -51,7 +51,7 @@ fs.writeFileSync(path.join(out, "n2n-nexus-host.json"), JSON.stringify({
         arm64: { url: asset(zip("arm64")), hash: sha256(zip("arm64")) }
     },
     bin: "n2n-nexus-host.exe",
-    shortcuts: [["n2n-nexus-host.exe", "n2n-nexus-host"]],
+    shortcuts: [["n2n-nexus-host-tray.exe", "n2n-nexus-host"]],
     checkver: { github: repo, regex: "host-v([\\d.]+)" },
     autoupdate: {
         architecture: {
@@ -90,6 +90,8 @@ NestedInstallerType: portable
 NestedInstallerFiles:
 - RelativeFilePath: n2n-nexus-host.exe
   PortableCommandAlias: n2n-nexus-host
+- RelativeFilePath: n2n-nexus-host-tray.exe
+  PortableCommandAlias: n2n-nexus-host-tray
 Installers:
 ${installer("amd64", "x64")}${installer("arm64", "arm64")}ManifestType: installer
 ManifestVersion: 1.9.0
