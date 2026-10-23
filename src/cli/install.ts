@@ -194,11 +194,31 @@ function addOurEntries(config: HooksFile, client: HookClient, command: string, c
     (hooks.Stop as unknown[]).push({ hooks: [wait] });
 }
 
+/**
+ * The file a config path really names: the target of a symlink (account
+ * switchers share one settings.json between config directories through a link,
+ * which a rename onto the link would replace), followed through every level.
+ */
+function linkTarget(file: string): string {
+    for (let target = file, hops = 0; hops < 40; hops++) {
+        let stat: fs.Stats;
+        try {
+            stat = fs.lstatSync(target);
+        } catch {
+            return target;                  // missing (or a dangling link's target): written as is
+        }
+        if (!stat.isSymbolicLink()) return target;
+        target = path.resolve(path.dirname(target), fs.readlinkSync(target));
+    }
+    return file;
+}
+
 function writeConfig(file: string, config: HooksFile): void {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
+    const target = linkTarget(file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const tmp = `${target}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n");
-    fs.renameSync(tmp, file);
+    fs.renameSync(tmp, target);
 }
 
 function mcpRemoveArgs(client: HookClient): string[] {

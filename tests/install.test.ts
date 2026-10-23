@@ -108,6 +108,21 @@ afterAll(() => {
 });
 
 describe("install claude", () => {
+    it.runIf(process.platform !== "win32")("writes through a symlinked settings.json (shared between accounts) instead of replacing the link", () => {
+        const shared = path.join(dir, "shared-settings.json");
+        fs.writeFileSync(shared, JSON.stringify(userSettings));
+        fs.mkdirSync(claudeDir, { recursive: true });
+        fs.symlinkSync(shared, claudeSettings());
+
+        expect(run(["install", "claude"]).code).toBe(0);
+        expect(fs.lstatSync(claudeSettings()).isSymbolicLink()).toBe(true);
+        expect(ourCommands(shared, "claude").length).toBeGreaterThan(0);
+
+        expect(run(["uninstall", "claude"]).code).toBe(0);
+        expect(fs.lstatSync(claudeSettings()).isSymbolicLink()).toBe(true);
+        expect(readJson(shared)).toEqual(userSettings);
+    });
+
     it("merges the hooks into existing settings and registers the MCP server", () => {
         fs.mkdirSync(claudeDir, { recursive: true });
         fs.writeFileSync(claudeSettings(), JSON.stringify(userSettings));

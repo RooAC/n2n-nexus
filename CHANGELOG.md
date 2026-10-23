@@ -2,10 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.2] - 2026-10-24
 
 ### Fixed
 
+- `n2n-nexus install` / `uninstall` write through a symlinked `settings.json` or `hooks.json` (account switchers such as PlanSwap share one file between config directories through a link) instead of replacing the link with a copy.
 - A tray controlling the background service shows the address the service listens on (for example `http://0.0.0.0:5688 (LAN)`), not the loopback address it checks the service on.
 
 ## [0.9.1] - 2026-10-24
