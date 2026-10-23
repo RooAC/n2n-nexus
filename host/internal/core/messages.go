@@ -122,7 +122,7 @@ type globalMessage struct {
 
 func (c *Core) readMessages(call api.Call, a readMessagesArgs) (any, error) {
 	if call.InstanceID == "" {
-		return nil, api.Errorf("read_messages needs an instanceId: unread cursors are kept per instance.")
+		return nil, api.Errorf("read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.")
 	}
 	contextType, contextID := "global", "global"
 	query := `SELECT id, sender, text, category, timestamp FROM global_messages WHERE id > ? ORDER BY id LIMIT ?`
@@ -257,6 +257,9 @@ type maintenanceArgs struct {
 }
 
 func (c *Core) hostMaintenance(call api.Call, a maintenanceArgs) (any, error) {
+	if a.Action == "prune" && a.Count < 1 {
+		return nil, api.Errorf("host_maintenance prune needs count ≥ 1 (the number of oldest global messages to remove); use action \"clear\" to remove all.")
+	}
 	var removed, remaining int64
 	err := c.tx(call, func(tx *sql.Tx) error {
 		var err error

@@ -61,7 +61,15 @@ func validate(schema *jsonschema.Schema, raw json.RawMessage) error {
 	if err := schema.Validate(value); err != nil {
 		var verr *jsonschema.ValidationError
 		if ok := asValidationError(err, &verr); ok {
-			return fmt.Errorf("%s", strings.TrimSpace(verr.Error()))
+			// Drop the "jsonschema validation failed with '<schema url>'" header; keep the "- at '/x': ..." lines.
+			lines := strings.Split(strings.TrimSpace(verr.Error()), "\n")
+			if len(lines) > 1 {
+				lines = lines[1:]
+			}
+			for i, line := range lines {
+				lines[i] = strings.TrimPrefix(strings.TrimSpace(line), "- ")
+			}
+			return fmt.Errorf("%s", strings.Join(lines, "; "))
 		}
 		return err
 	}

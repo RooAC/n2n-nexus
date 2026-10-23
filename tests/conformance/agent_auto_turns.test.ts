@@ -27,7 +27,7 @@ describe("POST /api/hook: automatic turn limit", () => {
             await send(s("s"), r, `ping ${n}`);
             const wake = (await waiting.response).payload.output?.wake ?? "";
             expect(wake).toContain(`ping ${n}`);
-            expect(wake).toContain(`Automatic turn ${n} of 2`);
+            expect(wake).toContain(`Automatic turn ${n} of 2 since your user's last prompt; after turn 2, messages wait until your user prompts again.`);
             await claudeTool(s("r"), "read");
             await wokenTurn("claude", s("r"));
         }

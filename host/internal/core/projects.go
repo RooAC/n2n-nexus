@@ -591,37 +591,38 @@ func (c *Core) getGlobalTopology(call api.Call, a topologyArgs) (any, error) {
 		}, nil
 	}
 
-	focusedNodes, focusedEdges := []topologyNode{}, []topologyEdge{}
 	known := false
 	for _, n := range nodes {
 		known = known || n.ID == a.ProjectID
 	}
-	if known {
-		// Everything reachable from the project along outgoing edges.
-		visited := map[string]bool{}
-		queue := []string{a.ProjectID}
-		for len(queue) > 0 {
-			current := queue[0]
-			queue = queue[1:]
-			if visited[current] {
-				continue
-			}
-			visited[current] = true
-			for _, e := range edges {
-				if e.From == current && !visited[e.To] {
-					queue = append(queue, e.To)
-				}
-			}
+	if !known {
+		return nil, notFoundProject(a.ProjectID)
+	}
+	// Everything reachable from the project along outgoing edges.
+	visited := map[string]bool{}
+	queue := []string{a.ProjectID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if visited[current] {
+			continue
 		}
-		for _, n := range nodes {
-			if visited[n.ID] {
-				focusedNodes = append(focusedNodes, n)
-			}
-		}
+		visited[current] = true
 		for _, e := range edges {
-			if visited[e.From] && visited[e.To] {
-				focusedEdges = append(focusedEdges, e)
+			if e.From == current && !visited[e.To] {
+				queue = append(queue, e.To)
 			}
+		}
+	}
+	focusedNodes, focusedEdges := []topologyNode{}, []topologyEdge{}
+	for _, n := range nodes {
+		if visited[n.ID] {
+			focusedNodes = append(focusedNodes, n)
+		}
+	}
+	for _, e := range edges {
+		if visited[e.From] && visited[e.To] {
+			focusedEdges = append(focusedEdges, e)
 		}
 	}
 	return map[string]any{"mode": "focused", "nodes": focusedNodes, "edges": focusedEdges}, nil

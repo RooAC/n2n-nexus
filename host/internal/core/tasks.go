@@ -224,7 +224,13 @@ func (c *Core) cancelTask(call api.Call, a taskIDArgs) (any, error) {
 			return err
 		}
 		if n == 0 {
-			return api.Errorf("Task '%s' not found or cannot be cancelled.", a.TaskID)
+			var status string
+			if err := tx.QueryRow(`SELECT status FROM tasks WHERE id = ?`, a.TaskID).Scan(&status); err == sql.ErrNoRows {
+				return api.Errorf("Task '%s' not found.", a.TaskID)
+			} else if err != nil {
+				return err
+			}
+			return api.Errorf("Task '%s' is already %s and cannot be cancelled.", a.TaskID, status)
 		}
 		return nil
 	})

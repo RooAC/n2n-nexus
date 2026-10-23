@@ -83,7 +83,7 @@ describe("POST /api/tools/call: arguments", () => {
     it("rejects wrong types, unknown enum values, unknown keys and unsafe ids with 400", async () => {
         const wrongType = await host.callTool("read_messages", { count: "5" });
         expect(wrongType.status).toBe(400);
-        expect(wrongType.payload.error).toContain("Invalid arguments for read_messages");
+        expect(wrongType.payload.error).toBe("Invalid arguments for read_messages: at '/count': got string, want integer");
         expect((await host.callTool("read_messages", { count: "abc" })).status).toBe(400);
 
         const badCategory = await host.callTool("send_message", { message: "x", category: "SYSTEM" });
@@ -95,7 +95,7 @@ describe("POST /api/tools/call: arguments", () => {
 
         const idInPatch = await host.callTool("update_project", { projectId: "web_x", patch: { id: "web_y" } });
         expect(idInPatch.status).toBe(400);
-        expect(idInPatch.payload.error).toContain("Invalid arguments for update_project");
+        expect(idInPatch.payload.error).toBe("Invalid arguments for update_project: at '/patch': additional properties 'id' not allowed");
 
         const noNewId = await host.callTool("rename_project", { oldId: "web_a" }, "r");
         expect(noNewId.status).toBe(400);

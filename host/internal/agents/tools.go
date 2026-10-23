@@ -160,7 +160,7 @@ func (a *Agents) toolReply(c api.Call) (any, error) {
 		return nil, err
 	}
 	if original == nil || original.ToID != self.ID {
-		return nil, api.Errorf("Message '%s' was not sent to you.", args.MessageID)
+		return nil, api.Errorf("Message '%s' not found or not sent to you; use a messageId from read.", args.MessageID)
 	}
 	sender, err := getSession(a.db(), original.FromID)
 	if err != nil {

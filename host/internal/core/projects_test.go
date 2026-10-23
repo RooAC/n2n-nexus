@@ -150,7 +150,6 @@ func TestTopology(t *testing.T) {
 		{"a", []string{"a", "b", "c"}, 2},
 		{"c", []string{"c"}, 0},
 		{"d", []string{"a", "b", "c", "d"}, 3},
-		{"ghost", nil, 0},
 	} {
 		res := h.ok("get_global_topology", map[string]any{"projectId": tc.id}, "")
 		var nodes []string
@@ -161,6 +160,8 @@ func TestTopology(t *testing.T) {
 			t.Errorf("%s: %v", tc.id, res)
 		}
 	}
+	// A dependency target that was never synced is not a project.
+	h.fails(400, "Project 'ghost' not found.", "get_global_topology", map[string]any{"projectId": "ghost"}, "")
 }
 
 func TestRenameCascades(t *testing.T) {

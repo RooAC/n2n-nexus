@@ -414,8 +414,8 @@ func (a *Agents) autoTurn(sessionID, text string) string {
 	if a.o.MaxAutoTurns == 0 {
 		return text
 	}
-	return fmt.Sprintf("%s\n%s Automatic turn %d of %d since your user's last prompt; after that, messages wait until your user prompts again.",
-		text, a.o.Contract.Hook.Texts.NoticePrefix, n, a.o.MaxAutoTurns)
+	return fmt.Sprintf("%s\n%s Automatic turn %d of %d since your user's last prompt; after turn %d, messages wait until your user prompts again.",
+		text, a.o.Contract.Hook.Texts.NoticePrefix, n, a.o.MaxAutoTurns, a.o.MaxAutoTurns)
 }
 
 // userPrompted: a prompt resets the count, unless it starts the turn a wake just began.
