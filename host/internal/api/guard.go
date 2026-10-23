@@ -4,7 +4,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -28,6 +30,9 @@ func (s *Server) guard(r *http.Request) *httpError {
 	if r.Host == "" {
 		return &httpError{status: 400, message: "Host header is required"}
 	}
+	if !validTarget(r) {
+		return &httpError{status: 400, message: "Invalid request URL or Host header"}
+	}
 	name := hostName(r.Host)
 	if net.ParseIP(name) == nil && !s.allowed[name] {
 		return &httpError{status: 403, message: "Host '" + name + "' is not allowed; use an IP address or add it to allowedHosts in settings.json"}
@@ -48,3 +53,22 @@ func (s *Server) guard(r *http.Request) *httpError {
 }
 
 func readAll(r io.Reader) ([]byte, error) { return io.ReadAll(r) }
+
+// validTarget reports whether the request target and the Host header form a valid URL with a port in range.
+func validTarget(r *http.Request) bool {
+	// "//x" is a scheme-relative target naming another authority, not a path.
+	if _, err := url.ParseRequestURI(r.RequestURI); err != nil || strings.HasPrefix(r.RequestURI, "//") {
+		return false
+	}
+	u, err := url.Parse("http://" + r.Host + "/")
+	if err != nil || u.Host != r.Host {
+		return false
+	}
+	if p := u.Port(); p != "" {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return false
+		}
+	}
+	return true
+}
