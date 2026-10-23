@@ -40,7 +40,7 @@ type app struct {
 	online   int // agent sessions not offline, as last read
 	settings config.Settings
 
-	status, sessions, lan, autostart, restart *systray.MenuItem
+	status, sessions, local, lan, autostart, restart *systray.MenuItem
 }
 
 // Run shows the tray until Quit; it blocks. The tray logs to tray.log; only
@@ -73,6 +73,7 @@ func (a *app) ready() {
 	logs := systray.AddMenuItem(a.t.OpenLogs, "")
 	data := systray.AddMenuItem(a.t.OpenData, "")
 	systray.AddSeparator()
+	a.local = systray.AddMenuItemCheckbox(a.t.Local, "", false)
 	a.lan = systray.AddMenuItemCheckbox(a.t.LAN, "", false)
 	a.autostart = systray.AddMenuItemCheckbox(a.t.Autostart, "", service.AutostartEnabled(a.o.Exe))
 	systray.AddSeparator()
@@ -101,8 +102,10 @@ func (a *app) ready() {
 				a.open(a.o.LogDir)
 			case <-data.ClickedCh:
 				a.open(a.o.DataDir)
+			case <-a.local.ClickedCh:
+				a.setListen(false)
 			case <-a.lan.ClickedCh:
-				a.toggleLAN()
+				a.setListen(true)
 			case <-a.autostart.ClickedCh:
 				a.toggleAutostart()
 			case <-a.restart.ClickedCh:
@@ -231,8 +234,10 @@ func (a *app) refresh() {
 		a.sessions.Hide()
 	}
 	if isLAN(a.settings) {
+		a.local.Uncheck()
 		a.lan.Check()
 	} else {
+		a.local.Check()
 		a.lan.Uncheck()
 	}
 	if service.AutostartEnabled(a.o.Exe) {
@@ -312,10 +317,15 @@ func (a *app) doRestart() {
 	a.refresh()
 }
 
-func (a *app) toggleLAN() {
+// setListen switches the host to listening on the LAN (0.0.0.0, on) or on this machine only (127.0.0.1) and restarts
+// it; picking the mode already in use changes nothing.
+func (a *app) setListen(on bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	on := !isLAN(a.settings)
+	if on == isLAN(a.settings) {
+		a.refresh()
+		return
+	}
 	s, err := setLAN(a.o.DataDir, on)
 	if err != nil {
 		a.logger.Print(err)
