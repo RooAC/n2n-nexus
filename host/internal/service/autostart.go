@@ -85,3 +85,16 @@ func EnsureAutostartDefault(dataDir, exe string) error {
 	}
 	return os.WriteFile(marker, []byte("start at login turned on by the first tray run\n"), 0o600)
 }
+
+// SetAutostartChoice is an explicit `autostart on|off`: it sets the tray's
+// start at login and records the choice, so a later first tray run keeps it.
+func SetAutostartChoice(dataDir, exe string, on bool) (string, error) {
+	where, err := SetAutostart(exe, on)
+	if err != nil {
+		return where, err
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return where, err
+	}
+	return where, os.WriteFile(filepath.Join(dataDir, autostartDefaultMarker), []byte("start at login set by autostart on|off\n"), 0o600)
+}

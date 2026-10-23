@@ -188,3 +188,23 @@ func TestTrayLogFiles(t *testing.T) {
 		t.Fatalf("host.log: %q", raw)
 	}
 }
+
+// A controlling tray follows settings.json: when the service comes back on
+// another port (service install --port, or an edited file), poll finds it there.
+func TestControllerFollowsSettingsChanges(t *testing.T) {
+	dir := t.TempDir()
+	s := serviceSettings(t, dir)
+	cmd, exited := fakeService(t, dir, s)
+	a := &app{o: Options{Version: "test", DataDir: dir, LogDir: t.TempDir()}, t: english, logger: host.NewLogger(io.Discard), external: service.HealthAddr(s.Host, s.Port), settings: s}
+	_ = cmd.Process.Kill()
+	<-exited
+	moved := serviceSettings(t, dir) // a new port in settings.json
+	fakeService(t, dir, moved)
+	a.mu.Lock()
+	a.poll()
+	external, lastErr, online := a.external, a.lastErr, a.online
+	a.mu.Unlock()
+	if want := service.HealthAddr(moved.Host, moved.Port); external != want || lastErr != nil || online != 2 {
+		t.Fatalf("external %q (want %q), error %v, online %d", external, want, lastErr, online)
+	}
+}

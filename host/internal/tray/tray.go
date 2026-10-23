@@ -176,9 +176,20 @@ func (a *app) poll() {
 	case a.external != "":
 		if info, ok := service.Health(a.external, time.Second); ok {
 			a.online, a.lastErr = info.Online, nil
-		} else {
-			a.lastErr = errors.New(a.t.ServiceDown)
+			return
 		}
+		// The service may be back on other settings (service install --port, an edited file).
+		if s, err := config.LoadSettings(a.o.DataDir); err == nil {
+			a.settings = s
+			if addr := findRunning(s); addr != "" {
+				a.external = addr
+				if info, ok := service.Health(addr, time.Second); ok {
+					a.online, a.lastErr = info.Online, nil
+					return
+				}
+			}
+		}
+		a.lastErr = errors.New(a.t.ServiceDown)
 	}
 }
 
@@ -242,6 +253,9 @@ func (a *app) restartHost() {
 		return
 	}
 	a.logger.Printf("asked serve PID %d to restart; its supervisor starts it again", info.PID)
+	if fresh, err := config.LoadSettings(a.o.DataDir); err == nil {
+		a.settings = fresh // the service restarts with what settings.json says now
+	}
 	s := a.settings
 	a.mu.Unlock()
 	addr := awaitService(a.o.DataDir, s, info.PID, restartWait)

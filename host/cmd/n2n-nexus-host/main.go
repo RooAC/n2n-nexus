@@ -229,7 +229,7 @@ func autostart(args []string) int {
 		return 2
 	}
 	on := args[0] == "on"
-	where, err := service.SetAutostart(trayExecutable(executable()), on)
+	where, err := service.SetAutostartChoice(config.DataDir(), trayExecutable(executable()), on)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "autostart %s: %v\n", args[0], err)
 		return 1
