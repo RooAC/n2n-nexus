@@ -195,6 +195,14 @@ describe("n2n-nexus hook --wait", () => {
         expect(fake.requests).toEqual([waitRequest("s1"), waitRequest("s1")]);
     });
 
+    it("claude: returns at once in an unattended session (claude -p), which would otherwise wait for it", async () => {
+        fake.respond = () => ({ delayMs: 5000, raw: JSON.stringify({ output: { timeout: true } }) });
+        const result = await runHook(["claude", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "s1" }), { CLAUDE_CODE_SESSION_ATTENDED: "0" });
+        expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });
+        expect(result.ms).toBeLessThan(3000);
+        expect(fake.requests).toHaveLength(0);
+    });
+
     it("claude: exits 0 without output when the session became active", async () => {
         const result = await runHook(["claude", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "s1" }));
         expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });

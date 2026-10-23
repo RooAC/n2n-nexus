@@ -15,7 +15,7 @@
 - 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 host，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 host 在它的 `discoveryPort` 上应答。没有应答时，客户端使用本机地址 `http://127.0.0.1:5688`。
 - SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
 - MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
-- 空闲的对话会被叫醒：`install` 增加第二个 Stop hook（`n2n-nexus hook <client> --wait`），每轮结束后最多等待一小时，有新消息或通知就让对话开始新的一轮：Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`（可用 `NEXUS_CODEX_COMMAND` 指定命令）。等待期间会话显示为 `listening`，对话里有任何新活动就结束等待。重新运行 `n2n-nexus install <client>` 即可加上这个 hook。
+- 空闲的对话会被叫醒：`install` 增加第二个 Stop hook（`n2n-nexus hook <client> --wait`），每轮结束后最多等待一小时，有新消息或通知就让对话开始新的一轮：Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`（可用 `NEXUS_CODEX_COMMAND` 指定命令）。等待期间会话显示为 `listening`，对话里有任何新活动就结束等待。重新运行 `n2n-nexus install <client>` 即可加上这个 hook。 无人值守的 Claude 会话（`claude -p`，`CLAUDE_CODE_SESSION_ATTENDED=0`）不等待，回答完立即退出。
 - 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `maxAutoTurns`（host 的 `settings.json`，默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
 
 ### 变更

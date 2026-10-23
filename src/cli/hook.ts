@@ -108,6 +108,8 @@ export async function waitForWake(client: HookClient, sessionId: string, endpoin
 async function runWait(argv: string[]): Promise<number> {
     const client = argv[0];
     if (!isHookClient(client)) throw new Error(`unknown client "${client ?? ""}" (expected claude or codex)`);
+    // claude -p (unattended) waits for this hook before it exits, and nobody would see a woken turn.
+    if (client === "claude" && process.env.CLAUDE_CODE_SESSION_ATTENDED === "0") return 0;
     const configured = argValue(argv, "--endpoint") || process.env.NEXUS_ENDPOINT || LOCAL_ENDPOINT;
     let sessionId = argValue(argv, "--session");
     if (!sessionId) {
