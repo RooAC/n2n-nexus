@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- The Codex background wait loads what a wake needs before it starts waiting, so an upgrade of the package (or a cleared npx cache) during the wait no longer makes the wake fail silently.
+
 ## [0.9.2] - 2026-10-24
 
 ### Fixed

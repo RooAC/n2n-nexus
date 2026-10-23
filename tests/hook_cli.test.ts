@@ -13,10 +13,10 @@ const TMP = path.join(REPO, "tests", "tmp", "hook-cli");
 
 type RunResult = { code: number | null; stdout: string; stderr: string; ms: number };
 
-function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}, cwd?: string): Promise<RunResult> {
+function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}, cwd?: string, entry = ENTRY): Promise<RunResult> {
     const started = Date.now();
     return new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, [ENTRY, "hook", ...args], {
+        const child = spawn(process.execPath, [entry, "hook", ...args], {
             cwd,
             env: { ...process.env, NEXUS_ENDPOINT: "", ...env },
             stdio: ["pipe", "pipe", "pipe"]
@@ -233,6 +233,35 @@ describe("n2n-nexus hook --wait", () => {
         );
         expect(result).toMatchObject({ code: 0, stdout: "" });
         expect(JSON.parse(fs.readFileSync(record, "utf8"))).toEqual(["--thread", "c1", "--message", "hello from nexus"]);
+    });
+});
+
+describe("n2n-nexus hook --wait, package changed during the wait", () => {
+    let fake: FakeDaemon;
+    beforeEach(async () => { fake = await startFakeDaemon(); });
+    afterEach(async () => { await fake.close(); });
+
+    it("codex: still wakes Codex when the installed package loses a module while it waits", async () => {
+        // A copy of the package, so a file can disappear from it as an upgrade or a cleared npx cache would do.
+        const pkgDir = path.join(TMP, "pkg-copy");
+        fs.rmSync(pkgDir, { recursive: true, force: true });
+        fs.mkdirSync(pkgDir, { recursive: true });
+        for (const name of ["build", "contract", "package.json"]) fs.cpSync(path.join(REPO, name), path.join(pkgDir, name), { recursive: true });
+        const dir = path.join(TMP, "codex-queue-changed");
+        fs.mkdirSync(dir, { recursive: true });
+        const record = path.join(dir, "queued.json");
+        fs.rmSync(record, { force: true });
+        fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`);
+        fake.respond = () => {
+            fs.rmSync(path.join(pkgDir, "build", "cli", "client-command.js"));   // removed while the wait is held
+            return { delayMs: 200, raw: JSON.stringify({ output: { wake: "hello after the change" } }) };
+        };
+        const result = await runHook(
+            ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
+            { NEXUS_CODEX_COMMAND: process.execPath }, dir, path.join(pkgDir, "build", "index.js")
+        );
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(JSON.parse(fs.readFileSync(record, "utf8"))).toEqual(["--thread", "c1", "--message", "hello after the change"]);
     });
 });
 

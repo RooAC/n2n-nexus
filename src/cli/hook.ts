@@ -123,11 +123,13 @@ async function runWait(argv: string[]): Promise<number> {
             return 0;
         }
     }
+    // Load what a wake needs before waiting: the wait lasts up to an hour, and an
+    // upgrade or a cleared npx cache may remove the package's files meanwhile.
+    const { spawnClientSync } = client === "codex" ? await import("./client-command.js") : { spawnClientSync: undefined };
     const text = await waitForWake(client, sessionId, await resolveEndpoint(configured));
     if (text === null) return 0;
-    if (client === "codex") {
+    if (spawnClientSync) {
         // Never through cmd.exe: the text comes from another session and spans several lines.
-        const { spawnClientSync } = await import("./client-command.js");
         spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
         return 0;
     }
