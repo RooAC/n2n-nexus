@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- A tray controlling the background service shows the address the service listens on (for example `http://0.0.0.0:5688 (LAN)`), not the loopback address it checks the service on.
+
 ## [0.9.1] - 2026-10-24
 
 Clearer texts for the AI models that use n2n-nexus.

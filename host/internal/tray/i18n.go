@@ -10,6 +10,7 @@ type texts struct {
 	Tooltip          string
 	StatusInProcess  string // %s: address
 	StatusService    string // %s: address
+	LANSuffix        string // after the address of a host reachable from the LAN
 	StatusStopped    string // %s: error
 	OnlineSessions   string // %d: agent sessions not offline
 	ServiceDown      string
@@ -30,6 +31,7 @@ var english = texts{
 	Tooltip:          "n2n-nexus host",
 	StatusInProcess:  "Running: http://%s",
 	StatusService:    "Running (background service): http://%s",
+	LANSuffix:        " (LAN)",
 	StatusStopped:    "Not running: %s",
 	OnlineSessions:   "Online sessions: %d",
 	ServiceDown:      "the background service does not answer",
@@ -50,6 +52,7 @@ var chinese = texts{
 	Tooltip:          "n2n-nexus host",
 	StatusInProcess:  "运行中：http://%s",
 	StatusService:    "运行中（后台服务）：http://%s",
+	LANSuffix:        "（局域网）",
 	StatusStopped:    "未运行：%s",
 	OnlineSessions:   "在线会话：%d",
 	ServiceDown:      "后台服务无响应",

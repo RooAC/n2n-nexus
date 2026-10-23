@@ -139,3 +139,19 @@ func TestIcons(t *testing.T) {
 		}
 	}
 }
+
+// A controlling tray shows the address the service listens on (from settings),
+// not the loopback address it probes a LAN host on.
+func TestStatusTitleShowsTheListenAddress(t *testing.T) {
+	s := config.Defaults()
+	s.Host = "0.0.0.0"
+	a := &app{t: chinese, external: "127.0.0.1:5688", settings: s}
+	if got, want := a.statusTitle(), "运行中（后台服务）：http://0.0.0.0:5688（局域网）"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	s.Host = "127.0.0.1"
+	a.settings = s
+	if got, want := a.statusTitle(), "运行中（后台服务）：http://127.0.0.1:5688"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

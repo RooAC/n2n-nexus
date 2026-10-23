@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"sync"
 	"time"
 
@@ -193,14 +194,32 @@ func (a *app) poll() {
 	}
 }
 
+// statusTitle (a.mu held) is the status line of a running host: the address
+// it listens on, not the loopback address the tray probes a LAN host on.
+func (a *app) statusTitle() string {
+	if a.h != nil {
+		return fmt.Sprintf(a.t.StatusInProcess, a.h.Addr.String()) + a.lanSuffix(a.h.Addr.IP.String())
+	}
+	addr := a.external
+	if _, port, err := net.SplitHostPort(a.external); err == nil && a.settings.Host != "" {
+		addr = net.JoinHostPort(a.settings.Host, port)
+	}
+	return fmt.Sprintf(a.t.StatusService, addr) + a.lanSuffix(a.settings.Host)
+}
+
+func (a *app) lanSuffix(host string) string {
+	if isLAN(config.Settings{Host: host}) {
+		return a.t.LANSuffix
+	}
+	return ""
+}
+
 // refresh (a.mu held) updates the menu from the state.
 func (a *app) refresh() {
 	running := true
 	switch {
-	case a.h != nil:
-		a.status.SetTitle(fmt.Sprintf(a.t.StatusInProcess, a.h.Addr.String()))
-	case a.external != "" && a.lastErr == nil:
-		a.status.SetTitle(fmt.Sprintf(a.t.StatusService, a.external))
+	case a.h != nil, a.external != "" && a.lastErr == nil:
+		a.status.SetTitle(a.statusTitle())
 	default:
 		a.status.SetTitle(fmt.Sprintf(a.t.StatusStopped, a.lastErr))
 		running = false
