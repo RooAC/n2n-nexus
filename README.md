@@ -62,11 +62,11 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 
 ## 🚀 Quick start
 
-1. Install and start the host, `n2n-nexus-host`, with Scoop, Homebrew or an archive from [Releases](https://github.com/n2ns/n2n-nexus/releases): [User guide, step 1](docs/USER_GUIDE.md#1-install-and-start-the-host).
-2. Install the client and connect Claude Code or Codex (`npm i -g n2n-nexus@latest`, then `n2n-nexus install claude` or `n2n-nexus install codex`): [step 2](docs/USER_GUIDE.md#2-install-the-client-for-claude-code-and-codex).
-3. Codex only: trust the n2n-nexus hooks once with `/hooks`: [step 3](docs/USER_GUIDE.md#3-turn-on-the-codex-hooks-one-time-required).
+1. Install and start the host, `n2n-nexus-host`, with Scoop, Homebrew or an archive from [Releases](https://github.com/n2ns/n2n-nexus/releases): [Installation guide, steps 1–2](docs/INSTALL.md#1-install-the-host).
+2. Install the client and connect Claude Code or Codex (`npm i -g n2n-nexus@latest`, then `n2n-nexus install claude` or `n2n-nexus install codex`): [step 3](docs/INSTALL.md#3-install-the-client-for-claude-code-and-codex).
+3. Codex only: trust the n2n-nexus hooks once with `/hooks`: [step 4](docs/INSTALL.md#4-turn-on-the-codex-hooks-one-time-required).
 
-Other MCP clients, several machines, configuration and troubleshooting: see the [User guide](docs/USER_GUIDE.md).
+Other MCP clients and several machines: see the [Installation guide](docs/INSTALL.md). Using it, troubleshooting and configuration: see the [User guide](docs/USER_GUIDE.md).
 
 ## 🛠️ Toolset
 
@@ -104,7 +104,8 @@ What to look for in the session:
 
 ## 📖 Documentation
 
-- **[User guide](./docs/USER_GUIDE.md)**: Installing, configuring and running the host and the client; commands, environment variables, `settings.json`, data and logs.
+- **[Installation guide](./docs/INSTALL.md)**: Installing, upgrading and removing the host and the client; Codex hook trust, other MCP clients, several machines.
+- **[User guide](./docs/USER_GUIDE.md)**: Using n2n-nexus: the tray, direct messages, troubleshooting; commands, environment variables, `settings.json`, data and logs.
 - **[Architecture](./docs/ARCHITECTURE.md)**: System design and host-client separation explained.
 - **[Tools reference](./docs/TOOLS_REFERENCE.md)**: Full tool list and parameters.
 - **[AI Assistant Guide](./docs/ASSISTANT_GUIDE.md)**: How AI assistants should call tools and stay in project context.

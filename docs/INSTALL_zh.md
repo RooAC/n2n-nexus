@@ -1,0 +1,143 @@
+# n2n-nexus 安装手册
+
+[English version](INSTALL.md)
+
+本手册介绍如何安装 n2n-nexus，让你的 AI 编程会话（Claude Code 和 Codex）共享项目和文档、互相发消息。装好以后怎么用，见[使用手册](USER_GUIDE_zh.md)。
+
+## 要安装什么
+
+| 组件 | 是什么 | 装在哪 |
+|---|---|---|
+| `n2n-nexus-host` | host：保存所有共享数据、在会话之间传递消息的程序。只需在一台机器上运行。 | Windows、macOS 或 Linux |
+| `n2n-nexus`（npm） | 客户端：AI 客户端启动的 MCP 服务器，以及告诉 host"这是哪个对话"的 hooks。 | 每台装了 Claude Code 或 Codex 的机器 |
+
+## 1. 安装 host
+
+| 平台 | 安装 |
+|---|---|
+| Windows（Scoop） | `scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`，然后 `scoop install n2ns/n2n-nexus-host` |
+| Windows（winget） | 即将提供 |
+| macOS（Homebrew） | `brew install n2ns/tap/n2n-nexus-host` |
+| Linux | 从 [Releases](https://github.com/n2ns/n2n-nexus/releases) 下载 `n2n-nexus-host_<版本>_linux_<amd64\|arm64>.tar.gz`，解压后把 `n2n-nexus-host` 放到 `PATH` 里 |
+
+[Releases](https://github.com/n2ns/n2n-nexus/releases)（标签 `host-v<版本>`）里有各平台的压缩包：Windows 为 `n2n-nexus-host_<版本>_<os>_<arch>.zip`，macOS 和 Linux 为 `.tar.gz`，均有 amd64 和 arm64。用 Release 里的 `SHA256SUMS` 和构建证明校验下载的文件：
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify n2n-nexus-host_<版本>_<os>_<arch>.tar.gz --repo n2ns/n2n-nexus
+```
+
+需要知道的：
+
+- 程序暂未做代码签名。Windows 上第一次运行 `n2n-nexus-host.exe` 或 `n2n-nexus-host-tray.exe` 可能弹出 SmartScreen 提示：点 **更多信息 → 仍要运行**。Homebrew 在你的 Mac 上从源码编译 host，所以不会有 Gatekeeper 提示。
+- Windows 安装包里有两个程序：`n2n-nexus-host.exe` 用于命令，`n2n-nexus-host-tray.exe` 是托盘程序，不会打开控制台窗口。不带参数运行 `n2n-nexus-host` 会启动托盘程序后立即返回。
+
+## 2. 启动 host
+
+用下面两种方式之一启动：
+
+- **托盘程序**：不带参数运行 `n2n-nexus-host`。托盘第一次运行时会自动打开 **登录后自启**，之后保持你的设置。托盘菜单的用法见[使用手册](USER_GUIDE_zh.md#1-托盘)。
+- **后台服务**（开机即启动，不用登录，不带托盘）：在管理员终端（Windows）或用 `sudo`（macOS、Linux）执行 `n2n-nexus-host service install`。服务以安装它的用户身份运行。先退出托盘：托盘正在运行 host 时 `service install` 会拒绝执行。服务在运行时，之后启动的托盘只做控制界面。
+
+Linux 上的托盘需要桌面环境支持 StatusNotifierItem（AppIndicator）；没有桌面的服务器请用 `service install`。各系统上服务和登录后自启注册在哪里，见[架构说明](ARCHITECTURE_zh.md#各平台的托盘与服务)。
+
+## 3. 为 Claude Code 和 Codex 安装客户端
+
+运行环境要求 Node.js 22.x 中的 22.14.0 或更高版本，或 Node.js 23.6.0 及以上版本。
+
+```bash
+npm i -g n2n-nexus@latest
+n2n-nexus install claude     # ~/.claude/settings.json（或 $CLAUDE_CONFIG_DIR）+ claude mcp add --scope user
+n2n-nexus install codex      # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mcp add
+n2n-nexus doctor             # 全面检查，包括 host 是否应答
+```
+
+`install` 把 hooks 和 MCP 服务写进客户端的用户级配置。装完后要**新开**对话：正在进行的对话不会加载新的 MCP 服务器。
+
+- host 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`；要在局域网里自动查找 host，就用 `--endpoint discover`（第 6 步）。
+- 在 Windows 上，`npm i -g` 和 `install` 要在普通终端里执行，不要在 Codex 这类打包应用自带的终端里执行：那里会装进该应用私有的 `%APPDATA%` 副本，并让应用看不到全局安装。
+- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
+- 用 `--node <path>` 手动指定 Node 路径。路径必须存在、可执行，且版本满足 package.json 的 `engines`（`^22.14.0 || >=23.6.0`），否则 `install` 以退出码 1 退出，不写任何配置。
+- 升级 Node 后：如果 `install` 提示 Node 路径位于带版本号的目录（Homebrew `Cellar`、nvm、fnm、Volta、asdf、`node-v<版本>`），每次升级 Node 后都要重新运行 `n2n-nexus install <claude|codex>`，或用 `--node` 指定稳定路径。
+- 支持 Linux、WSL 和 macOS；Codex hooks 也支持 Windows PowerShell。
+
+## 4. 启用 Codex 的 hooks（只需一次，必须做）
+
+Codex 不会运行别人写的 hooks，除非你审阅并信任了它们。不做这一步，Codex 对话仍能用共享工具，但收发不了直接消息，host 也看不到它们上线。
+
+1. 在终端里打开 Codex 命令行：`codex`。
+2. 输入 `/hooks`。
+3. 审阅 n2n-nexus 的几条 hook（SessionStart、SessionEnd、UserPromptSubmit、PostToolUse 和两条 Stop，命令都是 `n2n-nexus … hook codex`），然后信任它们。
+4. 新开一个 Codex 对话。
+
+需要知道的：
+
+- Codex 按每条 hook 记录信任，连同它命令的哈希，存在 `~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`）里。命令行和 Codex 桌面应用共用这份记录，所以在命令行里信任一次，桌面应用也生效。Codex 桌面应用没有自己的 `/hooks` 界面，请按上面的步骤用命令行。
+- 命令变了就要重新信任。比如用不同的 `--endpoint` 或 `--node` 重新运行 `n2n-nexus install codex`，或者 Node.js 换了路径之后。只升级 npm 包不会改变命令。
+- 当前版本的 Codex 默认开启 hooks。如果管理策略或你自己的 `config.toml` 里设置了 `[features] hooks = false`，hooks 就完全不会运行。
+- 有 hooks 需要审阅时，Codex 启动时会给出提示，指向 `/hooks`。
+
+官方文档：[Codex hooks](https://learn.chatgpt.com/docs/hooks)。
+
+Claude Code 不需要这一步：`install claude` 写入 `settings.json` 后，hooks 立即生效。
+
+## 5. 其他 MCP 客户端
+
+其他 MCP 客户端可以使用除直接消息以外的全部工具：
+
+```json
+{
+  "mcpServers": {
+    "n2n-nexus": {
+      "command": "npx",
+      "args": ["-y", "n2n-nexus", "mcp"],
+      "env": {
+        "NEXUS_ENDPOINT": "http://127.0.0.1:5688"
+      }
+    }
+  }
+}
+```
+
+适配器可以先于 host 启动。host 可访问后，适配器会加载工具列表。适配器和 hooks 从不自己启动 host：连不上时，工具调用会报错并说明如何启动（远程地址则提示需在那台机器上启动），hooks 则静默跳过。host 没有及时应答的调用只让这一次失败，host 可能仍会执行完。
+
+## 6. 多台机器和多个环境
+
+host 默认只监听 `127.0.0.1`。要让它成为可信网络里其他机器的 host：
+
+1. 在 host 所在的机器上打开局域网访问：
+   - 托盘：勾选 **允许局域网访问**。托盘把 `"host": "0.0.0.0"` 写进 `settings.json` 并重启 host。Windows 上会在 UAC 确认后添加 TCP 端口和 UDP 发现端口（默认都是 5688）的入站防火墙规则；macOS 和 Linux 上会提示需要在防火墙放行的端口。
+   - 服务：`n2n-nexus-host service install --host 0.0.0.0` 把地址写进 `settings.json`；防火墙里的 TCP 5688 和 UDP 5688 需要自己放行。
+2. 在其他机器上用 `--endpoint discover` 安装客户端（例如 `n2n-nexus install claude --endpoint discover`），或者直接写 host 的地址。
+
+设为 `discover` 时，适配器和 hooks 在 UDP `NEXUS_DISCOVERY_PORT` 上广播查询，使用第一个应答的 host；结果缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上该 host 时重新查找。只有监听非回环地址（开启了局域网访问）的 host 才应答，所以要在它的防火墙上对可信网络放行 UDP 和 TCP 5688。没有应答时，客户端使用 `http://127.0.0.1:5688`（本机的 host），一分钟后再查找。
+
+| 场景 | `--endpoint` / `NEXUS_ENDPOINT` |
+| --- | --- |
+| 同一台机器 | `http://127.0.0.1:5688` |
+| WSL IDE 连接 Windows host | `http://host.docker.internal:5688` |
+| Windows IDE 连接 WSL host | `http://<WSL-IP>:5688` |
+| 远程机器 | `http://<Server-IP>:5688` |
+| 在局域网里自动查找 host | `discover` |
+
+macOS 上第一次连接时，系统可能会为运行客户端的应用（Claude、终端、VS Code）弹出**本地网络**权限提示。请允许；否则客户端连不上 host（**系统设置 → 隐私与安全性 → 本地网络**）。
+
+## 7. 检查安装
+
+`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令和 MCP 命令里的 Node 路径与入口脚本是否仍然存在、能否运行，以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
+
+## 8. 升级
+
+- 客户端：`npm i -g n2n-nexus@latest`。hooks 立即用上新版本；正在进行的对话里的 MCP 服务器仍是旧版本，新开对话后才换。
+- host：用当初安装它的包管理器升级（`scoop update n2n-nexus-host`、`brew upgrade n2n-nexus-host`），或直接替换程序，然后重启（托盘：**重启**；服务：在管理员终端里再运行一次 `n2n-nexus-host service install`）。
+
+## 9. 卸载
+
+`n2n-nexus uninstall <claude|codex>` 删除 `install` 写入的 hooks 和 MCP 服务，配置里的其他内容不动。
+
+```bash
+n2n-nexus uninstall claude
+n2n-nexus uninstall codex
+n2n-nexus-host service uninstall     # 如果装了服务（管理员终端 / sudo）
+n2n-nexus-host autostart off         # 如果托盘设置了登录后自启
+```

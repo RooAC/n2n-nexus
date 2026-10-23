@@ -107,7 +107,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 ## 💾 数据持久化
 
-全部数据都在 host 数据目录里的一个 SQLite 文件 `nexus.db` 中，同一目录下还有 `settings.json` 和 `host.lock`（各系统的位置见[使用指南](USER_GUIDE_zh.md#数据和日志)）。
+全部数据都在 host 数据目录里的一个 SQLite 文件 `nexus.db` 中，同一目录下还有 `settings.json` 和 `host.lock`（各系统的位置见[使用手册](USER_GUIDE_zh.md#数据和日志)）。
 
 - **表结构**：嵌入 host 的编号迁移脚本（`host/internal/store/migrations/0001_core.sql`、`0002_agents.sql`）在启动时按序执行，每个文件一个事务；版本号存在 `PRAGMA user_version`。比 host 新的数据库会被拒绝（“upgrade n2n-nexus-host”）。
 - **表**：`projects`（manifest 的标量字段各占一列，结构化字段存 JSON，内部文档存文本）、`project_relations` 和 `project_assets`（资产内容存 BLOB；两者都随项目改名、删除级联）、`global_strategy`、`global_docs`、`meetings`（带 `status` 和 `is_default`）、`meeting_messages`、`decisions`、`global_messages`、`events`、`tasks`、`read_cursors`，以及对话用的 `agent_sessions`、`agent_messages`、`agent_notices`、`agent_idle_subscriptions`、`tool_use_bindings`。
@@ -124,17 +124,17 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 - 让超过 24 小时有效期的未读直接消息过期（通知发送方），删除 30 天前已读或已过期的直接消息和已发出的通知；
 - 删除已过期（5 分钟）的工具调用绑定。
 
-日志（文件和位置见[使用指南](USER_GUIDE_zh.md#数据和日志)）：只有持有 `host.lock` 的一方写 `host.log`；托盘自己的日志写到 `tray.log`。
+日志（文件和位置见[使用手册](USER_GUIDE_zh.md#数据和日志)）：只有持有 `host.lock` 的一方写 `host.log`；托盘自己的日志写到 `tray.log`。
 
 ---
 
 ## 🌐 发布模型
 
-两个程序的命令见[使用指南](USER_GUIDE_zh.md#12-参考)。
+两个程序的命令见[使用手册](USER_GUIDE_zh.md#6-参考)。
 
 **Host**：以托盘程序或开机服务方式运行；适配器和 hooks 从不自己启动它，连不上时只报告。配置只来自 `<数据目录>/settings.json`（`host`、`port`、`discoveryPort`、`allowedHosts`、`rateLimit`、`rateBurst`、`maxAutoTurns`），命令行参数覆盖；host 只读取 `NEXUS_ROOT` 一个环境变量。服务拿不到安装终端的环境变量，所以这个文件是托盘、服务和命令行共用的唯一来源。
 
-**局域网独立 host**：一个开启局域网访问的 host 为所有机器服务，不依赖任何 IDE；每台客户端机器只需要客户端，它通过 UDP 广播找到 host（`--endpoint discover`）。配置步骤见[使用指南](USER_GUIDE_zh.md#6-多台机器和多个环境)。
+**局域网独立 host**：一个开启局域网访问的 host 为所有机器服务，不依赖任何 IDE；每台客户端机器只需要客户端，它通过 UDP 广播找到 host（`--endpoint discover`）。配置步骤见[安装手册](INSTALL_zh.md#6-多台机器和多个环境)。
 
 **无启动顺序要求**：可以先启动 IDE 再启动 host——host 上线后工具会自动出现。host 重启对 IDE 透明，MCP 自动重连并通知 IDE。
 

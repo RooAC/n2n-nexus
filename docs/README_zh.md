@@ -76,11 +76,11 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 
 ## 快速开始
 
-1. 安装并启动 host `n2n-nexus-host`：用 Scoop、Homebrew 或 [Releases](https://github.com/n2ns/n2n-nexus/releases) 里的压缩包，见[使用指南第 1 步](USER_GUIDE_zh.md#1-安装并启动-host)。
-2. 安装客户端，接入 Claude Code 或 Codex（`npm i -g n2n-nexus@latest`，再执行 `n2n-nexus install claude` 或 `n2n-nexus install codex`），见[第 2 步](USER_GUIDE_zh.md#2-为-claude-code-和-codex-安装客户端)。
-3. 仅 Codex：用 `/hooks` 信任一次 n2n-nexus 的 hooks，见[第 3 步](USER_GUIDE_zh.md#3-启用-codex-的-hooks只需一次必须做)。
+1. 安装并启动 host `n2n-nexus-host`：用 Scoop、Homebrew 或 [Releases](https://github.com/n2ns/n2n-nexus/releases) 里的压缩包，见[安装手册第 1–2 步](INSTALL_zh.md#1-安装-host)。
+2. 安装客户端，接入 Claude Code 或 Codex（`npm i -g n2n-nexus@latest`，再执行 `n2n-nexus install claude` 或 `n2n-nexus install codex`），见[第 3 步](INSTALL_zh.md#3-为-claude-code-和-codex-安装客户端)。
+3. 仅 Codex：用 `/hooks` 信任一次 n2n-nexus 的 hooks，见[第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)。
 
-其他 MCP 客户端、多台机器、配置和常见问题，见[使用指南](USER_GUIDE_zh.md)。
+其他 MCP 客户端和多台机器，见[安装手册](INSTALL_zh.md)；使用方法、常见问题和配置，见[使用手册](USER_GUIDE_zh.md)。
 
 ## 工具集
 
@@ -171,7 +171,8 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 
 ## 文档
 
-- [使用指南](./USER_GUIDE_zh.md)：安装、配置和运行 host 与客户端；命令、环境变量、`settings.json`、数据和日志。
+- [安装手册](./INSTALL_zh.md)：host 和客户端的安装、升级和卸载；Codex hooks 信任、其他 MCP 客户端、多台机器。
+- [使用手册](./USER_GUIDE_zh.md)：使用 n2n-nexus：托盘、直接消息、常见问题；命令、环境变量、`settings.json`、数据和日志。
 - [架构文档](./ARCHITECTURE_zh.md)：系统设计，host 与客户端的分工。
 - [工具参考](./TOOLS_REFERENCE.md)：全部工具及参数（英文）。
 - [AI 助手指南](./ASSISTANT_GUIDE_zh.md)：AI 助手如何调用工具、保持项目上下文。

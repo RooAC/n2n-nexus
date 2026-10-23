@@ -4,7 +4,7 @@ The host of n2n-nexus: one Go executable that owns all coordination data and ser
 
 ## Install
 
-Installing, starting and configuring the host: [User guide](../docs/USER_GUIDE.md#1-install-and-start-the-host). Code signing is planned in [TODO.md](../TODO.md).
+Installing and starting the host: [Installation guide](../docs/INSTALL.md#1-install-the-host). Code signing is planned in [TODO.md](../TODO.md).
 
 ## Layout
 
