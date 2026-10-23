@@ -248,7 +248,7 @@ describe("n2n-nexus hook, no daemon", () => {
         const port = await freePort();
         const result = await runHook(["claude", "--endpoint", `http://127.0.0.1:${port}`], JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }));
         expect(result).toMatchObject({ code: 0, stdout: "" });
-        expect(result.stderr).toContain(`No daemon at http://127.0.0.1:${port}`);
+        expect(result.stderr).toContain(`No n2n-nexus-host at http://127.0.0.1:${port}`);
         expect(result.stderr).toContain("Install n2n-nexus-host (https://github.com/n2ns/n2n-nexus/releases)");
         expect(result.stderr).toContain("n2n-nexus-host serve");
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -262,7 +262,7 @@ describe("n2n-nexus hook, no daemon", () => {
         const endpoint = `http://${lanAddress}:${port}`;
         const result = await runHook(["claude", "--endpoint", endpoint], JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }));
         expect(result).toMatchObject({ code: 0, stdout: "" });
-        expect(result.stderr).toContain(`No daemon at ${endpoint}`);
+        expect(result.stderr).toContain(`No n2n-nexus-host at ${endpoint}`);
         expect(result.stderr).toContain("on that machine");
         expect(result.stderr).toContain("n2n-nexus-host serve --host <address>");
         expect(result.stderr).not.toContain("Install n2n-nexus-host");

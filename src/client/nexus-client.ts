@@ -74,7 +74,7 @@ export class NexusClient {
                 (res) => {
                     let data = "";
                     res.setEncoding("utf8");
-                    const interrupted = () => reject(new NexusTransportError("Response from daemon ended before completion"));
+                    const interrupted = () => reject(new NexusTransportError("Response from n2n-nexus-host ended before completion"));
                     res.on("aborted", interrupted);
                     res.on("error", (error) => reject(new NexusTransportError(error.message)));
                     res.on("close", () => { if (!res.complete) interrupted(); });
@@ -84,7 +84,7 @@ export class NexusClient {
                         try {
                             parsed = data ? JSON.parse(data) : {};
                         } catch {
-                            reject(new NexusTransportError(`Invalid JSON response from daemon: ${data.slice(0, 200)}`));
+                            reject(new NexusTransportError(`Invalid JSON response from n2n-nexus-host: ${data.slice(0, 200)}`));
                             return;
                         }
                         const status = res.statusCode ?? 0;

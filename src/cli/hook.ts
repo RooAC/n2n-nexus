@@ -52,7 +52,7 @@ async function forward(argv: string[]): Promise<string> {
             return await new NexusClient({ endpoint }).hook({ client, input }, timeoutMs);
         } catch (error) {
             if (!(error instanceof NexusTransportError && error.code === "ECONNREFUSED")) throw error;
-            throw new NexusTransportError(`No daemon at ${endpoint}. ${noDaemonHint(endpoint)}`, error.code);
+            throw new NexusTransportError(`No n2n-nexus-host at ${endpoint}. ${noDaemonHint(endpoint)}`, error.code);
         }
     };
 
@@ -71,10 +71,10 @@ async function forward(argv: string[]): Promise<string> {
         response = await send(found);
     }
 
-    if (!isPlainObject(response) || !("output" in response)) throw new Error("invalid response from daemon");
+    if (!isPlainObject(response) || !("output" in response)) throw new Error("invalid response from n2n-nexus-host");
     const { output } = response;
     if (output === null) return "";
-    if (!isPlainObject(output)) throw new Error("invalid output from daemon");
+    if (!isPlainObject(output)) throw new Error("invalid output from n2n-nexus-host");
     return JSON.stringify(output) + "\n";
 }
 

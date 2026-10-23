@@ -4,7 +4,7 @@
     {
       "name": "sync_project_assets",
       "title": "Sync Project",
-      "description": "Sync full project manifest + internal docs.",
+      "description": "Create or fully replace a project: its manifest (relations included) and its internal docs. For a partial change use update_project.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -127,7 +127,8 @@
                 "required": [
                   "plain",
                   "price"
-                ]
+                ],
+                "description": "Billing: plain = the plan or terms in free text, price = the price as text"
               },
               "lastUpdated": {
                 "type": "string"
@@ -397,7 +398,8 @@
                 "required": [
                   "plain",
                   "price"
-                ]
+                ],
+                "description": "Billing: plain = the plan or terms in free text, price = the price as text"
               },
               "apiDependencies": {
                 "description": "projectId → version constraint",
@@ -523,7 +525,7 @@
     {
       "name": "search_projects",
       "title": "Search Projects",
-      "description": "Search project registry by name or description.",
+      "description": "Search projects by id, name or description.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -533,7 +535,8 @@
         "properties": {
           "query": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Text to look for (case-insensitive)."
           },
           "limit": {
             "default": 10,
@@ -592,7 +595,7 @@
     {
       "name": "get_global_topology",
       "title": "Project Topology",
-      "description": "Default: project list + stats. With projectId: detailed subgraph.",
+      "description": "Without projectId: every project with its relations and stats. With projectId: that project and the projects it is related to (an unknown projectId is an error).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -866,7 +869,8 @@
                   "plain",
                   "price"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "Billing: plain = the plan or terms in free text, price = the price as text"
               },
               "apiDependencies": {
                 "type": "object",
@@ -1046,7 +1050,7 @@
     {
       "name": "send",
       "title": "Send Direct Message",
-      "description": "Send a direct message to one session from peers. The recipient is notified automatically and reads it with read.",
+      "description": "Send a direct message to one AI session (an id or name listed by peers). The recipient is notified automatically and reads it with read; to answer a message you received, use reply. Needs the n2n-nexus hooks. Not for meetings or global chat: that is send_message.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1280,7 +1284,7 @@
     {
       "name": "listen",
       "title": "Listen for Messages",
-      "description": "on: after each turn, wait up to about 10 minutes for new direct messages and continue when one arrives (your user can press Esc to stop waiting). off: stop.",
+      "description": "on: after each turn, wait up to about 10 minutes for new direct messages and continue when one arrives (in Claude Code your user can press Esc to stop one wait). off: stop.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -1397,7 +1401,7 @@
     {
       "name": "send_message",
       "title": "Post Message",
-      "description": "Post to a meeting (meetingId, else the active meeting) or, when none is active, to global chat. For a message to one session use send.",
+      "description": "Post to a meeting (meetingId, else the active meeting) or, when no meeting is active, to the shared global chat that every session can read with read_messages. Not a direct message: to message one session use send.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1409,7 +1413,8 @@
         "properties": {
           "message": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Plain text of the message."
           },
           "category": {
             "type": "string",
@@ -1419,7 +1424,8 @@
               "DECISION",
               "UPDATE",
               "CHAT"
-            ]
+            ],
+            "description": "Optional label. DECISION is also added to the meeting's decisions list. Omitted = no category."
           },
           "meetingId": {
             "description": "Target meeting. Defaults to the active meeting, or global chat when none is active.",
@@ -1468,8 +1474,8 @@
     },
     {
       "name": "read_messages",
-      "title": "Read Messages",
-      "description": "Read messages this instance has not read yet (cursor advances automatically). Global chat by default; pass meetingId for a meeting.",
+      "title": "Read Chat / Meeting Messages",
+      "description": "Read global chat (default) or one meeting's messages (meetingId) that this MCP adapter has not fetched yet; the host keeps the cursor, so each message is returned once per adapter. Not your direct messages: those come through read. Message 'from' values are adapter instance ids, not peers session ids.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1483,11 +1489,13 @@
             "default": 10,
             "type": "integer",
             "minimum": 1,
-            "maximum": 500
+            "maximum": 500,
+            "description": "Most messages to return (oldest unread first)."
           },
           "meetingId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Meeting to read; omit for global chat."
           }
         }
       },
@@ -1647,7 +1655,7 @@
     {
       "name": "get_global_strategy",
       "title": "Read Strategy",
-      "description": "Read the master strategy document.",
+      "description": "Read the strategy document: the one shared Markdown document all sessions treat as the overall plan.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -1674,7 +1682,7 @@
     {
       "name": "update_global_strategy",
       "title": "Update Strategy",
-      "description": "Overwrite the master strategy document.",
+      "description": "Overwrite the strategy document (the shared overall plan) with new Markdown content.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -1989,7 +1997,7 @@
     {
       "name": "start_meeting",
       "title": "Start Meeting",
-      "description": "Start new meeting session. Returns meeting ID.",
+      "description": "Start a meeting and return its id. It becomes the active meeting that send_message and end_meeting use when no meetingId is given. Only the starter (this MCP adapter instance) can end, archive or reopen it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -2001,7 +2009,8 @@
         "properties": {
           "topic": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "What the meeting is about."
           }
         },
         "required": [
@@ -2043,7 +2052,7 @@
     {
       "name": "end_meeting",
       "title": "End Meeting",
-      "description": "End active meeting. Locks history.",
+      "description": "End a meeting (default: the active one) with an optional summary; its history is then read-only. Only the MCP adapter instance that started it can end it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -2059,7 +2068,8 @@
             "minLength": 1
           },
           "summary": {
-            "type": "string"
+            "type": "string",
+            "description": "Outcome of the meeting, kept with it."
           }
         }
       },
@@ -2093,7 +2103,7 @@
     {
       "name": "archive_meeting",
       "title": "Archive Meeting",
-      "description": "Archive closed meeting. Read-only after.",
+      "description": "Mark a closed meeting archived (status only). Only the instance that started it can archive it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -2139,7 +2149,7 @@
     {
       "name": "reopen_meeting",
       "title": "Reopen Meeting",
-      "description": "Reopen closed/archived meeting.",
+      "description": "Reopen a closed or archived meeting so it accepts messages again. Only the instance that started it can reopen it.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -2205,7 +2215,8 @@
             "propertyNames": {
               "type": "string"
             },
-            "additionalProperties": {}
+            "additionalProperties": {},
+            "description": "Free-form JSON object; put the task's title and description here, e.g. {\"title\": \"…\"}."
           },
           "ttl": {
             "description": "TTL in milliseconds; a pending/running task past its TTL is marked failed",
@@ -2559,7 +2570,8 @@
           "progress": {
             "type": "number",
             "minimum": 0,
-            "maximum": 1
+            "maximum": 1,
+            "description": "0 to 1."
           },
           "result_uri": {
             "type": "string"
@@ -2572,7 +2584,8 @@
             "propertyNames": {
               "type": "string"
             },
-            "additionalProperties": {}
+            "additionalProperties": {},
+            "description": "Replaces the task's whole metadata object."
           }
         },
         "required": [
@@ -2700,8 +2713,8 @@
     },
     {
       "name": "host_maintenance",
-      "title": "Prune Global Chat",
-      "description": "Manage the global chat stream: 'prune' the oldest N messages or 'clear' all.",
+      "title": "Prune or Clear Global Chat",
+      "description": "Remove global chat messages: action 'prune' removes the oldest count messages (count ≥ 1 required), 'clear' removes all.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -2719,8 +2732,7 @@
             ]
           },
           "count": {
-            "default": 0,
-            "description": "Oldest N global messages to remove (prune only)",
+            "description": "prune: how many of the oldest global messages to remove (≥ 1). Ignored by clear.",
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991

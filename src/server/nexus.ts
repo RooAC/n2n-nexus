@@ -20,9 +20,12 @@ const SERVICE_NAME = "n2n-nexus";
 /** Sent to the client on connect so the model knows it can talk to other AI sessions. */
 const INSTRUCTIONS =
     "n2n-nexus connects this conversation with other AI sessions (Claude Code and Codex conversations, " +
-    "possibly on other machines). Call peers to see who is online, send to message a session, read to " +
-    "read messages sent to you and reply to answer one; listen waits for messages after each turn. " +
-    "Projects, global docs, meetings and tasks are shared through the other tools.";
+    "possibly on other machines). Direct messages: call peers to see who is online, send to message a session, " +
+    "read to read messages sent to you and reply to answer one; listen waits for messages after each turn. " +
+    "Direct messaging needs the n2n-nexus hooks. Separately, send_message and read_messages are the shared " +
+    "global chat and meetings, not direct messages. Session ids in peers (claude:<id>, codex:<id>) are what send " +
+    "takes; the instance ids in read_messages, list_events and meetings (mcp-…) name MCP adapters, not sessions. " +
+    "Projects, global docs, the strategy document and tasks are shared through the other tools.";
 
 export type RunOptions = {
     /** MCP transport; defaults to stdio. */
@@ -161,7 +164,7 @@ export class NexusServer {
                     // The daemon is up but slow: it may still finish the call, so it is neither
                     // treated as gone nor retried (a write tool would run twice).
                     return {
-                        content: [{ type: "text", text: `The daemon at ${this.endpoint} did not answer in time (${this.requestTimeoutMs} ms); the call may still complete there. Check its effect before calling ${request.params.name} again.` }],
+                        content: [{ type: "text", text: `n2n-nexus-host at ${this.endpoint} did not answer in time (${this.requestTimeoutMs} ms); the call may still complete there. Check its effect before calling ${request.params.name} again.` }],
                         isError: true
                     };
                 }
