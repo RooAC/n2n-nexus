@@ -133,7 +133,7 @@ n2n-nexus-host version
 ### 4.8 托盘
 
 - 启动时先看端口上是否已有本机 host（`GET /health` 返回 `service: n2n-nexus`）：有（例如后台服务在跑）就只做控制界面，不再起服务器；没有就在进程内起服务器。
-- 菜单：运行状态与地址、在线会话数（每 5 秒刷新：进程内直接查，控制模式读 `/health`）；打开日志目录、打开数据目录；“仅本机 / 局域网”切换；“登录后自启”开关；重启；退出。
+- 菜单：运行状态与地址、在线会话数（每 5 秒刷新：进程内直接查，控制模式读 `/health`）；打开日志目录、打开数据目录；“仅本机 / 局域网”切换；“登录后自启”开关（托盘第一次运行时自动打开，之后按用户设置）；重启；退出。
 - 切到局域网时：Windows 用 UAC 提权执行 `netsh advfirewall` 添加 TCP 和 UDP 入站规则；macOS、Linux 只提示需要放行的端口。
 - 控制模式下“重启”按 `host.lock` 里的 PID 结束服务的 `serve`，由其监护进程重启，托盘最多等 20 秒等它重新应答 `/health`，始终只做控制界面，不在进程内起服务器；没等到就提示。
 - 中英文文本放在 `internal/tray/i18n.go`，按系统语言选择（Windows 读界面语言；macOS 环境变量没设时读 `defaults read -g AppleLanguages`，再退到 `AppleLocale`；Linux 读 `LC_ALL` / `LC_MESSAGES` / `LANG`）。

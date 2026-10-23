@@ -88,7 +88,7 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 [Releases](https://github.com/n2ns/n2n-nexus/releases)（标签 `host-v<版本>`）里有各平台的压缩包：Windows 为 `n2n-nexus-host_<版本>_<os>_<arch>.zip`，macOS 和 Linux 为 `.tar.gz`，均有 amd64 和 arm64。
 
 - 程序暂未做代码签名。Windows 上第一次运行 `n2n-nexus-host.exe` 可能弹出 SmartScreen 提示：点 **更多信息 → 仍要运行**。Homebrew 在你的 Mac 上从源码编译 host，所以不会有 Gatekeeper 提示。
-- 不带参数运行 `n2n-nexus-host`，它以托盘程序方式运行。托盘菜单显示监听地址和在线会话数，可以打开日志目录和数据目录、切换局域网访问、重启 host、开关 **登录后自启**（`n2n-nexus-host autostart on` 效果相同）。中文系统显示中文菜单，其他系统显示英文。
+- 不带参数运行 `n2n-nexus-host`，它以托盘程序方式运行。托盘菜单显示监听地址和在线会话数，可以打开日志目录和数据目录、切换局域网访问、重启 host、开关 **登录后自启**（`n2n-nexus-host autostart on|off` 效果相同）。托盘第一次运行时会自动打开 **登录后自启**，之后保持你的设置。中文系统显示中文菜单，其他系统显示英文。
 - 也可以注册为开机启动的后台服务，不带托盘：在管理员终端（Windows）或用 `sudo`（macOS、Linux）执行 `n2n-nexus-host service install`。服务以安装它的用户身份运行。先退出托盘：托盘正在运行 host 时 `service install` 会拒绝执行。服务在运行时，之后启动的托盘只做控制界面。
 - Linux 上的托盘需要桌面环境支持 StatusNotifierItem（AppIndicator）；没有桌面的服务器请用 `service install`。
 

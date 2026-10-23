@@ -8,7 +8,7 @@
 
 ### 新增
 
-- `n2n-nexus-host`：用 Go 重写的 host，Windows、macOS、Linux（amd64 和 arm64）各一个可执行文件。不带参数时以托盘程序运行：显示状态、地址和在线会话数、打开日志目录和数据目录、开关局域网访问（Windows 上经 UAC 确认后添加 TCP 和 UDP 防火墙规则，其他系统提示需要放行的端口）、登录后自启、重启、退出；中文系统显示中文，其他显示英文。`serve` 在前台运行；`service install|uninstall|status` 注册以安装用户身份运行的开机服务，host 退出 5 秒后自动重启（Windows 计划任务、macOS LaunchDaemon、Linux systemd 单元），托盘正在运行 host 时拒绝安装；`autostart on|off` 设置托盘登录后自启。端口上已有 host（服务）应答时，托盘只做控制界面。每个数据目录只运行一个 host。
+- `n2n-nexus-host`：用 Go 重写的 host，Windows、macOS、Linux（amd64 和 arm64）各一个可执行文件。不带参数时以托盘程序运行：显示状态、地址和在线会话数、打开日志目录和数据目录、开关局域网访问（Windows 上经 UAC 确认后添加 TCP 和 UDP 防火墙规则，其他系统提示需要放行的端口）、登录后自启（托盘第一次运行时自动打开）、重启、退出；中文系统显示中文，其他显示英文。`serve` 在前台运行；`service install|uninstall|status` 注册以安装用户身份运行的开机服务，host 退出 5 秒后自动重启（Windows 计划任务、macOS LaunchDaemon、Linux systemd 单元），托盘正在运行 host 时拒绝安装；`autostart on|off` 设置托盘登录后自启。端口上已有 host（服务）应答时，托盘只做控制界面。每个数据目录只运行一个 host。
 - 安装方式：Homebrew（`brew install n2ns/tap/n2n-nexus-host`，从源码编译）、Scoop（`scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`，`scoop install n2ns/n2n-nexus-host`），以及 GitHub Releases（标签 `host-v*`）上的压缩包，附 `SHA256SUMS` 和构建证明（`gh attestation verify`）。程序暂未做代码签名。
 - `update_task`：更新任务的 `status`、`progress`（0–1）、`result_uri`、`error_message` 或 `metadata`，返回更新后的任务。
 - `contract/`：host 与客户端之间的 JSON 协议（`tools.json`、`hook.json`、`errors.json`），随 npm 包发布。`GET /health` 返回 host 的 `contractVersion`，`n2n-nexus doctor` 检查 host 的协议版本与客户端一致。

@@ -65,3 +65,23 @@ func AutostartEnabled(exe string) bool {
 	_, err = os.Stat(path)
 	return err == nil
 }
+
+// autostartDefaultMarker records in the data directory that the first run has
+// applied the default, so a user who turns start at login off keeps it off.
+const autostartDefaultMarker = "tray-autostart-default"
+
+// EnsureAutostartDefault turns the tray's start at login on the first time the
+// tray runs for dataDir; later runs leave the setting as the user left it.
+func EnsureAutostartDefault(dataDir, exe string) error {
+	marker := filepath.Join(dataDir, autostartDefaultMarker)
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	}
+	if _, err := SetAutostart(exe, true); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, []byte("start at login turned on by the first tray run\n"), 0o600)
+}
