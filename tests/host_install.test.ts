@@ -8,7 +8,18 @@ const ROOT = path.join(process.cwd(), "tests", "tmp", "host-install", "root");
 let stdout = "";
 let stderr = "";
 let scripts: string[] = [];
-const savedDiscoveryPort = process.env.NEXUS_DISCOVERY_PORT;
+
+/**
+ * Whether the script's stop filter matches a node.exe command line, evaluated as PowerShell does:
+ * `.Contains('…')` is ordinal and case-sensitive, `-match '…'` a case-insensitive regex.
+ */
+function stopsProcess(script: string, commandLine: string): boolean {
+    const filter = /Where-Object \{([\s\S]*?)\n\}/.exec(script)![1];
+    const literal = (text: string) => text.replace(/''/g, "'");
+    const contains = [...filter.matchAll(/\.Contains\('((?:[^']|'')*)'\)/g)].map((m) => literal(m[1]));
+    const patterns = [...filter.matchAll(/-match '((?:[^']|'')*)'/g)].map((m) => new RegExp(literal(m[1]), "i"));
+    return contains.some((text) => commandLine.includes(text)) || patterns.some((pattern) => pattern.test(commandLine));
+}
 
 /** A runner that records each script and answers with `status` and `output`. */
 const runner = (status: number | null, output = ""): ScriptRunner => (script) => {
@@ -18,7 +29,7 @@ const runner = (status: number | null, output = ""): ScriptRunner => (script) =>
 
 beforeEach(() => {
     stdout = ""; stderr = ""; scripts = [];
-    delete process.env.NEXUS_DISCOVERY_PORT;
+    for (const name of Object.keys(process.env)) if (name.startsWith("NEXUS_")) vi.stubEnv(name, undefined);
     fs.rmSync(path.dirname(ROOT), { recursive: true, force: true });
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { stdout += String(chunk); return true; });
     vi.spyOn(process.stderr, "write").mockImplementation((chunk) => { stderr += String(chunk); return true; });
@@ -26,14 +37,13 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks();
-    if (savedDiscoveryPort === undefined) delete process.env.NEXUS_DISCOVERY_PORT;
-    else process.env.NEXUS_DISCOVERY_PORT = savedDiscoveryPort;
+    vi.unstubAllEnvs();
 });
 
 describe("host scripts", () => {
     const options = { host: "0.0.0.0", port: 5799, root: String.raw`C:\Users\O'Brien\.n2n-nexus`, node: String.raw`C:\node\node.exe`, entry: String.raw`C:\nexus\build\index.js` };
 
-    it("registers a boot task that runs the daemon hidden, without a time limit, in a loop that restarts it", () => {
+    it("registers a boot task that runs the daemon without a logon or a time limit, in a loop that restarts it", () => {
         const script = hostInstallScript(options);
         expect(script).toContain("New-ScheduledTaskTrigger -AtStartup");
         expect(script).toContain("-LogonType S4U");
@@ -55,9 +65,46 @@ describe("host scripts", () => {
         const script = hostUninstallScript(options.entry);
         expect(script).toContain(`Stop-ScheduledTask -TaskName '${HOST_TASK_NAME}'`);
         expect(script).toContain(`Unregister-ScheduledTask -TaskName '${HOST_TASK_NAME}' -Confirm:$false`);
-        expect(script).toContain(String.raw`.Contains('"C:\nexus\build\index.js" daemon ')`);
-        expect(script).toContain(String.raw`.Contains('C:\nexus\build\index.js daemon ')`);
+        expect(stopsProcess(script, String.raw`"C:\node\node.exe" "C:\nexus\build\index.js" daemon --port 5688`)).toBe(true);
+        expect(stopsProcess(script, String.raw`node C:\nexus\build\index.js daemon --port 5688`)).toBe(true);
         expect(script).not.toContain("-like");
+    });
+
+    it("stops daemons started through the npm shims, and no other node process", () => {
+        const entry = String.raw`C:\Users\u\AppData\Roaming\npm\node_modules\n2n-nexus\build\index.js`;
+        const script = hostUninstallScript(entry);
+        const node = String.raw`"C:\Program Files\nodejs\node.exe"`;
+        // n2n-nexus.cmd: %dp0% ends with a backslash and the shim adds another one.
+        expect(stopsProcess(script, String.raw`${node}  "C:\Users\u\AppData\Roaming\npm\\node_modules\n2n-nexus\build\index.js" daemon --port 5688`)).toBe(true);
+        // n2n-nexus.ps1: "$basedir/node_modules/..." with forward slashes, and no further arguments.
+        expect(stopsProcess(script, String.raw`${node} "C:\Users\u\AppData\Roaming\npm/node_modules/n2n-nexus/build/index.js" daemon`)).toBe(true);
+        expect(stopsProcess(script, String.raw`node c:\users\U\AppData\Roaming\npm\node_modules\n2n-nexus\build\index.js daemon --host 0.0.0.0`)).toBe(true);
+        for (const other of [
+            `${node} "${entry}" mcp`,
+            `${node} "${entry}" hook claude`,
+            `${node} "${entry}" daemonize`,
+            `${node} "${entry}.bak" daemon`,
+            String.raw`${node} "C:\other\build\index.js" daemon`,
+            String.raw`${node} "D:\x${entry.slice(2)}" daemon`
+        ]) expect(stopsProcess(script, other), other).toBe(false);
+    });
+
+    it("waits for a running task instance to end before starting the task again", () => {
+        const script = hostInstallScript(options);
+        const beforeStart = script.slice(script.indexOf("Register-ScheduledTask"), script.indexOf("Start-ScheduledTask"));
+        // -MultipleInstances IgnoreNew drops a start while the stopped instance is still running.
+        expect(beforeStart).toMatch(/for \(\$i = 0; \$i -lt \d+ -and \(Get-ScheduledTask -TaskName 'n2n-nexus daemon'\)\.State -eq "Running"; \$i\+\+\) \{ Start-Sleep -Milliseconds \d+ \}/);
+    });
+
+    it("quotes paths with spaces, &, parentheses, quotes and non-ASCII letters", () => {
+        const dir = String.raw`C:\Users\Zoë O'Brien (work) & co`;
+        const odd = { host: "127.0.0.1", port: 5688, root: String.raw`${dir}\.n2n-nexus`, node: String.raw`C:\Program Files (x86)\nodejs\node.exe`, entry: String.raw`${dir}\npm\node_modules\n2n-nexus\build\index.js` };
+        const script = hostInstallScript(odd);
+        const q = (text: string) => text.replace(/'/g, "''");
+        expect(script).toContain(String.raw`-Argument '/c for /l %i in (0,0,1) do ("${odd.node}" "${q(odd.entry)}" daemon --host 127.0.0.1 --port 5688 --root "${q(odd.root)}" >> "${q(odd.root)}\daemon.log" 2>&1 & ping -n 6 127.0.0.1 >nul)'`);
+        expect(script).toContain(`-WorkingDirectory '${q(odd.root)}'`);
+        expect(stopsProcess(script, `"${odd.node}" "${odd.entry}" daemon --host 127.0.0.1 --port 5688 --root "${odd.root}"`)).toBe(true);
+        expect(stopsProcess(script, String.raw`"${odd.node}" "${dir}\npm\other\index.js" daemon`)).toBe(false);
     });
 });
 
@@ -69,8 +116,26 @@ describe("runHostCommand", () => {
         expect(scripts).toHaveLength(1);
         expect(scripts[0]).toContain(`daemon --host 0.0.0.0 --port 5799 --root "${ROOT}"`);
         expect(stdout).toContain("Daemon running (PID 7).");
-        expect(stdout).toContain("Windows Firewall allows TCP 5799 and UDP 5688 (discovery)");
+        // The service daemon reads the discovery port from the user's or the machine's environment, so the script reports it.
+        expect(scripts[0]).toContain(`[Environment]::GetEnvironmentVariable("NEXUS_DISCOVERY_PORT", "User")`);
+        expect(scripts[0]).toContain("Windows Firewall allows TCP 5799 and UDP $discovery (discovery)");
         expect(stderr).toBe("");
+    });
+
+    it("install: does not report this shell's NEXUS_* variables as the service daemon's", () => {
+        vi.stubEnv("NEXUS_DISCOVERY_PORT", "6000");
+        vi.stubEnv("NEXUS_RATE_LIMIT", "5");
+        expect(runHostCommand("install", ["--host", "0.0.0.0", "--root", ROOT], runner(0, "ok"), "win32")).toBe(0);
+        expect(stdout).not.toContain("UDP 6000");
+        expect(stdout).toContain("NEXUS_DISCOVERY_PORT, NEXUS_RATE_LIMIT are set in this shell, but the service daemon does not get this shell's environment");
+    });
+
+    it("install: puts NEXUS_ROOT and --node into the task command", () => {
+        vi.stubEnv("NEXUS_ROOT", ROOT);
+        expect(runHostCommand("install", ["--node", process.execPath], runner(0, "ok"), "win32")).toBe(0);
+        expect(scripts[0]).toContain(`("${process.execPath}" "`);
+        expect(scripts[0]).toContain(`daemon --host 127.0.0.1 --port 5688 --root "${ROOT}"`);
+        expect(stdout).not.toContain("NEXUS_ROOT");               // it reaches the daemon as --root
     });
 
     it("install: defaults to 127.0.0.1:5688 and says nothing about the firewall", () => {
@@ -109,7 +174,25 @@ describe("runHostCommand", () => {
         expect(stderr).toContain("unknown option --prot");
         expect(runHostCommand("install", ["--host"], runner(0), "win32")).toBe(1);
         expect(stderr).toContain("--host needs an address");
+        expect(stderr).toContain("--port 70000: not a port number");
+        expect(stderr).toContain("--host a b: not an address");
+        expect(runHostCommand("install", ["--root"], runner(0), "win32")).toBe(1);
+        expect(stderr).toContain("--root needs a directory");
+        expect(runHostCommand("install", ["--node"], runner(0), "win32")).toBe(1);
+        expect(stderr).toContain("--node needs a path");
+        expect(runHostCommand("install", ["--node", path.join(ROOT, "missing-node")], runner(0), "win32")).toBe(1);
+        expect(stderr).toContain("not an executable file");
         expect(runHostCommand("uninstall", ["--force"], runner(0), "win32")).toBe(1);
+        expect(scripts).toEqual([]);
+    });
+
+    it("reports a flag without its value as such, and rejects a repeated flag", () => {
+        expect(runHostCommand("install", ["--host", "--port", "5799"], runner(0), "win32")).toBe(1);
+        expect(stderr).toContain("--host needs an address");
+        expect(stderr).not.toContain("unknown option");
+        stderr = "";
+        expect(runHostCommand("install", ["--port", "5799", "--port", "5800"], runner(0), "win32")).toBe(1);
+        expect(stderr).toContain("--port is given more than once");
         expect(scripts).toEqual([]);
     });
 

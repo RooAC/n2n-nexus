@@ -2,13 +2,14 @@
  * `n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]`: forward one client
  * hook event to the daemon and print its output, or with `--wait` run the
  * background wait that wakes an idle conversation. Runs on every tool call, so
- * it loads only node built-ins (no MCP SDK, zod or SQLite), and every failure
+ * it loads only node built-ins (no MCP SDK, zod or SQLite; the background wait
+ * also loads cross-spawn to run `codex queue`), and every failure
  * is silent: exit 0 with nothing on stdout, so the client carries on unaffected.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import {
-    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, NO_DAEMON_HINT, WAIT_HOOK_TIMEOUT_SEC,
+    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
     isHookClient, type HookClient, type HookResponse
 } from "../daemon/hook-contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
@@ -52,7 +53,7 @@ async function forward(argv: string[]): Promise<string> {
             return await new NexusClient({ endpoint }).hook({ client, input }, timeoutMs);
         } catch (error) {
             if (!(error instanceof NexusTransportError && error.code === "ECONNREFUSED")) throw error;
-            throw new NexusTransportError(`No daemon at ${endpoint}. ${NO_DAEMON_HINT}`, error.code);
+            throw new NexusTransportError(`No daemon at ${endpoint}. ${noDaemonHint(endpoint)}`, error.code);
         }
     };
 
@@ -124,7 +125,9 @@ async function runWait(argv: string[]): Promise<number> {
     const text = await waitForWake(client, sessionId, await resolveEndpoint(configured));
     if (text === null) return 0;
     if (client === "codex") {
-        spawnSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
+        // cross-spawn launches npm's codex.cmd shim on Windows, with the text escaped for cmd.
+        const { default: crossSpawn } = await import("cross-spawn");
+        crossSpawn.sync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
         return 0;
     }
     await new Promise<void>((resolve) => process.stderr.write(text + "\n", () => resolve()));

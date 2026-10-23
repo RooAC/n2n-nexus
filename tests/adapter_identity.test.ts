@@ -139,6 +139,60 @@ describe("No daemon", () => {
         await callEcho(client, {});
     });
 
+    it("tells to start a daemon at a non-loopback endpoint on that machine, not this one", async () => {
+        process.env.NEXUS_ENDPOINT = "http://192.0.2.1:5688";       // TEST-NET-1: never answers
+        const proxy = new NexusServer({ retryIntervalMs: 60_000, requestTimeoutMs: 100 });
+        proxies.push(proxy);
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await proxy.run({ transport: serverSide, input: new PassThrough(), onExit: () => { } });
+        const client = new Client({ name: "Cursor", version: "1" });
+        clients.push(client);
+        await client.connect(clientSide);
+
+        const failed = await client.callTool({ name: "echo", arguments: {} });
+        expect(failed.isError).toBe(true);
+        const text = JSON.stringify(failed.content);
+        expect(text).toContain("192.0.2.1");
+        expect(text).toContain("on that machine");
+        expect(text).not.toContain("n2n-nexus install host\\\" (a service");
+    });
+
+    it("a call the daemon does not answer in time fails alone: the tool list stays and nothing is resent", async () => {
+        let calls = 0;
+        const server = http.createServer((req, res) => {
+            req.resume();
+            req.on("end", () => {
+                if (req.url === "/api/tools") {
+                    res.end(JSON.stringify({ tools: [{ name: "echo", description: "Echo request", inputSchema: { type: "object", properties: {} } }] }));
+                } else {
+                    calls++;
+                    setTimeout(() => { if (!res.destroyed) res.end(JSON.stringify({ ok: true, result: {} })); }, 500);
+                }
+            });
+        });
+        servers.push(server);
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+        const proxy = new NexusServer({ retryIntervalMs: 50, requestTimeoutMs: 150 });
+        proxies.push(proxy);
+        const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+        await proxy.run({ transport: serverSide, input: new PassThrough(), onExit: () => { } });
+        const client = new Client({ name: "Cursor", version: "1" });
+        clients.push(client);
+        await client.connect(clientSide);
+        await client.listTools();
+
+        const failed = await client.callTool({ name: "echo", arguments: {} });
+        expect(failed.isError).toBe(true);
+        expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+        const text = JSON.stringify(failed.content);
+        expect(text).toContain("did not answer in time");
+        expect(text).toContain("may still complete");
+        expect(text).not.toContain("Reconnecting");
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(calls).toBe(1);
+    });
+
     it("says how to start the daemon when it goes away while connected", async () => {
         await fakeDaemon();
         const client = await connect("Cursor", false);

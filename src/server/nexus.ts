@@ -7,10 +7,10 @@ import {
 import type { Tool, Transport } from "@modelcontextprotocol/server";
 import { serveStdio, StdioServerTransport, type StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
-import { NexusClient, NexusToolError, NexusTransportError } from "../client/nexus-client.js";
+import { NexusClient, NexusToolError, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, cachedEndpoint, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
-import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, NO_DAEMON_HINT, type Caller } from "../daemon/hook-contract.js";
+import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, noDaemonHint, type Caller } from "../daemon/hook-contract.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
@@ -110,7 +110,7 @@ export class NexusServer {
             this.identifyClient(ctx.mcpReq.envelope, server);
             if (!this.connected) {
                 return {
-                    content: [{ type: "text", text: `Daemon is not available at ${this.endpoint}. ${NO_DAEMON_HINT} Then retry.` }],
+                    content: [{ type: "text", text: `Daemon is not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Then retry.` }],
                     isError: true
                 };
             }
@@ -157,9 +157,17 @@ export class NexusServer {
                     // The daemon answered; the tool itself failed. Keep the tool list.
                     return { content: [{ type: "text", text: message }], isError: true };
                 }
+                if (e.code === REQUEST_TIMEOUT_CODE) {
+                    // The daemon is up but slow: it may still finish the call, so it is neither
+                    // treated as gone nor retried (a write tool would run twice).
+                    return {
+                        content: [{ type: "text", text: `The daemon at ${this.endpoint} did not answer in time (${this.requestTimeoutMs} ms); the call may still complete there. Check its effect before calling ${request.params.name} again.` }],
+                        isError: true
+                    };
+                }
                 // Daemon went away — drop the tool list and start the retry loop
                 await this.daemonUnavailable();
-                const hint = e.code === "ECONNREFUSED" ? ` ${NO_DAEMON_HINT}` : "";
+                const hint = e.code === "ECONNREFUSED" ? ` ${noDaemonHint(this.endpoint)}` : "";
                 return {
                     content: [{ type: "text", text: `Daemon unavailable: ${message}.${hint} Reconnecting...` }],
                     isError: true
@@ -333,7 +341,7 @@ export class NexusServer {
         this.initialFetch = this.connect();
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
-            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. ${NO_DAEMON_HINT} Retrying every ${this.retryIntervalMs / 1000}s...`);
+            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Retrying every ${this.retryIntervalMs / 1000}s...`);
             this.scheduleRetry();
         }
     }

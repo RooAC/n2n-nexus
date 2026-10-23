@@ -17,7 +17,7 @@ import path from "node:path";
 export const DISCOVER_ENDPOINT = "discover";
 export const LOCAL_ENDPOINT = "http://127.0.0.1:5688";
 export const DISCOVERY_QUERY = "n2n-nexus/discover";
-const DEFAULT_DISCOVERY_PORT = 5688;
+export const DEFAULT_DISCOVERY_PORT = 5688;
 const DISCOVERY_WAIT_MS = 1000;
 /** How long "no daemon answered" stays cached before the next lookup. */
 const NOT_FOUND_TTL_MS = 60_000;

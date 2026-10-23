@@ -3,6 +3,7 @@ import { execFileSync, execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net, { AddressInfo } from "node:net";
+import os from "node:os";
 import path from "node:path";
 
 // Tests the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
@@ -94,9 +95,7 @@ function listenerPid(port: number): number | undefined {
         });
         pid = line ? Number(line.trim().split(/\s+/)[4]) : undefined;
     } else {
-        const out = execFileSync("ss", ["-ltnpH", `sport = :${port}`], { encoding: "utf8" });
-        const match = /pid=(\d+)/.exec(out);
-        pid = match ? Number(match[1]) : undefined;
+        pid = posixListenerPid(port);
     }
     if (!pid) return undefined;
     try {
@@ -108,6 +107,22 @@ function listenerPid(port: number): number | undefined {
         return new RegExp(`(?:^|\\s)"?${entry}"?\\s+daemon\\s+--port\\s+${port}(?:\\s|$)`).test(command) ? pid : undefined;
     } catch {
         return undefined;
+    }
+}
+
+/** `ss` (Linux), else `lsof` (macOS has no ss). */
+function posixListenerPid(port: number): number | undefined {
+    try {
+        const out = execFileSync("ss", ["-ltnpH", `sport = :${port}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        const match = /pid=(\d+)/.exec(out);
+        return match ? Number(match[1]) : undefined;
+    } catch {
+        try {
+            const out = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
+            return Number(out.trim().split("\n")[0]) || undefined;
+        } catch {
+            return undefined;                          // lsof exits 1 when nothing listens
+        }
     }
 }
 
@@ -127,13 +142,15 @@ function ownDaemonChildren(port: number): number[] {
         if (process.platform === "win32") {
             return windowsDaemonPids(port, "ParentId", process.pid);
         }
-        out = execFileSync("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)], { encoding: "utf8" });
+        // -A and -o pid=,ppid=,args= mean the same to GNU and BSD (macOS) ps; --ppid is GNU only.
+        out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,args="], { encoding: "utf8" });
     } catch {
         return [];
     }
     return out.split("\n")
-        .filter((line) => line.includes(`daemon --port ${port}`))
-        .map((line) => Number(line.trim().split(/\s+/)[0]));
+        .map((line) => line.trim().split(/\s+/))
+        .filter((fields) => Number(fields[1]) === process.pid && fields.slice(2).join(" ").includes(`daemon --port ${port}`))
+        .map((fields) => Number(fields[0]));
 }
 
 async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
@@ -321,6 +338,18 @@ describe("n2n-nexus hook, no daemon", () => {
         expect(result.stderr).toContain("n2n-nexus install host");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         expect(await toolsAnswer(port)).toBe(false);
+    }, 15_000);
+
+    // A LAN address of this machine refuses like a remote host would; the hint must not say to start a daemon here.
+    const lanAddress = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === "IPv4" && !a.internal)?.address;
+    it.runIf(lanAddress)("says to start the daemon on that machine when a non-loopback endpoint refuses", async () => {
+        const port = await freePort();
+        const endpoint = `http://${lanAddress}:${port}`;
+        const result = await runHook(["claude", "--endpoint", endpoint], JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }));
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(result.stderr).toContain(`No daemon at ${endpoint}`);
+        expect(result.stderr).toContain("on that machine");
+        expect(result.stderr).not.toContain("(a service that starts at boot)");
     }, 15_000);
 });
 
