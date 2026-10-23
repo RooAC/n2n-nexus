@@ -19,9 +19,10 @@ USAGE:
   n2n-nexus uninstall <claude|codex>
                      Remove the hooks and the MCP server installed by install
   n2n-nexus doctor [claude|codex]
-                     Check that the Node path and entry script in the installed hook and
-                     MCP commands exist and run, and that the host answers with the same
-                     contract version; exit 1 and say how to fix them when not
+                     Check that the Node path and entry script in the installed hooks and
+                     the Node path and npx in the MCP command exist and run, and that the
+                     host answers with the same contract version; exit 1 and say how to
+                     fix them when not
   n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
                      Forward a client hook event to the host (run by the hooks)
 

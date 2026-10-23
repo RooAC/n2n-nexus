@@ -84,7 +84,7 @@ Notifications carry the sender and the first line only; the text reaches the mod
 
 A new conversation's SessionStart hook prints an introduction: its own name and ID, the other sessions that are not offline (up to five) and how to use `peers`, `send` and `read`. The adapter also sends MCP server instructions with the same guidance. Clients do not always report the end of a conversation, so an `idle` or `working` session without activity for 30 minutes counts as `offline` until its next event.
 
-An idle conversation is not running, so hooks alone can only reach it when its user acts. To let AI sessions answer each other without anyone typing, `install` adds a second Stop hook, `n2n-nexus hook <client> --wait`, that starts a background wait when a turn ends:
+An idle conversation is not running, so hooks alone can only reach it when its user acts. To let AI sessions carry out each other's requests and answer without anyone typing, `install` adds a second Stop hook, `n2n-nexus hook <client> --wait`, that starts a background wait when a turn ends:
 
 ```
 turn ends ──▶ Stop hook (announces unread, or listens)

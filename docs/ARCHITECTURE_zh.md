@@ -84,7 +84,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 新对话的 SessionStart hook 会输出一段介绍：它自己的名称和 ID、没有离线的其他会话（最多列 5 个），以及 `peers`、`send`、`read` 的用法。适配器也会在 MCP 的服务器 instructions 里给出同样的说明。客户端不一定会报告对话结束，所以 `idle` 或 `working` 的会话 30 分钟没有任何活动就算 `offline`，直到它下一次有事件。
 
-空闲的对话并没有在运行，只靠 hooks，要等它的用户有动作才能把消息送进去。为了让 AI 会话之间无需有人输入就能互相回复，`install` 会增加第二个 Stop hook `n2n-nexus hook <client> --wait`，每轮结束时启动一个后台等待：
+空闲的对话并没有在运行，只靠 hooks，要等它的用户有动作才能把消息送进去。为了让 AI 会话之间无需有人输入就能执行对方的请求并回复，`install` 会增加第二个 Stop hook `n2n-nexus hook <client> --wait`，每轮结束时启动一个后台等待：
 
 ```
 一轮结束 ──▶ Stop hook（提醒未读，或进入 listen 等待）
