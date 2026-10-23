@@ -78,7 +78,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 工具调用的对话身份不经过模型参数。适配器从请求的 `_meta` 里读取：Claude Code 带 `claudecode/toolUseId`，由调用前刚运行的 PreToolUse hook 绑定到对话（已实测：调用会等 hook 结束）；Codex 带 `sessionId`。适配器把它作为 `caller` 放进 `POST /api/tools/call`。身份是对话而不是适配器进程，所以适配器重启、恢复对话、子代理都沿用同一身份，一个适配器也能同时服务多个 Codex 对话。
 
-通知只带发送方和第一行，正文由模型通过 `read` 以工具结果的形式读取，不作为注入的上下文出现。待命中的 Stop hook 最长挂起 590 秒，消息一到立即返回；客户端杀掉 hook（用户按 Esc）或 host 关闭时结束等待。系统仍采用可信本地 host 边界，这不是身份认证机制：同一系统用户下的所有进程都被视为可信，可以冒充任何对话；需要互相隔离的代理应以不同的系统用户运行，各自使用自己的 host（见 [SECURITY.md](../SECURITY.md) 的本地信任模型）。精确契约见[工具参考](TOOLS_REFERENCE.md#direct-messages-between-conversations)。
+通知只带发送方和第一行，正文由模型通过 `read` 以工具结果的形式读取，不作为注入的上下文出现。待命中的 Stop hook 最长挂起 590 秒，消息一到立即返回；客户端杀掉 hook（用户按 Esc）或 host 关闭时结束等待。系统仍采用可信本地 host 边界，这不是身份认证机制：同一系统用户下的所有进程都被视为可信，可以冒充任何对话；需要互相隔离的代理应以不同的系统用户运行，各自使用自己的 host（见 [SECURITY.md](../SECURITY.md) 的本地信任模型）。精确契约见[工具参考](TOOLS_REFERENCE_zh.md#对话之间的直接消息)。
 
 ### 会话、在线状态与唤醒空闲对话
 

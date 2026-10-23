@@ -1,5 +1,7 @@
 # Changelog
 
+[中文版](docs/CHANGELOG_zh.md)
+
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
@@ -10,7 +12,8 @@ All notable changes to this project will be documented in this file.
 
 ### Documentation
 
-- A user guide (`docs/USER_GUIDE.md`, `docs/USER_GUIDE_zh.md`) covers installing, configuring and running the host and the client, including the one-time Codex hook trust, and holds the command, environment variable, `settings.json` and data directory reference. The README now gives an overview and links to it; each document covers its own topic instead of repeating the others.
+- An installation guide (`docs/INSTALL.md`) covers installing, upgrading and removing the host and the client, including the one-time Codex hook trust; a user guide (`docs/USER_GUIDE.md`) covers using them and holds the command, environment variable, `settings.json` and data directory reference. The README now gives an overview and links to them; each document covers its own topic instead of repeating the others.
+- Every document has a Chinese version with the same sections: new Chinese installation guide, user guide, tools reference, host README, contributing and security docs, and the Chinese changelog now lists every version.
 
 ## [0.9.2] - 2026-10-24
 
