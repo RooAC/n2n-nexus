@@ -45,8 +45,12 @@ const RetentionDays = 30
 type Agents struct {
 	o Options
 
-	mu      sync.Mutex
-	closed  bool
+	mu     sync.Mutex
+	closed bool
+	// request is the context of the hook being handled (set with mu held, by Hook): a
+	// wait whose client is already gone ends without its first check, so nothing is
+	// marked delivered that nobody received.
+	request context.Context
 	closing chan struct{}
 	// waiters are the held hooks per session, in the order they started.
 	waiters map[string][]*waiter
@@ -189,7 +193,7 @@ func (a *Agents) wake(ids ...string) {
 func (a *Agents) startWait(w *waiter) {
 	w.done = make(chan struct{})
 	a.waiters[w.session] = append(a.waiters[w.session], w)
-	if a.closed {
+	if a.closed || (a.request != nil && a.request.Err() != nil) {
 		w.onAbort()
 		return
 	}

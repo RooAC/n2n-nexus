@@ -31,7 +31,9 @@ func (a *Agents) revive(id string) error {
 // Hook handles one client hook event (POST /api/hook); it returns what the hook prints, or nil.
 func (a *Agents) Hook(ctx context.Context, client string, input map[string]any) (map[string]any, error) {
 	a.mu.Lock()
+	a.request = ctx
 	out, w, err := a.hook(client, input)
+	a.request = nil
 	a.mu.Unlock()
 	if err != nil || w == nil {
 		return out, err
