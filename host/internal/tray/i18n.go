@@ -11,6 +11,9 @@ type texts struct {
 	StatusInProcess  string // %s: address
 	StatusService    string // %s: address
 	StatusStopped    string // %s: error
+	OnlineSessions   string // %d: agent sessions not offline
+	ServiceDown      string
+	ServiceNotBack   string // %d: seconds waited
 	OpenLogs         string
 	OpenData         string
 	LAN              string
@@ -28,6 +31,9 @@ var english = texts{
 	StatusInProcess:  "Running: http://%s",
 	StatusService:    "Running (background service): http://%s",
 	StatusStopped:    "Not running: %s",
+	OnlineSessions:   "Online sessions: %d",
+	ServiceDown:      "the background service does not answer",
+	ServiceNotBack:   "The background service did not answer within %d s of the restart; see the log folder.",
 	OpenLogs:         "Open log folder",
 	OpenData:         "Open data folder",
 	LAN:              "Allow LAN access",
@@ -45,6 +51,9 @@ var chinese = texts{
 	StatusInProcess:  "运行中：http://%s",
 	StatusService:    "运行中（后台服务）：http://%s",
 	StatusStopped:    "未运行：%s",
+	OnlineSessions:   "在线会话：%d",
+	ServiceDown:      "后台服务无响应",
+	ServiceNotBack:   "重启后后台服务在 %d 秒内没有响应，请查看日志目录。",
 	OpenLogs:         "打开日志目录",
 	OpenData:         "打开数据目录",
 	LAN:              "允许局域网访问",
@@ -68,6 +77,17 @@ func textsFor(zh bool) texts {
 // isChineseLocale reports whether a POSIX locale (zh_CN.UTF-8, zh_TW, zh) is Chinese.
 func isChineseLocale(locale string) bool {
 	return locale == "zh" || strings.HasPrefix(locale, "zh_") || strings.HasPrefix(locale, "zh-") || strings.HasPrefix(locale, "zh.")
+}
+
+// firstAppleLanguage is the first entry of `defaults read -g AppleLanguages`,
+// which prints a list such as ( "zh-Hans-CN", "en-US" ) one entry per line.
+func firstAppleLanguage(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if v := strings.Trim(strings.TrimSpace(line), `",`); v != "" && v != "(" && v != ")" {
+			return v
+		}
+	}
+	return ""
 }
 
 // envLocale is the first set of LC_ALL, LC_MESSAGES and LANG.

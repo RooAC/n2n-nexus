@@ -79,7 +79,7 @@ host/
 
 ```text
 n2n-nexus-host                      # 托盘方式（默认）
-n2n-nexus-host serve [--host] [--port] [--root] [--supervise]   # 前台无界面运行（服务和调试用）
+n2n-nexus-host serve [--host] [--port] [--root] [--supervise [--log-dir]]   # 前台无界面运行（服务和调试用）
 n2n-nexus-host service install|uninstall|status [--host] [--port] [--root]
 n2n-nexus-host autostart on|off     # 托盘登录后自启
 n2n-nexus-host version
@@ -95,7 +95,7 @@ n2n-nexus-host version
 
 - 一个文件 `<数据目录>/nexus.db`，WAL 模式，`foreign_keys=ON`，`busy_timeout=5000`。
 - 版本号存在 `PRAGMA user_version`；`migrations/NNNN_*.sql` 按序执行，每个文件一个事务；启动时只做这件事，不补列、不修文件。
-- 单实例：启动时对 `<数据目录>/host.lock` 加文件锁，拿不到就报“已有 host 在运行”并退出。
+- 单实例：启动时对 `<数据目录>/host.lock` 加文件锁，拿不到就报“已有 host 在运行”并退出。锁文件记录持有者的 PID、监护进程 PID 和角色（`tray` 托盘进程内、`serve` 前台、`supervised` 服务的 `serve --supervise` 子进程）。
 - 表（`0001_core.sql`：项目、文档、会议、聊天、事件、任务；`0002_agents.sql`：会话相关）：
 
 | 表 | 说明 |
@@ -120,21 +120,23 @@ n2n-nexus-host version
 
 ### 4.6 HTTP 与发现
 
-- 只有 4 个接口；Host 头和浏览器来源检查、`Content-Type`、16 MB 请求体上限、按实例和按地址限流与现在一致。
+- 只有 4 个接口；`GET /health` 另带 `sessions.online`（不是 offline 的会话数，供托盘显示），不计限流；Host 头和浏览器来源检查、`Content-Type`、16 MB 请求体上限、按实例和按地址限流与现在一致。
+- 监听地址：IPv4 字面量（含 `0.0.0.0`）只绑 IPv4，IPv6 字面量只绑 IPv6，主机名按解析结果；就绪行和托盘显示实际绑定的地址。
 - `/api/hook` 按会话 ID 单独计限流桶，另有按地址计的 hook 桶（工具调用地址桶的 5 倍额度），都不和工具调用共用。
 - 局域网发现：监听非回环地址时在 `discoveryPort` 上应答 `n2n-nexus/discover`，回复 `{"service":"n2n-nexus","version","host","port"}`，与现有客户端兼容。
 
 ### 4.7 清理与日志
 
 - 每小时一次：删除 30 天前的事件、已读或已过期的直接消息、已发出的通知；删除过期的工具调用绑定；任务按现有规则过期，结束 7 天后删除。启动时先做一次。
-- 日志：Windows `%LOCALAPPDATA%\n2n-nexus\logs`，macOS `~/Library/Logs/n2n-nexus`，Linux `$XDG_STATE_HOME/n2n-nexus`（默认 `~/.local/state/n2n-nexus`）；`host.log` 单个 10 MB、保留 3 个。
+- 日志：Windows `%LOCALAPPDATA%\n2n-nexus\logs`，macOS `~/Library/Logs/n2n-nexus`，Linux `$XDG_STATE_HOME/n2n-nexus`（默认 `~/.local/state/n2n-nexus`）；`host.log` 单个 10 MB、保留 3 个，只由持有 `host.lock` 的一方写（服务的监护进程，或在进程内运行 host 的托盘）；托盘自己的日志写 `tray.log`（同样轮转），只做控制界面时不碰 `host.log`。
 
 ### 4.8 托盘
 
 - 启动时先看端口上是否已有本机 host（`GET /health` 返回 `service: n2n-nexus`）：有（例如后台服务在跑）就只做控制界面，不再起服务器；没有就在进程内起服务器。
-- 菜单：运行状态与地址、在线会话数；打开日志目录、打开数据目录；“仅本机 / 局域网”切换；“登录后自启”开关；重启；退出。
+- 菜单：运行状态与地址、在线会话数（每 5 秒刷新：进程内直接查，控制模式读 `/health`）；打开日志目录、打开数据目录；“仅本机 / 局域网”切换；“登录后自启”开关；重启；退出。
 - 切到局域网时：Windows 用 UAC 提权执行 `netsh advfirewall` 添加 TCP 和 UDP 入站规则；macOS、Linux 只提示需要放行的端口。
-- 中英文文本放在 `internal/tray/i18n.go`，按系统语言选择。
+- 控制模式下“重启”按 `host.lock` 里的 PID 结束服务的 `serve`，由其监护进程重启，托盘最多等 20 秒等它重新应答 `/health`，始终只做控制界面，不在进程内起服务器；没等到就提示。
+- 中英文文本放在 `internal/tray/i18n.go`，按系统语言选择（Windows 读界面语言；macOS 环境变量没设时读 `defaults read -g AppleLanguages`，再退到 `AppleLocale`；Linux 读 `LC_ALL` / `LC_MESSAGES` / `LANG`）。
 - Windows 编译加 `-ldflags -H=windowsgui`，不出控制台窗口。
 
 ### 4.9 服务与自启
@@ -145,8 +147,9 @@ n2n-nexus-host version
 | macOS | `/Library/LaunchDaemons/io.n2ns.n2n-nexus-host.plist`，`UserName` 为当前用户，`KeepAlive` | `~/Library/LaunchAgents/io.n2ns.n2n-nexus-host.tray.plist`，`RunAtLoad` |
 | Linux | `/etc/systemd/system/n2n-nexus-host.service`，`User=` 当前用户，`Restart=always`、`RestartSec=5` | `~/.config/autostart/n2n-nexus-host.desktop` |
 
-- `serve --supervise`：Go 进程自己拉起子进程 `serve`，子进程退出 5 秒后重启；不再用 cmd 循环。
-- `service install` 需要管理员 / root；先停掉已在运行的 host（按单实例锁和 `/health` 判断，不按命令行字符串匹配），再注册并启动，最后报告端口上是谁在监听。
+- `serve --supervise`：Go 进程自己拉起子进程 `serve`，子进程退出 5 秒后重启；不再用 cmd 循环。服务注册时显式传 `--root` 和 `--log-dir`（安装者的数据和日志目录），不依赖服务进程自己的环境变量。
+- `service install` 需要管理员 / root；托盘正在进程内运行 host 时拒绝安装，提示先退出托盘（服务起来后再打开托盘即成为控制界面）；否则先停掉已在运行的 host（按单实例锁和 `/health` 判断，不按命令行字符串匹配），再注册并启动，最后报告端口上是谁在监听。
+- `service uninstall` 删除服务后只停服务自己的 host（锁角色 `supervised`），不停托盘或前台 `serve`。
 
 ## 5. npm 客户端的改动
 

@@ -35,6 +35,9 @@ type Options struct {
 	// SupervisorPID is the PID of the `serve --supervise` that started this
 	// host, 0 if none; it is recorded in host.lock.
 	SupervisorPID int
+	// Role is recorded in host.lock: RoleTray for the tray; "" is RoleSupervised
+	// with a SupervisorPID, else RoleServe.
+	Role string
 }
 
 // Host is a running host.
@@ -54,7 +57,14 @@ type Host struct {
 // Start takes the data directory's single-instance lock, opens the database
 // and starts serving; it returns once the port is bound.
 func Start(o Options) (*Host, error) {
-	lock, err := AcquireLock(o.DataDir, os.Getpid(), o.SupervisorPID)
+	role := o.Role
+	if role == "" {
+		role = RoleServe
+		if o.SupervisorPID > 0 {
+			role = RoleSupervised
+		}
+	}
+	lock, err := AcquireLock(o.DataDir, os.Getpid(), o.SupervisorPID, role)
 	if err != nil {
 		return nil, err
 	}
@@ -80,24 +90,24 @@ func start(o Options, lock *Lock) (*Host, error) {
 	if o.Test.ListenWaitMs > 0 {
 		listenWait = time.Duration(o.Test.ListenWaitMs) * time.Millisecond
 	}
-	srv := api.New(api.Options{
-		Version: o.Version, Contract: contract, Clock: clk,
-		AllowedHosts: o.Settings.AllowedHosts, RateLimit: o.Settings.RateLimit, RateBurst: o.Settings.RateBurst,
-		Logger: o.Logger,
-	})
-	c := core.New(core.Deps{Store: st, Clock: clk, Contract: contract, Logger: o.Logger})
-	c.Register(srv)
 	ag, err := agents.New(agents.Options{Store: st, Clock: clk, Contract: contract, Logger: o.Logger, ListenWait: listenWait, MaxAutoTurns: o.Settings.MaxAutoTurns})
 	if err != nil {
 		st.Close()
 		return nil, err
 	}
+	srv := api.New(api.Options{
+		Version: o.Version, Contract: contract, Clock: clk,
+		AllowedHosts: o.Settings.AllowedHosts, RateLimit: o.Settings.RateLimit, RateBurst: o.Settings.RateBurst,
+		Logger: o.Logger, Health: ag.Health,
+	})
+	c := core.New(core.Deps{Store: st, Clock: clk, Contract: contract, Logger: o.Logger})
+	c.Register(srv)
 	ag.Register(srv)
 	if missing := srv.Missing(); len(missing) > 0 {
 		o.Logger.Printf("tools without a handler: %v", missing)
 	}
 
-	ln, err := net.Listen("tcp", net.JoinHostPort(o.Settings.Host, fmt.Sprint(o.Settings.Port)))
+	ln, err := net.Listen(listenNetwork(o.Settings.Host), net.JoinHostPort(o.Settings.Host, fmt.Sprint(o.Settings.Port)))
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -143,6 +153,23 @@ func start(o Options, lock *Lock) (*Host, error) {
 	}()
 	return h, nil
 }
+
+// listenNetwork binds an IPv4 literal (0.0.0.0 included) to IPv4 only and an
+// IPv6 literal to IPv6 only; a name binds to what it resolves to.
+func listenNetwork(host string) string {
+	ip := net.ParseIP(host)
+	switch {
+	case ip == nil:
+		return "tcp"
+	case ip.To4() != nil:
+		return "tcp4"
+	default:
+		return "tcp6"
+	}
+}
+
+// OnlineSessions counts the agent sessions that are not offline.
+func (h *Host) OnlineSessions() (int, error) { return h.agents.OnlineSessions() }
 
 // Stop ends held waits, lets in-flight requests finish (up to 5 s), closes the
 // database and releases the lock.

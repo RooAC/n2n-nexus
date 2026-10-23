@@ -69,6 +69,15 @@ func TestLanguage(t *testing.T) {
 			t.Errorf("LANGID %#x: want %v", id, zh)
 		}
 	}
+	// macOS: `defaults read -g AppleLanguages`.
+	for out, want := range map[string]string{"(\n    \"zh-Hans-CN\",\n    \"en-US\"\n)\n": "zh-Hans-CN", "(\n    en,\n    \"zh-Hans\"\n)\n": "en", "(\n)\n": "", "": ""} {
+		if got := firstAppleLanguage(out); got != want {
+			t.Errorf("AppleLanguages %q: %q, want %q", out, got, want)
+		}
+	}
+	if !isChineseLocale(firstAppleLanguage("(\n    \"zh-Hant-TW\"\n)\n")) {
+		t.Error("zh-Hant-TW is Chinese")
+	}
 	t.Setenv("LC_ALL", "")
 	t.Setenv("LC_MESSAGES", "zh_CN.UTF-8")
 	t.Setenv("LANG", "en_US.UTF-8")

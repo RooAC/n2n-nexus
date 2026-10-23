@@ -88,8 +88,8 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 [Releases](https://github.com/n2ns/n2n-nexus/releases)（标签 `host-v<版本>`）里有各平台的压缩包：Windows 为 `n2n-nexus-host_<版本>_<os>_<arch>.zip`，macOS 和 Linux 为 `.tar.gz`，均有 amd64 和 arm64。
 
 - 程序暂未做代码签名。Windows 上第一次运行 `n2n-nexus-host.exe` 可能弹出 SmartScreen 提示：点 **更多信息 → 仍要运行**。Homebrew 在你的 Mac 上从源码编译 host，所以不会有 Gatekeeper 提示。
-- 不带参数运行 `n2n-nexus-host`，它以托盘程序方式运行。托盘菜单显示监听地址，可以打开日志目录和数据目录、切换局域网访问、重启 host、开关 **登录后自启**（`n2n-nexus-host autostart on` 效果相同）。中文系统显示中文菜单，其他系统显示英文。
-- 也可以注册为开机启动的后台服务，不带托盘：在管理员终端（Windows）或用 `sudo`（macOS、Linux）执行 `n2n-nexus-host service install`。服务以安装它的用户身份运行。服务在运行时，之后启动的托盘只做控制界面。
+- 不带参数运行 `n2n-nexus-host`，它以托盘程序方式运行。托盘菜单显示监听地址和在线会话数，可以打开日志目录和数据目录、切换局域网访问、重启 host、开关 **登录后自启**（`n2n-nexus-host autostart on` 效果相同）。中文系统显示中文菜单，其他系统显示英文。
+- 也可以注册为开机启动的后台服务，不带托盘：在管理员终端（Windows）或用 `sudo`（macOS、Linux）执行 `n2n-nexus-host service install`。服务以安装它的用户身份运行。先退出托盘：托盘正在运行 host 时 `service install` 会拒绝执行。服务在运行时，之后启动的托盘只做控制界面。
 - Linux 上的托盘需要桌面环境支持 StatusNotifierItem（AppIndicator）；没有桌面的服务器请用 `service install`。
 
 用 Release 里的 `SHA256SUMS` 和构建证明校验下载的文件：
@@ -237,7 +237,7 @@ host 把全部协作数据保存在数据目录里的一个 SQLite 数据库中�
 └── host.lock         # 每个数据目录只运行一个 host
 ```
 
-托盘和后台服务把日志写到日志目录的 `host.log`（单个 10 MB，保留 3 个旧文件）；`n2n-nexus-host serve` 输出到标准错误。host 每小时删除 30 天前的事件、已读或已过期的直接消息、已发出的通知，以及结束 7 天后的任务。
+后台服务，以及自己运行 host 时的托盘，把日志写到日志目录的 `host.log`（单个 10 MB，保留 3 个旧文件）；托盘自己的日志写到同一目录的 `tray.log`；`n2n-nexus-host serve` 输出到标准错误。host 每小时删除 30 天前的事件、已读或已过期的直接消息、已发出的通知，以及结束 7 天后的任务。
 
 n2n-nexus 0.x 的数据（`~/.n2n-nexus`）不会导入：host 不读取它，也不动它。
 
@@ -247,7 +247,7 @@ host 启动时读取；命令行参数优先。文件或字段缺失时使用默
 
 | 字段 | 说明 | 默认值 |
 | --- | --- | --- |
-| `host` | 监听地址；`0.0.0.0` 让局域网可以访问 | `"127.0.0.1"` |
+| `host` | 监听地址（IPv4 地址只监听 IPv4，IPv6 地址只监听 IPv6）；`0.0.0.0` 让局域网可以访问 | `"127.0.0.1"` |
 | `port` | TCP 端口 | `5688` |
 | `discoveryPort` | 局域网发现的 UDP 端口，只有 `host` 不是回环地址时才应答 | `5688` |
 | `allowedHosts` | `Host` 头额外允许的域名（IP、`localhost`、`host.docker.internal` 始终允许） | `[]` |
@@ -285,8 +285,10 @@ n2n-nexus-host
 n2n-nexus-host serve [--host 127.0.0.1] [--port 5688] [--root <dir>]
 
 # 开机启动的后台服务（Windows 需管理员终端，macOS / Linux 用 sudo）。
-# install 把 --host / --port 写进 settings.json，停掉为该数据目录运行的 host，
+# 托盘正在运行 host 时 install 拒绝执行（先退出托盘；再打开时它控制服务），
+# 否则把 --host / --port 写进 settings.json，停掉为该数据目录运行的 host，
 # 注册并启动服务，最后报告端口上是谁在应答。
+# uninstall 删除服务并停掉服务的 host；托盘和前台 serve 继续运行。
 n2n-nexus-host service install [--host <addr>] [--port <port>] [--root <dir>]
 n2n-nexus-host service uninstall [--root <dir>]
 n2n-nexus-host service status [--host <addr>] [--port <port>] [--root <dir>]

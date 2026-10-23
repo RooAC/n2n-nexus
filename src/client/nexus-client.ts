@@ -104,7 +104,7 @@ export class NexusClient {
         });
     }
 
-    /** GET /health: n2n-nexus-host answers `{ ok, service: "n2n-nexus", version, contractVersion }`. */
+    /** GET /health: n2n-nexus-host answers `{ ok, service: "n2n-nexus", version, contractVersion, sessions: { online } }`. */
     async health(): Promise<{ ok?: unknown; service?: unknown; version?: unknown; contractVersion?: unknown }> {
         return this.request("GET", "/health");
     }

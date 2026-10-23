@@ -22,9 +22,11 @@ const (
 	serviceLogName   = "service.log"            // launchd's stdout / stderr of the supervisor
 )
 
-// ServeArgs are the arguments every service runs the executable with.
-func ServeArgs(dataDir string) []string {
-	return []string{"serve", "--supervise", "--root", dataDir}
+// ServeArgs are the arguments every service runs the executable with: the
+// installer's data and log directories, so the service's own environment
+// cannot move them.
+func ServeArgs(dataDir, logDir string) []string {
+	return []string{"serve", "--supervise", "--root", dataDir, "--log-dir", logDir}
 }
 
 // ---- PowerShell (Windows) ----
@@ -76,13 +78,16 @@ var psStopTask = fmt.Sprintf(`if (Get-ScheduledTask -TaskName %[1]s -ErrorAction
 // WindowsStopTaskScript stops a registered task and waits until its instance has ended.
 func WindowsStopTaskScript() string { return psPreamble + psRequireAdmin + psStopTask }
 
-// WindowsTaskArgs is the task action's argument string: serve --supervise --root "<dir>".
+// WindowsTaskArgs is the task action's argument string: serve --supervise --root "<dir>" --log-dir "<dir>".
 // A trailing backslash would escape the closing quote, so it gets a "." appended.
-func WindowsTaskArgs(dataDir string) string {
-	if strings.HasSuffix(dataDir, `\`) {
-		dataDir += "."
+func WindowsTaskArgs(dataDir, logDir string) string {
+	quote := func(dir string) string {
+		if strings.HasSuffix(dir, `\`) {
+			dir += "."
+		}
+		return `"` + dir + `"`
 	}
-	return `serve --supervise --root "` + dataDir + `"`
+	return `serve --supervise --root ` + quote(dataDir) + ` --log-dir ` + quote(logDir)
 }
 
 // CheckWindowsPath rejects paths the task action cannot carry: Task Scheduler
@@ -96,7 +101,7 @@ func CheckWindowsPath(what, path string) error {
 
 // WindowsRegisterScript registers the boot task (S4U principal of the current
 // user, no time limit, IgnoreNew) and starts it.
-func WindowsRegisterScript(exe, dataDir string) string {
+func WindowsRegisterScript(exe, dataDir, logDir string) string {
 	q := psQuote(TaskName)
 	return psPreamble + psRequireAdmin + fmt.Sprintf(`$action = New-ScheduledTaskAction -Execute %s -Argument %s -WorkingDirectory %s
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -105,7 +110,7 @@ $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) 
 Register-ScheduledTask -TaskName %s -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description %s -Force | Out-Null
 Start-ScheduledTask -TaskName %s
 Write-Output %s
-`, psQuote(exe), psQuote(WindowsTaskArgs(dataDir)), psQuote(dataDir), q, psQuote("n2n-nexus host for "+dataDir), q,
+`, psQuote(exe), psQuote(WindowsTaskArgs(dataDir, logDir)), psQuote(dataDir), q, psQuote("n2n-nexus host for "+dataDir), q,
 		psQuote(`Registered and started scheduled task "`+TaskName+`" (starts at boot).`))
 }
 
@@ -193,7 +198,7 @@ func LaunchDaemonPlist(exe, dataDir, logDir, user, home string) string {
 	logFile := xmlEscape(strings.TrimSuffix(logDir, "/") + "/" + serviceLogName)
 	return plistHeader + fmt.Sprintf("\t<key>Label</key>\n\t<string>%s</string>\n\t<key>UserName</key>\n\t<string>%s</string>\n",
 		DaemonLabel, xmlEscape(user)) +
-		plistArgs(append([]string{exe}, ServeArgs(dataDir)...)) +
+		plistArgs(append([]string{exe}, ServeArgs(dataDir, logDir)...)) +
 		fmt.Sprintf("\t<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>HOME</key>\n\t\t<string>%s</string>\n\t</dict>\n", xmlEscape(home)) +
 		fmt.Sprintf("\t<key>WorkingDirectory</key>\n\t<string>%s</string>\n", xmlEscape(dataDir)) +
 		"\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>KeepAlive</key>\n\t<true/>\n" +
@@ -219,9 +224,9 @@ func systemdQuote(s string) string {
 }
 
 // SystemdUnitFile is /etc/systemd/system/n2n-nexus-host.service.
-func SystemdUnitFile(exe, dataDir, user string) string {
+func SystemdUnitFile(exe, dataDir, logDir, user string) string {
 	words := []string{systemdQuote(exe)}
-	for _, a := range ServeArgs(dataDir) {
+	for _, a := range ServeArgs(dataDir, logDir) {
 		words = append(words, systemdQuote(a))
 	}
 	return fmt.Sprintf(`[Unit]

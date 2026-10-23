@@ -14,15 +14,15 @@ func TestLockIsExclusiveAndRecordsPIDs(t *testing.T) {
 	if info, err := ReadLock(dir); err != nil || info.Held {
 		t.Fatalf("fresh dir: %+v %v", info, err)
 	}
-	l, err := AcquireLock(dir, 1234, 99)
+	l, err := AcquireLock(dir, 1234, 99, RoleSupervised)
 	if err != nil {
 		t.Fatal(err)
 	}
 	info, err := ReadLock(dir)
-	if err != nil || !info.Held || info.PID != 1234 || info.Supervisor != 99 {
+	if err != nil || !info.Held || info.PID != 1234 || info.Supervisor != 99 || info.Role != RoleSupervised {
 		t.Fatalf("held lock: %+v %v", info, err)
 	}
-	_, err = AcquireLock(dir, 5678, 0)
+	_, err = AcquireLock(dir, 5678, 0, RoleServe)
 	if err == nil || err.Error() != "another n2n-nexus-host is running for "+dir+" (PID 1234)" {
 		t.Fatalf("second lock: %v", err)
 	}
@@ -31,12 +31,12 @@ func TestLockIsExclusiveAndRecordsPIDs(t *testing.T) {
 		t.Fatal("still held after Release")
 	}
 	// A shorter record replaces a longer one completely.
-	l, err = AcquireLock(dir, 7, 0)
+	l, err = AcquireLock(dir, 7, 0, RoleTray)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer l.Release()
-	if info, _ := ReadLock(dir); info.PID != 7 || info.Supervisor != 0 {
+	if info, _ := ReadLock(dir); info.PID != 7 || info.Supervisor != 0 || info.Role != RoleTray {
 		t.Fatalf("re-acquired: %+v", info)
 	}
 }
@@ -50,7 +50,7 @@ func TestStartRefusesASecondHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info, _ := ReadLock(dir); !info.Held || info.PID != os.Getpid() {
+	if info, _ := ReadLock(dir); !info.Held || info.PID != os.Getpid() || info.Role != RoleServe {
 		t.Fatalf("lock while running: %+v", info)
 	}
 	if !strings.HasPrefix(ReadyLine("test", h), "test listening on http://127.0.0.1:") {

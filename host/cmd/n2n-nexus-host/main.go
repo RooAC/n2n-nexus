@@ -24,7 +24,7 @@ var version = "dev"
 
 const usage = `usage:
   n2n-nexus-host                                   tray (default)
-  n2n-nexus-host serve [--host <addr>] [--port <port>] [--root <dir>] [--supervise]
+  n2n-nexus-host serve [--host <addr>] [--port <port>] [--root <dir>] [--supervise [--log-dir <dir>]]
   n2n-nexus-host service install|uninstall|status [--host <addr>] [--port <port>] [--root <dir>]
   n2n-nexus-host autostart on|off
   n2n-nexus-host version
@@ -81,13 +81,14 @@ func runTray() int {
 
 // serve runs the host in the foreground until SIGINT / SIGTERM; with
 // --supervise it runs `serve` with the other flags as a child instead,
-// restarting it 5 s after it exits, and logs to host.log.
+// restarting it 5 s after it exits, and logs to host.log in --log-dir.
 func serve(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	hostFlag := fs.String("host", "", "address to listen on (default: settings.json, then 127.0.0.1)")
 	port := fs.Int("port", -1, "port to listen on, 0 for any free port (default: settings.json, then 5688)")
 	root := fs.String("root", "", "data directory (default: NEXUS_ROOT, then the platform data directory)")
 	supervise := fs.Bool("supervise", false, "run serve as a child process and restart it 5 s after it exits")
+	logDir := fs.String("log-dir", "", "directory of host.log for --supervise (default: the platform log directory)")
 	var test testhooks.Options
 	testhooks.RegisterFlags(fs, &test)
 	if err := fs.Parse(args); err != nil {
@@ -98,7 +99,11 @@ func serve(args []string) int {
 		return 2
 	}
 	if *supervise {
-		return superviseServe(fs)
+		dir := *logDir
+		if dir == "" {
+			dir = config.LogDir()
+		}
+		return superviseServe(fs, dir)
 	}
 	logger := host.NewLogger(os.Stderr)
 	dataDir := *root
@@ -143,15 +148,15 @@ func serve(args []string) int {
 	return 0
 }
 
-// superviseServe runs `serve` with every flag given except --supervise.
-func superviseServe(fs *flag.FlagSet) int {
+// superviseServe runs `serve` with every flag given except --supervise, logging to logDir.
+func superviseServe(fs *flag.FlagSet, logDir string) int {
 	childArgs := []string{"serve"}
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name != "supervise" {
 			childArgs = append(childArgs, "--"+f.Name+"="+f.Value.String())
 		}
 	})
-	logs := host.LogWriter(config.LogDir())
+	logs := host.LogWriter(logDir)
 	defer logs.Close()
 	logger := host.NewLogger(logs)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
