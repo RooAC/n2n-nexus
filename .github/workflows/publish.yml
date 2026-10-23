@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # npm test builds the Go host the client tests run against.
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
       - uses: actions/setup-node@v6
         with:
           node-version: '24'

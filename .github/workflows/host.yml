@@ -1,0 +1,37 @@
+name: CI
+
+# Client tests, Go host tests and the conformance suite on every OS the host supports.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - run: npm ci
+      - run: go vet ./...
+      - run: go test ./host/...
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      - run: npm run host:build-test
+      - run: npm run test:conformance
