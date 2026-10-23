@@ -21,9 +21,20 @@
 ## Backlog
 
 ### Near-term
-- [ ] Daemon process management — systemd / launchd / PM2 integration guide
+- [ ] Release — bump the version and publish to npm; the Unreleased changes include a breaking one (clients no longer start a daemon), so pick the version accordingly
+- [ ] LAN test from a second machine — discovery, firewall rules (TCP and UDP 5688) and direct messages across machines; so far everything ran on one Windows machine
+- [ ] `install host` for macOS (launchd) and Linux (systemd); Windows only today (verified 2026-10-23: deploy, restart 5 s after the daemon exits)
+- [ ] Codex messages left waiting after Codex restarts — the background wait ends with the Codex app and `codex queue` only starts a turn for a conversation loaded in the app, so messages wait until the user prompts that conversation; consider a per-machine waker that loads the conversation through the app-server
+- [ ] Hide Codex background sessions (e.g. `codex@memories`) from peers and the SessionStart introduction; they never answer
+- [ ] Readable session names (conversation title instead of `codex@n2n-bridge#3`)
+- [ ] A failed `codex queue` loses the wake: the daemon already marked the message notified; undo that when delivery fails
+- [ ] Tell automatic turns apart from user prompts by content instead of the one-minute window (see ARCHITECTURE known limits)
+- [ ] A woken turn announces the same message again on UserPromptSubmit and can count one extra automatic turn
+- [ ] Sessions marked offline after 30 minutes without activity do not notify their notifyWhenIdle subscribers
+- [ ] Tests inherit `NEXUS_HOST` from the environment (set to `0.0.0.0` on the host machine) and then fail; clear it in the tests that start daemons
 
 ### Future
+- [ ] Split the package into host (daemon, service install) and client (MCP adapter, hooks, install) so clients do not need SQLite; consider a Go host built from the HTTP contract
 - [ ] Authentication layer — API key for daemon access (production deployments)
 - [ ] Cross-machine live sync — daemon-to-daemon bridge (beyond baseline scope)
 - [ ] IDE sidebar integration — optional SSE endpoint for real-time message display
