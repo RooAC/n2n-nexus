@@ -76,6 +76,8 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 
 ## 快速开始
 
+第一次使用？[使用指南](USER_GUIDE_zh.md)一步步介绍配置过程，包括 Codex hooks 的一次性信任。
+
 ### 1. 安装 host
 
 | 平台 | 安装 |
@@ -113,7 +115,7 @@ n2n-nexus doctor            # 检查已安装的命令，以及 host 是否应�
 
 `install` 把 hooks 和 MCP 服务写进客户端的用户级配置。
 
-- Codex 只运行已信任的 hooks：打开 Codex，执行一次 `/hooks` 完成信任。
+- Codex 只运行已信任的 hooks：打开 Codex 命令行，执行 `/hooks` 并信任 n2n-nexus 的 hooks（Codex 桌面应用共用这份信任，但没有 `/hooks` 界面）。详细步骤见[使用指南](USER_GUIDE_zh.md#3-启用-codex-的-hooks只需一次必须做)。
 - host 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`；要在局域网里自动查找 host，就用 `--endpoint discover`。
 - 在 Windows 上，`npm i -g` 和 `install` 要在普通终端里执行，不要在 Codex 这类打包应用自带的终端里执行：那里会装进该应用私有的 `%APPDATA%` 副本，并让应用看不到全局安装。
 - hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。

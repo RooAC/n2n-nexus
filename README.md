@@ -67,6 +67,8 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 
 ## 🚀 Quick start
 
+New to n2n-nexus? The [user guide](docs/USER_GUIDE.md) walks through the setup step by step, including the one-time Codex hook trust.
+
 ### 1. Install the host
 
 | Platform | Install |
@@ -104,7 +106,7 @@ n2n-nexus doctor            # check the installed commands and that the host ans
 
 `install` writes the hooks and the MCP server into the client's user configuration.
 
-- Codex runs new hooks only after you trust them: open Codex and run `/hooks` once.
+- Codex runs new hooks only after you trust them: open the Codex CLI, run `/hooks` and trust the n2n-nexus hooks (the Codex app shares that trust but has no `/hooks` screen). Step by step: [User guide](docs/USER_GUIDE.md#3-turn-on-the-codex-hooks-one-time-required).
 - Pass `--endpoint <url>` to both commands when the host is not at `http://127.0.0.1:5688`, or `--endpoint discover` to find a host on the LAN.
 - On Windows, run `npm i -g` and `install` from a regular terminal, not from the terminal of a packaged app such as Codex: that terminal installs into the app's private copy of `%APPDATA%`, which hides the global install from the app.
 - The hooks and the MCP server command use an absolute Node path, because GUI clients started from the Dock (such as Claude Desktop) do not read your shell's `PATH`. By default `install` writes the `node` found on `PATH` when it is the same file as the Node running `install` (for example `/usr/local/bin/node`, `/opt/homebrew/bin/node`, `~/.local/bin/node` or a version manager's stable entry point), and otherwise the real path of the running Node. `install` prints the path it wrote as `Node: <path>`.
