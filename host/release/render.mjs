@@ -72,7 +72,7 @@ PackageName: n2n-nexus-host
 PackageUrl: ${repo}
 License: Apache-2.0
 LicenseUrl: ${repo}/blob/main/LICENSE
-ShortDescription: ${description}
+ShortDescription: ${JSON.stringify(description)}
 Moniker: n2n-nexus-host
 Tags:
 - mcp
