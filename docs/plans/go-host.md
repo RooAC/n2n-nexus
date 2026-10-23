@@ -1,6 +1,6 @@
 # 实施方案：Go 重写独立 host（n2n-nexus-host）
 
-状态：方案待确认　｜　日期：2026-10-23
+状态：已实施（进行中：发布）　｜　日期：2026-10-23
 
 ## 1. 目标与完成标准
 
@@ -20,7 +20,7 @@
 | 项目 | 决定 |
 |---|---|
 | 运行方式 | 同一个程序：默认托盘，登录后自启；`service install` 注册开机启动的后台服务。服务以安装它的用户身份运行 |
-| 代码位置 | 本仓库 `host/` 目录，Go 模块 `github.com/n2ns/n2n-nexus/host` |
+| 代码位置 | 本仓库 `host/` 目录；Go 模块是仓库根目录的 `github.com/n2ns/n2n-nexus`（`go.mod` 在根目录，命令在 `host/cmd/n2n-nexus-host`），这样 host 能直接嵌入根目录的 `contract/` |
 | 存储 | 单个 SQLite 文件，全部数据建成正规的表，每个写操作一个事务，表结构用带版本号的迁移脚本管理 |
 | 旧数据 | 不导入、不读取；旧 `~/.n2n-nexus` 原样保留 |
 | 协议 | 只保留 `GET /health`、`GET /api/tools`、`POST /api/tools/call`、`POST /api/hook`；新增 `update_task` 工具；其余 REST 接口删除 |
@@ -34,7 +34,7 @@
 
 ## 3. 协议（`contract/`）
 
-协议文件放在仓库根目录 `contract/`，是两边唯一的来源：Go host 用 `go:embed` 嵌入，TS 客户端和一致性测试直接读取，npm 包随包发布。
+协议文件放在仓库根目录 `contract/`，是两边唯一的来源：Go host 通过 `contract/contract.go`（Go 包 `contract`，用 `go:embed` 嵌入三个 JSON 文件）引入，TS 客户端和一致性测试直接读取，npm 包随包发布。
 
 | 文件 | 内容 |
 |---|---|
@@ -55,20 +55,22 @@
 ### 4.1 目录
 
 ```text
+contract/contract.go             # Go 包 contract：go:embed 嵌入 tools.json、hook.json、errors.json
 host/
-├── cmd/n2n-nexus-host/main.go   # 命令行入口
-├── internal/config/             # settings.json、命令行参数、数据和日志目录
-├── internal/contract/           # 嵌入 contract/*.json，加载 schema，参数与输出校验
-├── internal/store/              # SQLite、迁移脚本、各表的读写
-│   └── migrations/0001_init.sql
-├── internal/tools/              # 每个工具的处理函数
-├── internal/hooks/              # 会话状态机（listening、后台等待、自动轮次）
+├── cmd/n2n-nexus-host/          # 命令行入口（main.go；Windows 附着父控制台）
+├── internal/config/             # settings.json、数据和日志目录
+├── internal/protocol/           # 加载嵌入的协议，编译 schema，去掉未声明的参数键，参数与输出校验
+├── internal/store/              # 打开 SQLite、执行迁移、事务
+│   └── migrations/0001_core.sql、0002_agents.sql
+├── internal/core/               # 项目、文档、会议、聊天、事件、任务工具及其表和定时清理
+├── internal/agents/             # 会话：hook 处理、直接消息工具、状态机（listening、后台等待、自动轮次）及其表和定时清理
 ├── internal/api/                # HTTP：4 个接口、Host/浏览器来源检查、限流、请求体上限
 ├── internal/discovery/          # UDP 局域网发现应答
-├── internal/maintain/           # 定时清理
+├── internal/host/               # 组装一个 host：单实例锁、数据库、工具、服务器、发现、每小时清理、日志轮转
 ├── internal/tray/               # 托盘菜单与中英文文本
-├── internal/service/            # 各平台服务与自启注册
-└── internal/testclock/          # 只在 testclock 构建标签下编译的时间控制
+├── internal/service/            # 各平台服务与自启注册、serve --supervise、Windows 防火墙脚本
+├── internal/clock/              # Clock 接口、系统时钟、可设置时钟
+└── internal/testhooks/          # 只在 testclock 构建标签下编译：POST /test/clock、--test-listen-wait-ms
 ```
 
 依赖：`modernc.org/sqlite`（纯 Go）、`github.com/santhosh-tekuri/jsonschema/v6`（校验）、`fyne.io/systray`（托盘）、`gopkg.in/natefinch/lumberjack.v2`（日志轮转）、`github.com/gofrs/flock`（单实例锁）。Go 1.27。
@@ -77,7 +79,7 @@ host/
 
 ```text
 n2n-nexus-host                      # 托盘方式（默认）
-n2n-nexus-host serve [--host] [--port] [--root]   # 前台无界面运行（服务和调试用）
+n2n-nexus-host serve [--host] [--port] [--root] [--supervise]   # 前台无界面运行（服务和调试用）
 n2n-nexus-host service install|uninstall|status [--host] [--port] [--root]
 n2n-nexus-host autostart on|off     # 托盘登录后自启
 n2n-nexus-host version
@@ -94,7 +96,7 @@ n2n-nexus-host version
 - 一个文件 `<数据目录>/nexus.db`，WAL 模式，`foreign_keys=ON`，`busy_timeout=5000`。
 - 版本号存在 `PRAGMA user_version`；`migrations/NNNN_*.sql` 按序执行，每个文件一个事务；启动时只做这件事，不补列、不修文件。
 - 单实例：启动时对 `<数据目录>/host.lock` 加文件锁，拿不到就报“已有 host 在运行”并退出。
-- 表（0001_init）：
+- 表（`0001_core.sql`：项目、文档、会议、聊天、事件、任务；`0002_agents.sql`：会话相关）：
 
 | 表 | 说明 |
 |---|---|
@@ -112,14 +114,14 @@ n2n-nexus-host version
 
 ### 4.5 会话状态机
 
-- 把 `server.ts` 里的模块级变量（`listeningStops`、`backgroundWaits`、`autoTurns`、`wokenAt`、`agentWake`）收进一个 `hooks.Coordinator` 结构，由 server 实例持有。
+- 把 `server.ts` 里的模块级变量（`listeningStops`、`backgroundWaits`、`autoTurns`、`wokenAt`、`agentWake`）收进 `agents.Agents` 结构（`host/internal/agents`），由每个 host 实例持有；全部状态在一把互斥锁后面，每个 hook 和直接消息工具调用都在锁内执行。
 - 行为以一致性测试为准，包括本轮修过的：等待结束后离开 `listening`、启动时复位残留的 `listening`、后台等待请求算作活动、自动轮次上限。
-- 时间通过一个 `Clock` 接口取得；正式版本用系统时间，`testclock` 构建标签下由测试接口设置。
+- 时间通过一个 `Clock` 接口（`host/internal/clock`）取得；正式版本用系统时间，`testclock` 构建标签下由测试接口设置。`testclock` 构建还提供 `serve --test-listen-wait-ms`，缩短 listening 等待供测试使用。
 
 ### 4.6 HTTP 与发现
 
 - 只有 4 个接口；Host 头和浏览器来源检查、`Content-Type`、16 MB 请求体上限、按实例和按地址限流与现在一致。
-- `/api/hook` 按会话 ID 单独计限流桶，不和工具调用共用地址桶。
+- `/api/hook` 按会话 ID 单独计限流桶，另有按地址计的 hook 桶（工具调用地址桶的 5 倍额度），都不和工具调用共用。
 - 局域网发现：监听非回环地址时在 `discoveryPort` 上应答 `n2n-nexus/discover`，回复 `{"service":"n2n-nexus","version","host","port"}`，与现有客户端兼容。
 
 ### 4.7 清理与日志
@@ -158,7 +160,7 @@ n2n-nexus-host version
 
 - 位置 `tests/conformance/`，用 vitest 写，只通过 HTTP 访问外部 host。
 - 夹具 `tests/conformance/harness.ts`：用环境变量 `NEXUS_HOST_BIN` 指定的可执行文件，以临时 `--root`、`--port 0` 启动；从标准错误的就绪行读出端口；每个测试文件一个 host 进程。
-- 时间：测试版本用 `go build -tags testclock` 构建，提供 `POST /test/clock {"now": <ms>}`；正式版本没有这个接口。
+- 时间：测试版本用 `go build -tags testclock` 构建，提供 `POST /test/clock {"now": <ms>}`（`{"now": null}` 恢复系统时间）和 `serve --test-listen-wait-ms`；正式版本没有这些。
 - 来源：现有通过 HTTP 测 daemon 的用例改写进来（`agent_hooks`、`agent_tools`、`daemon_messages`、`daemon_projects`、`events_api`、`global_docs_api`、`global_messages`、`meetings_api`、`tasks`、`message_cursor`、`structured_output`、`tool_validation`、`http_guard`、`rate_limit`、`concurrency`、`daemon_rest_errors`、`prototype_keys`）；直接改存储状态的写法改为通过 hook 或工具达到同样状态；针对已删除 REST 接口的用例删除。
 - 存储层的单元测试（`storage*`、`migrations`、`sqlite_init`、`fs-utils`、`projects_api` 中的文件布局部分）随 TS 存储层删除，由 `host/internal/store` 的 Go 测试覆盖同样的行为（事务回滚、级联、迁移版本、清理）。
 - 先拿现有 TS daemon 跑一遍一致性测试（除 `update_task` 和已改的协议行为外全部通过），确认测试本身正确，再用来验收 Go host。

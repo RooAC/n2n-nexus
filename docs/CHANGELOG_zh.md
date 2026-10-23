@@ -4,34 +4,39 @@
 
 ## [未发布]
 
+两个程序的 1.0.0 版本：host 改为独立的 Go 程序 `n2n-nexus-host`，npm 包 `n2n-nexus` 只保留客户端。
+
 ### 新增
 
-- 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 daemon，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 daemon 会应答这些查询。没有应答时，客户端使用本机地址 `http://127.0.0.1:5688`。
+- `n2n-nexus-host`：用 Go 重写的 host，Windows、macOS、Linux（amd64 和 arm64）各一个可执行文件。不带参数时以托盘程序运行：显示状态和地址、打开日志目录和数据目录、开关局域网访问（Windows 上经 UAC 确认后添加 TCP 和 UDP 防火墙规则，其他系统提示需要放行的端口）、登录后自启、重启、退出；中文系统显示中文，其他显示英文。`serve` 在前台运行；`service install|uninstall|status` 注册以安装用户身份运行的开机服务，host 退出 5 秒后自动重启（Windows 计划任务、macOS LaunchDaemon、Linux systemd 单元）；`autostart on|off` 设置托盘登录后自启。端口上已有 host（服务）应答时，托盘只做控制界面。每个数据目录只运行一个 host。
+- 安装方式：Homebrew（`brew install n2ns/tap/n2n-nexus-host`，从源码编译）、Scoop（`scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`，`scoop install n2ns/n2n-nexus-host`），以及 GitHub Releases（标签 `host-v*`）上的压缩包，附 `SHA256SUMS` 和构建证明（`gh attestation verify`）。程序暂未做代码签名。
+- `update_task`：更新任务的 `status`、`progress`（0–1）、`result_uri`、`error_message` 或 `metadata`，返回更新后的任务。
+- `contract/`：host 与客户端之间的 JSON 协议（`tools.json`、`hook.json`、`errors.json`），随 npm 包发布。`GET /health` 返回 host 的 `contractVersion`，`n2n-nexus doctor` 检查 host 的协议版本与客户端一致。
+- 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 host，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 host 在它的 `discoveryPort` 上应答。没有应答时，客户端使用本机地址 `http://127.0.0.1:5688`。
 - SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
 - MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
-
 - 空闲的对话会被叫醒：`install` 增加第二个 Stop hook（`n2n-nexus hook <client> --wait`），每轮结束后最多等待一小时，有新消息或通知就让对话开始新的一轮：Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`（可用 `NEXUS_CODEX_COMMAND` 指定命令）。等待期间会话显示为 `listening`，对话里有任何新活动就结束等待。重新运行 `n2n-nexus install <client>` 即可加上这个 hook。
-
-- 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `NEXUS_MAX_AUTO_TURNS`（默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
-
-- `n2n-nexus install host [--host] [--port] [--root] [--node]` 把 daemon 注册为开机启动的服务，不依赖任何 IDE（Windows 计划任务，需在管理员终端运行）；`n2n-nexus uninstall host` 删除这个服务并停止它的 daemon。安装时会停掉已在运行、由本包启动的 daemon（包括经 npm 包装脚本启动的），并等正在运行的任务实例结束后再启动新的；安装终端里设置的 `NEXUS_*` 变量不会传给服务 daemon，安装时会列出提示。
+- 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `maxAutoTurns`（host 的 `settings.json`，默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
 
 ### 变更
 
-- 本机地址上没有 daemon 应答时，MCP 适配器和 hooks 不再自己启动 daemon。它们启动的 daemon 可能在服务 daemon 重启的空档里抢占端口，升级后还会继续运行旧代码。现在工具调用会报错并说明如何启动 daemon，hooks 静默跳过。请用 `n2n-nexus install host` 或 `n2n-nexus daemon` 启动。
+- **不兼容：** npm 包 `n2n-nexus` 只含客户端（MCP 适配器、`hook`、`install` / `uninstall`、`doctor`）；删除 `n2n-nexus daemon`，不再依赖 `better-sqlite3`。host 请用 `n2n-nexus-host` 运行。
+- **不兼容：** 存储改为新的 SQLite 数据库：host 数据目录下的 `nexus.db`（`%LOCALAPPDATA%\n2n-nexus`、`~/Library/Application Support/n2n-nexus`、`$XDG_DATA_HOME/n2n-nexus`，默认 `~/.local/share/n2n-nexus`；`--root` 或 `NEXUS_ROOT` 可改）。项目、资产和全局文档都是其中的表，不再是文件；每个写操作一个事务，表结构由编号的迁移脚本管理。旧版本在 `~/.n2n-nexus` 里的数据不导入，原样保留。
+- **不兼容：** host 只有四个接口：`GET /health`、`GET /api/tools`、`POST /api/tools/call`、`POST /api/hook`。删除项目、消息、全局、会议、任务、事件和维护的 REST 接口，它们的功能都有对应的工具。
+- **不兼容：** `read_messages` 需要 `instanceId`（MCP 适配器总会带上）；不带的调用不再共用 `unknown` 未读游标。
+- **不兼容：** host 设置放在数据目录的 `settings.json` 里（`host`、`port`、`discoveryPort`、`allowedHosts`、`rateLimit`、`rateBurst`、`maxAutoTurns`），命令行参数覆盖；host 除 `NEXUS_ROOT` 外不读任何环境变量。`NEXUS_HOST`、`NEXUS_DAEMON_PORT`、`NEXUS_ALLOWED_HOSTS`、`NEXUS_RATE_LIMIT`、`NEXUS_RATE_BURST`、`NEXUS_MAX_AUTO_TURNS` 不再使用；`NEXUS_DISCOVERY_PORT` 仍供使用 `discover` 的客户端使用。
+- hooks 按对话和按客户端地址限流，与工具调用使用各自独立的桶。
+- host 只保留有限时间的数据：事件、已读或已过期的直接消息、已发出的通知保留 30 天，已结束的任务保留 7 天；`host.log` 单个 10 MB 轮转，保留 3 个旧文件。
+- MCP 适配器和 hooks 从不启动 host。本机地址上没有 host 应答时，工具调用报错并提示安装并启动 `n2n-nexus-host`；远程地址则提示需在那台机器上启动。hooks 静默跳过。
 - `peers` 默认只列出未离线的会话；传 `includeOffline: true` 时，和以前一样再列出 24 小时内活跃过的离线会话。
 - `idle` 或 `working` 状态的会话 30 分钟没有任何活动就标为 `offline`，因为客户端不一定发送 SessionEnd（已结束或关闭的 Codex 对话此前会一直"在线"）；它下一次有事件时恢复。`peers` 与 SessionStart 介绍会说明只有 `listening` 的会话能马上回复。
 
 ### 修复
 
-- 后台等待算作活动，等待超过 30 分钟的会话不会在两次等待之间被标为 `offline`。开着 `listen` 的会话在等待全部结束后不再一直停在 `listening`；daemon 重启时也会复位残留的 `listening` 会话，30 分钟无活动后和其他会话一样变为 `offline`。
-- `registry.json` 或全局文档索引读不了（无权限、被占用）时不再当作空的：写入直接失败，不会覆盖索引、丢掉其他项目或文档。文件缺失或损坏仍会自动修复。
-- 删除项目时先删 registry 条目再删目录，写入失败不会留下指向已删除文件的项目。
-- 开始、结束、重新打开会议时，会议本身和活跃会议状态在同一个事务里更新。
+- 后台等待算作活动，等待超过 30 分钟的会话不会在两次等待之间被标为 `offline`。开着 `listen` 的会话在等待全部结束后不再一直停在 `listening`；host 重启时也会复位残留的 `listening` 会话，30 分钟无活动后和其他会话一样变为 `offline`。
+- 开始、结束、重新打开会议时，会议本身和活跃会议在同一个事务里更新。
 - 事件过滤 `action` 只匹配完整名称或完整的 `<action>.` 前缀，不再忽略大小写，也不再把 `_`、`%` 当通配符。
-- REST 路径里的百分号编码不合法或文档 id 不安全时返回 400，而不是 500。
-- daemon 在请求超时内没有应答的工具调用只让这一次失败；MCP 适配器不再因此丢掉工具列表并重连，避免客户端重试 daemon 仍在执行的调用。
-- 远程地址上没有 daemon 应答时，提示到那台机器上启动，而不是让在本机执行 `install host`。
+- host 在请求超时内没有应答的工具调用只让这一次失败；MCP 适配器不再因此丢掉工具列表并重连，避免客户端重试 host 仍在执行的调用。
 - Windows：`install <claude|codex>` 能找到 npm 安装的 `claude.cmd` / `codex.cmd`，`--wait` hook 也能叫醒这样安装的 Codex。直接用 Node 运行 npm 包装脚本背后的程序，不经过 cmd.exe，消息文本不会被当成命令执行，换行也能保留；从 npx 缓存路径安装会像其他系统一样被拒绝。
 - `create_task` 的说明不再指向不存在的工具。
 - npm 包带上 README 和指南里链接的文档（工具参考、安全、贡献指南、中文助手指南、2025-12-29 会议记录）。

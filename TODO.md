@@ -21,23 +21,21 @@
 ## Backlog
 
 ### Near-term
-- [ ] Release — bump the version and publish to npm; the Unreleased changes include a breaking one (clients no longer start a daemon), so pick the version accordingly
+- [ ] Release `host-v1.0.0` and npm `v1.0.0` (see docs/plans/go-host.md)
+- [ ] Submit the winget manifest (N2NS.n2n-nexus-host) to microsoft/winget-pkgs
 - [ ] LAN test from a second machine — discovery, firewall rules (TCP and UDP 5688) and direct messages across machines; so far everything ran on one Windows machine
-- [ ] `install host` for macOS (launchd) and Linux (systemd); Windows only today (verified 2026-10-23: deploy, restart 5 s after the daemon exits)
 - [ ] Codex messages left waiting after Codex restarts — the background wait ends with the Codex app and `codex queue` only starts a turn for a conversation loaded in the app, so messages wait until the user prompts that conversation; consider a per-machine waker that loads the conversation through the app-server
 - [ ] Hide Codex background sessions (e.g. `codex@memories`) from peers and the SessionStart introduction; they never answer
 - [ ] Readable session names (conversation title instead of `codex@n2n-bridge#3`)
-- [ ] A failed `codex queue` loses the wake: the daemon already marked the message notified; undo that when delivery fails
+- [ ] A failed `codex queue` loses the wake: the host already marked the message notified; undo that when delivery fails
 - [ ] Tell automatic turns apart from user prompts by content instead of the one-minute window (see ARCHITECTURE known limits)
 - [ ] A woken turn announces the same message again on UserPromptSubmit and can count one extra automatic turn
 - [ ] Sessions marked offline after 30 minutes without activity do not notify their notifyWhenIdle subscribers
-- [ ] Tests inherit `NEXUS_HOST` from the environment (set to `0.0.0.0` on the host machine) and then fail; clear it in the tests that start daemons
 
 ### Future
-- [ ] Split the package into host (daemon, service install) and client (MCP adapter, hooks, install) so clients do not need SQLite; consider a Go host built from the HTTP contract
 - [ ] Code signing for the Go host binaries — the first releases ship unsigned (Windows SmartScreen / Defender warnings; macOS avoided with a Homebrew formula built from source). Windows: apply for free open-source signing at SignPath.io (n2n-nexus is Apache-2.0), or buy a Certum open-source code signing certificate; macOS notarization needs the Apple Developer Program ($99/year). Signing adds one release step and changes nothing else
-- [ ] Authentication layer — API key for daemon access (production deployments)
-- [ ] Cross-machine live sync — daemon-to-daemon bridge (beyond baseline scope)
+- [ ] Authentication layer — API key for host access (production deployments)
+- [ ] Cross-machine live sync — host-to-host bridge (beyond baseline scope)
 - [ ] IDE sidebar integration — optional SSE endpoint for real-time message display
 - [ ] Streaming task progress — periodic progress notifications
 

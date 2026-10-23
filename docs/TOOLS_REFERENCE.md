@@ -1,18 +1,18 @@
 # n2n-nexus tools reference
 
-This document describes the MCP tools exposed by the n2n-nexus adapter. Tool calls are forwarded to the daemon running at `NEXUS_ENDPOINT`.
+This document describes the MCP tools exposed by the n2n-nexus adapter. Tool calls are forwarded to the host (`n2n-nexus-host`) running at `NEXUS_ENDPOINT`.
 
-Parameter tables below are derived from the zod contracts in `src/daemon/tools.ts`, which generate the JSON Schema served by `GET /api/tools` and validate every call (tool and REST) before a handler runs. Invalid arguments are rejected with a descriptive error (`Invalid arguments for <tool>: ...`); unknown top-level keys are ignored.
+Parameter tables below are derived from `contract/tools.json`, the JSON Schema the host serves through `GET /api/tools` and validates every call against before a handler runs. Invalid arguments are rejected with a descriptive error (`Invalid arguments for <tool>: ...`); keys the schema does not declare are dropped before validation.
 
 ## Conventions
 
-- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`, `peers`, `read`, `set_profile`) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are defined in `src/daemon/tool-outputs.ts`.
-- Calls are rate limited per instance (default 20 per second, burst 60). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
+- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`, `peers`, `read`, `set_profile`) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are the `outputSchema` entries in `contract/tools.json`; the host validates every result against them.
+- Calls are rate limited per instance (default 20 per second, burst 60; `rateLimit` and `rateBurst` in the host's `settings.json`). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
-- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the local daemon). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
-- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). Read cursors and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct.
+- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive; `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
+- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). Read cursors and meeting initiator permissions are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call; `read_messages` fails without one.
 - Project IDs should follow `[prefix]_[name]`, for example `web_example.com`, `api_user-auth`, or `mcp_nexus`.
-- All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `cancel_task`) track work that assistants manage themselves.
+- All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `update_task`, `cancel_task`) track work that assistants manage themselves.
 - Project tools take `projectId` explicitly.
 - `host_delete_project` is destructive and irreversible.
 
@@ -68,7 +68,7 @@ Upload a binary or text asset into a project's asset store.
 
 Behavior:
 
-- Saves to `projects/<projectId>/assets/`, replacing a file with the same name.
+- Stores the file with the project in the host database, replacing an asset with the same name. Renaming or deleting the project renames or deletes its assets too.
 - Returns `{ ok: true, projectId, fileName }` with the sanitized file name.
 
 ### `update_project`
@@ -127,7 +127,7 @@ Read one project's manifest and internal docs.
 
 Behavior:
 
-- Returns `{ manifest, internalDocs? }`. Also available as `GET /api/projects/:projectId?includeDocs=false`.
+- Returns `{ manifest, internalDocs? }`.
 - Fails if the project does not exist.
 
 ## Messaging and collaboration
@@ -159,11 +159,11 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 | Turn about to end | If anything is unread, the turn continues once with the announcement. |
 | Listening | The wait ends as soon as something new arrives, and the conversation continues with it. |
 | Idle (turn ended) | A background wait started by the Stop hook (`n2n-nexus hook <client> --wait`, up to an hour) starts a new turn with the announcement: Claude Code through an `asyncRewake` hook (exit code 2), Codex through `codex queue --thread <session id>` (`NEXUS_CODEX_COMMAND` overrides the `codex` command). Meanwhile the session shows as `listening`; any new activity in the conversation ends the wait. Codex starts the queued turn only for a conversation loaded in the running Codex app, and the wait ends when Codex quits. |
-| Automatic turn limit | Waking, a listening Stop and a Stop held open for messages each count as an automatic turn; the announcement says `Automatic turn n of N`. After `NEXUS_MAX_AUTO_TURNS` (default 8) of them since the user's last prompt, messages are still stored but no longer wake or hold the conversation; the user's next prompt announces them and starts counting again. A prompt within a minute of a wake is the woken turn starting and does not reset the count. |
+| Automatic turn limit | Waking, a listening Stop and a Stop held open for messages each count as an automatic turn; the announcement says `Automatic turn n of N`. After `maxAutoTurns` (host `settings.json`, default 8) of them since the user's last prompt, messages are still stored but no longer wake or hold the conversation; the user's next prompt announces them and starts counting again. A prompt within a minute of a wake is the woken turn starting and does not reset the count. |
 
 Unread messages expire after 24 hours; the sender then gets a notice. Notices also report `notifyWhenIdle` results.
 
-HTTP clients: hooks call `POST /api/hook` with `{ client: "claude" | "codex", input }`, where `input` holds the hook's stdin fields `hook_event_name`, `session_id`, `cwd`, `stop_hook_active`, `tool_use_id`, `tool_name`, `source` and `reason`; the response is `{ output }`, printed by the hook when not null. Tool calls name their session with `caller` beside `tool`, `args` and `instanceId` in `POST /api/tools/call`: `{ client: "claude", toolUseId }` or `{ client: "codex", sessionId }`. These identify conversations within the trusted local daemon; they are not credentials: any process of the same operating-system user can send them (see the local trust model in [SECURITY.md](../SECURITY.md)).
+HTTP clients: hooks call `POST /api/hook` with `{ client: "claude" | "codex", input }`, where `input` holds the hook's stdin fields `hook_event_name`, `session_id`, `cwd`, `stop_hook_active`, `tool_use_id`, `tool_name`, `source` and `reason`; the response is `{ output }`, printed by the hook when not null. Tool calls name their session with `caller` beside `tool`, `args` and `instanceId` in `POST /api/tools/call`: `{ client: "claude", toolUseId }` or `{ client: "codex", sessionId }`. These identify conversations within the trusted local host; they are not credentials: any process of the same operating-system user can send them (see the local trust model in [SECURITY.md](../SECURITY.md)).
 
 ### `send_message`
 
@@ -194,6 +194,7 @@ Read recent or unread messages.
 Behavior:
 
 - Both global and meeting reads are incremental per adapter instance: each call returns only messages not yet returned to that instance, oldest first, and advances the cursor.
+- Needs the calling instance: a call without `instanceId` fails with `read_messages needs an instanceId: unread cursors are kept per instance.` The MCP adapter always sends one.
 
 ### `list_events`
 
@@ -206,7 +207,7 @@ Read the structured activity log.
 
 Behavior:
 
-- Every state change made through the daemon is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
+- Every state change made through the host's tools is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
 - Each event carries `timestamp`, `actor` (instance ID), `action`, optional `target` and `detail`.
 
 ### `update_global_strategy`
@@ -219,7 +220,7 @@ Overwrite the master strategy document.
 
 Behavior:
 
-- Writes `global/blueprint.md` under the storage root. Read it back with `get_global_strategy` or `GET /api/global/strategy`.
+- Replaces the stored strategy document. Read it back with `get_global_strategy`.
 
 ### `get_global_strategy`
 
@@ -274,7 +275,7 @@ List meetings, newest first.
 Behavior:
 
 - Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, messageCount, decisionCount, summary? }] }`.
-- Read a meeting's messages with `read_messages(meetingId)`. Also available as `GET /api/meetings?status=&limit=`.
+- Read a meeting's messages with `read_messages(meetingId)`.
 
 ### `start_meeting`
 
@@ -345,6 +346,25 @@ List tasks, optionally filtered by status.
 | --- | --- | --- | --- | --- |
 | `status` | string | no |  | One of `pending`, `running`, `completed`, `failed`, or `cancelled`. |
 | `limit` | integer | no | `50` | Maximum number of tasks returned (1–500). |
+
+### `update_task`
+
+Update a task you created.
+
+| Parameter | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `taskId` | string | yes | Task to update. |
+| `status` | string | no | One of `pending`, `running`, `completed`, `failed`, or `cancelled`. |
+| `progress` | number | no | Progress from `0` to `1`. |
+| `result_uri` | string | no | Where the result is. |
+| `error_message` | string | no | Why the task failed. |
+| `metadata` | object | no | Replaces the task's metadata. |
+
+Behavior:
+
+- Changes only the fields given and the task's update time.
+- Returns the task: `{ id, status, progress, source_meeting_id, metadata, result_uri, error_message, created_at, updated_at, ttl }`.
+- Fails if the task does not exist.
 
 ### `cancel_task`
 

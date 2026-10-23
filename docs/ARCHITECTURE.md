@@ -4,33 +4,40 @@
 
 ```
 ┌──────────────────────────────────────────────────┐
-│              n2n-nexus daemon                    │
-│  Standalone HTTP server · started by the user,   │
-│  or at boot by `n2n-nexus install host`          │
+│              n2n-nexus-host (Go)                 │
+│  Tray app, or a boot service (`service install`) │
 │                                                  │
-│  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │  REST API    │  │  Storage Layer           │  │
-│  │  /api/tools  │  │  SQLite (WAL) + JSON FS  │  │
-│  │  /api/tools  │  │                          │  │
-│  │    /call     │  │  Single writer — no lock │  │
-│  └──────┬───────┘  └──────────────────────────┘  │
-│  All business logic, tool definitions, data I/O  │
+│  ┌──────────────────┐  ┌──────────────────────┐  │
+│  │  HTTP API        │  │  Storage             │  │
+│  │  GET  /health    │  │  one SQLite file     │  │
+│  │  GET  /api/tools │  │  (nexus.db, WAL),    │  │
+│  │  POST /api/tools │  │  numbered migrations,│  │
+│  │       /call      │  │  one transaction     │  │
+│  │  POST /api/hook  │  │  per write           │  │
+│  └──────┬───────────┘  └──────────────────────┘  │
+│  Tools, conversations, LAN discovery, cleanup    │
 └─────────┼────────────────────────────────────────┘
           │ HTTP  (NEXUS_ENDPOINT — cross-env capable)
    ┌──────┼──────┐
    ▼      ▼      ▼
 MCP-A  MCP-B  MCP-C      hooks (Claude Code / Codex)
 (Win)  (WSL)  (VM)       POST /api/hook per client event
-Lightweight protocol adapter, one per MCP connection
+n2n-nexus (npm): stateless adapter, one per MCP connection
 ```
+
+Two programs share one protocol:
+
+- **`n2n-nexus-host`** (Go, `host/`): owns all data, tool definitions and business logic. Installed from GitHub Releases, Homebrew or Scoop.
+- **`n2n-nexus`** (TypeScript, npm, `src/`): the client only — the MCP adapter (`mcp`), the hook command (`hook`), `install` / `uninstall` for Claude Code and Codex, and `doctor`. It contains no storage and no server.
+- **`contract/`** is the single source of the protocol between them: `tools.json` (every tool's name, title, description, annotations, input and output JSON Schema), `hook.json` (hook fields, `_meta` keys, timings, limits, notification texts) and `errors.json` (endpoints, error body, status codes). The host embeds these files, the client reads `hook.json` at run time, and the conformance tests in `tests/conformance/` check a host against them. `GET /health` reports the host's `contractVersion`; `n2n-nexus doctor` compares it with the client's.
 
 ### Core Principles
 
-1. **Daemon is the single source of truth** — all reads/writes, business logic, and tool definitions live in the daemon.
-2. **MCP is stateless** — no hardcoded tool names, no local persistent data and no session of its own; conversations and direct messages live in the daemon.
-3. **Daemon decides tool capability** — MCP fetches `GET /api/tools` at startup and reconnect.
-4. **No local fallback** — if the daemon is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation. A tool call the daemon rejects (validation, not found, permission) is returned to the IDE as an error result (`isError: true`) and does not affect the connection; an unknown tool name is a JSON-RPC `-32602` error.
-5. **Plain HTTP between MCP, hooks and daemon** — the client's hooks report conversation events and carry new-message notifications back to the model; the model reads the text with a tool.
+1. **The host is the single source of truth** — all reads/writes, business logic, and tool definitions live in the host.
+2. **MCP is stateless** — no hardcoded tool names, no local persistent data and no session of its own; conversations and direct messages live in the host.
+3. **The host decides tool capability** — the adapter fetches `GET /api/tools` at startup and reconnect.
+4. **No local fallback** — if the host is unreachable, the MCP reports an error and retries every 3 s. No split-brain degradation. A tool call the host rejects (validation, not found, permission) is returned to the IDE as an error result (`isError: true`) and does not affect the connection; an unknown tool name is a JSON-RPC `-32602` error.
+5. **Plain HTTP between MCP, hooks and host** — the client's hooks report conversation events and carry new-message notifications back to the model; the model reads the text with a tool.
 
 ### MCP Startup Flow
 
@@ -43,22 +50,22 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │     │  list_changed delivered on subscriptions/listen
   │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
   │
-  ├─ Nothing answers: say how to start the daemon (install host / daemon on this machine,
-  │  or on the remote machine for a remote endpoint); never start one
+  ├─ Nothing answers: say how to start n2n-nexus-host on this machine,
+  │  or on the remote machine for a remote endpoint; never start one
   ├─ A call not answered in time fails alone: tool list kept, no reconnect
   │
-  ├─ If the daemon was down: retry loop (every 3 s)
+  ├─ If the host was down: retry loop (every 3 s)
   │     └─ GET /api/tools succeeds → cache tool list
   │           → notifications/tools/list_changed → IDE re-fetches
   │
   └─ stdin closes → stop retrying, close, exit
 ```
 
-The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it.
+The adapter's instance ID (read cursors, meeting permissions) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it. Every tool call carries it as `instanceId`; `read_messages` refuses a call without one, since unread cursors are kept per instance.
 
 ### Conversations and hooks
 
-Each Claude Code or Codex conversation is one session, `claude:<session id>` or `codex:<session id>`, using the ID the client itself assigns. `n2n-nexus install <claude|codex>` writes hooks that run `n2n-nexus hook <client>` on SessionStart, UserPromptSubmit, PostToolUse, Stop and SessionEnd (and, for Claude Code, PreToolUse on the n2n-nexus tools). The hook command forwards the event's identifying fields to `POST /api/hook` and prints the daemon's answer; on any error it exits 0 without output, so a missing daemon never blocks the client.
+Each Claude Code or Codex conversation is one session, `claude:<session id>` or `codex:<session id>`, using the ID the client itself assigns. `n2n-nexus install <claude|codex>` writes hooks that run `n2n-nexus hook <client>` on SessionStart, UserPromptSubmit, PostToolUse, Stop and SessionEnd (and, for Claude Code, PreToolUse on the n2n-nexus tools). The hook command forwards the event's identifying fields to `POST /api/hook` and prints the host's answer; on any error it exits 0 without output, so a missing host never blocks the client.
 
 ```
 Client event ──▶ n2n-nexus hook ──▶ POST /api/hook ──▶ session status, notifications
@@ -69,7 +76,7 @@ Stop                           ◀── decision: block   ◀──┘  once pe
 
 Tool calls name their conversation outside the model's arguments. The adapter reads it from the request's `_meta`: Claude Code sends `claudecode/toolUseId`, which the PreToolUse hook bound to the conversation just before the call (verified: the call waits for the hook); Codex sends `sessionId`. The adapter forwards it as `caller` in `POST /api/tools/call`. Because the identity is the conversation, not the adapter process, an adapter restart, a resumed conversation and a sub-agent all keep it, and one adapter can serve several Codex conversations.
 
-Notifications carry the sender and the first line only; the text reaches the model through `read`, as tool output rather than injected context. A listening Stop hook is held open for up to 590 s and answered as soon as a message arrives; the client killing the hook (the user pressing Esc) or the daemon shutting down ends the wait. This remains a trusted local daemon, not an authentication boundary: every process of the same operating-system user is trusted and could act as any conversation, and agents that must be isolated run as different users with their own daemons (see the local trust model in [SECURITY.md](../SECURITY.md)). See [tool reference](TOOLS_REFERENCE.md#direct-messages-between-conversations).
+Notifications carry the sender and the first line only; the text reaches the model through `read`, as tool output rather than injected context. A listening Stop hook is held open for up to 590 s and answered as soon as a message arrives; the client killing the hook (the user pressing Esc) or the host shutting down ends the wait. This remains a trusted local host, not an authentication boundary: every process of the same operating-system user is trusted and could act as any conversation, and agents that must be isolated run as different users with their own hosts (see the local trust model in [SECURITY.md](../SECURITY.md)). See [tool reference](TOOLS_REFERENCE.md#direct-messages-between-conversations).
 
 ### Sessions, presence and waking idle conversations
 
@@ -91,39 +98,34 @@ turn ends ──▶ Stop hook (announces unread, or listens)
 The wait never delivers while the session is `working` or while a listening Stop hook is waiting, so a message is announced once. Verified on Windows with the Claude desktop app and the Codex desktop app (2026-10-23): both directions wake an idle conversation within seconds. Known limits:
 
 - Codex starts a queued turn only for a conversation loaded in the running Codex app. After Codex restarts, a conversation is loaded once the user opens it.
-- The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the daemon (not in Codex's own queue) until the user next prompts that conversation.
+- The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the host (not in Codex's own queue) until the user next prompts that conversation.
 - A Claude Code conversation is reachable for an hour after its last turn (the hook timeout).
-- Every AI reply wakes the recipient again. To stop two sessions waking each other forever, the daemon counts automatic turns (wakes, listening Stops, Stops held open for messages) since the user's last prompt and stops after `NEXUS_MAX_AUTO_TURNS` (default 8); a prompt within a minute of a wake is the woken turn starting and keeps the count. Messages past the limit wait until the user prompts.
+- Every AI reply wakes the recipient again. To stop two sessions waking each other forever, the host counts automatic turns (wakes, listening Stops, Stops held open for messages) since the user's last prompt and stops after `maxAutoTurns` in `settings.json` (default 8); a prompt within a minute of a wake is the woken turn starting and keeps the count. Messages past the limit wait until the user prompts.
 - The automatic turn count tells the woken turn from the user by time alone. If a wake does not start a turn (a Codex conversation not loaded) and the user prompts within that minute, that prompt keeps the count; the user's next prompt resets it. If a woken turn starts more than a minute late (a Codex conversation the user opens later), its prompt resets the count. Neither loses a message or lets sessions loop without a user.
 
 ---
 
 ## 💾 Data Persistence
 
-All data lives under the daemon's storage root (default `~/.n2n-nexus`):
+All data lives in one SQLite file, `nexus.db`, in the host's data directory: `%LOCALAPPDATA%\n2n-nexus` on Windows, `~/Library/Application Support/n2n-nexus` on macOS, `$XDG_DATA_HOME/n2n-nexus` (default `~/.local/share/n2n-nexus`) on Linux; `--root` or `NEXUS_ROOT` overrides it. The same directory holds `settings.json` and `host.lock`.
 
-```
-~/.n2n-nexus/
-├── global/
-│   ├── blueprint.md        # Master strategy document
-│   ├── docs_index.json     # Global docs index
-│   └── docs/               # Shared markdown documents
-├── projects/
-│   └── {project-id}/
-│       ├── manifest.json          # Project metadata
-│       ├── internal_blueprint.md  # Internal technical docs
-│       └── assets/                # Binary assets (images, PDFs)
-├── registry.json           # Global project index
-└── nexus.db                # SQLite database (meetings, global chat, events, tasks, cursors, conversations, direct messages)
-```
+- **Schema**: numbered migrations embedded in the host (`host/internal/store/migrations/0001_core.sql`, `0002_agents.sql`) run in order at startup, each in one transaction; the version is `PRAGMA user_version`. A database newer than the host is refused ("upgrade n2n-nexus-host").
+- **Tables**: `projects` (scalar manifest fields as columns, structured fields as JSON, internal docs as text), `project_relations` and `project_assets` (asset bytes as BLOBs; both cascade on project rename and delete), `global_strategy`, `global_docs`, `meetings` (with `status` and `is_default`), `meeting_messages`, `decisions`, `global_messages`, `events`, `tasks`, `read_cursors`, and for conversations `agent_sessions`, `agent_messages`, `agent_notices`, `agent_idle_subscriptions`, `tool_use_bindings`.
+- **Transactions**: every write is one transaction, so a multi-row change (a meeting message, starting / ending / reopening a meeting, renaming a project) is applied completely or not at all. The database runs in WAL mode with `foreign_keys` on and a 5 s busy timeout, through a single connection.
+- **Only the host opens the database**. MCP adapters and hooks go through HTTP.
+- **Activity log**: state changes made through tools (project sync/update/rename/delete/asset, doc sync, strategy update, meeting start/end/archive/reopen, maintenance) are recorded as structured events and read with `list_events`; they are not mixed into chat streams.
+- **Old data**: the file-based storage of n2n-nexus 0.x (`~/.n2n-nexus`) is not imported or read, and is left untouched.
 
-**SQLite WAL mode**: Only the daemon process opens the database. MCP adapters never touch it — they go through HTTP.
+### Maintenance and retention
 
-**File-store access**: HTTP requests are handled concurrently, so every mutation of `registry.json`, manifests and the docs index holds one daemon-wide read-write lock alone and is written atomically (temp file + rename); reads share the lock, so a rename or update is never observed half-done. A write orders its files so that `registry.json` goes last and restores what it had already written when a later step fails.
+At startup and then every hour the host:
 
-**Activity log**: state changes made through the daemon (project sync/rename/delete, meeting start/end, doc sync, ...) are recorded as structured events in SQLite and read with `list_events` / `GET /api/events`; they are not mixed into chat streams.
+- marks pending or running tasks past their TTL as `failed` and deletes tasks 7 days after they finished (`completed`, `failed`, `cancelled`);
+- deletes events older than 30 days;
+- expires unread direct messages past their 24-hour lifetime (telling the senders), and deletes read or expired direct messages and delivered notices after 30 days;
+- deletes tool-use bindings once they have expired (5 minutes).
 
-**Self-healing**: `registry.json` is auto-repaired if corrupted or missing.
+Logs: the tray and the service write `host.log` in the log directory (`%LOCALAPPDATA%\n2n-nexus\logs`, `~/Library/Logs/n2n-nexus`, `$XDG_STATE_HOME/n2n-nexus` with default `~/.local/state/n2n-nexus`), rotated at 10 MB with 3 old files kept. `serve` writes to standard error.
 
 ---
 
@@ -151,25 +153,26 @@ All project IDs must follow the `[prefix]_[name]` format:
 
 ## 🌐 Deployment Model
 
-One npm package, two commands:
+Two programs:
 
 ```
-n2n-nexus
-  │
-  ├─ n2n-nexus daemon    Start once, keep running. Owns all data.
-  ├─ n2n-nexus install host   Run the daemon as a service that starts at boot (Windows).
-  ├─ n2n-nexus mcp       IDE starts automatically via npx. Stateless proxy.
-  ├─ n2n-nexus hook      Run by Claude Code / Codex on each hook event.
-  ├─ n2n-nexus install   Write the hooks and MCP server into a client's user configuration.
-  └─ n2n-nexus doctor    Check that the installed hook and MCP commands still run.
+n2n-nexus-host                 Install once per host machine. Owns all data.
+  ├─ (no arguments)            Tray app; runs the host in-process, or only controls
+  │                            a host already answering on the configured port
+  ├─ serve                     Foreground, no tray (debugging; what the service runs)
+  ├─ service install|uninstall|status
+  │                            Boot service running as the installing user
+  ├─ autostart on|off          Start the tray at login
+  └─ version
+
+n2n-nexus (npm)                Install on every machine with an IDE.
+  ├─ n2n-nexus mcp             IDE starts automatically. Stateless proxy.
+  ├─ n2n-nexus hook            Run by Claude Code / Codex on each hook event.
+  ├─ n2n-nexus install         Write the hooks and MCP server into a client's user configuration.
+  └─ n2n-nexus doctor          Check the installed commands and the host's contract version.
 ```
 
-**Daemon** (run as a boot service with `n2n-nexus install host`, or started by the user; the adapter and the hooks never start one, they report that none answers):
-```bash
-npx n2n-nexus daemon --port 5688
-# or with explicit root
-npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
-```
+**Host**: started as a tray app or a boot service; the adapter and the hooks never start one, they report that none answers. Configuration comes only from `<data dir>/settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`), overridden by command-line flags; the only environment variable the host reads is `NEXUS_ROOT`. A service does not get the environment of the terminal that installed it, so the file is the one source the tray, the service and the command line share.
 
 **MCP** (IDE configuration):
 ```json
@@ -184,82 +187,83 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 }
 ```
 
-**Standalone host on a LAN**: run one daemon with `--host 0.0.0.0` as a service (`n2n-nexus install host --host 0.0.0.0` on Windows, a systemd unit or a launchd agent elsewhere), independent of any IDE, and allow TCP and UDP 5688 from the local subnet. Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
+**Standalone host on a LAN**: run one host with LAN access on (tray **Allow LAN access**, or `n2n-nexus-host service install --host 0.0.0.0`), independent of any IDE, and allow TCP and UDP 5688 from the local subnet (on Windows the tray adds both firewall rules). Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
 
-**No required startup order**: start the IDE before the daemon — tools appear automatically once the daemon comes up. Daemon restarts are transparent; MCP reconnects and notifies the IDE.
+**No required startup order**: start the IDE before the host — tools appear automatically once the host comes up. Host restarts are transparent; MCP reconnects and notifies the IDE.
+
+### Tray and service per OS
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| Boot service (`service install`, administrator / root) | Scheduled task `n2n-nexus-host`: at startup, S4U logon of the installing user (no password stored), no time limit | `/Library/LaunchDaemons/io.n2ns.n2n-nexus-host.plist` with `UserName`, `RunAtLoad`, `KeepAlive` | `/etc/systemd/system/n2n-nexus-host.service` with `User=`, `Restart=always`, `RestartSec=5` |
+| Tray at login (`autostart`, tray menu) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `n2n-nexus-host` | `~/Library/LaunchAgents/io.n2ns.n2n-nexus-host.tray.plist` | `~/.config/autostart/n2n-nexus-host.desktop` |
+| LAN access from the tray | Adds inbound TCP / UDP firewall rules through a UAC prompt (`netsh advfirewall`) | Tells the user which ports to allow | Tells the user which ports to allow |
+
+Every service runs `n2n-nexus-host serve --supervise --root <data dir>`: the supervisor runs `serve` as a child process and starts it again 5 s after it exits, and logs to `host.log`. `service install` stops the host running for the data directory (found through the PIDs recorded in `host.lock`, never by matching command lines), writes `--host` / `--port` to `settings.json`, registers and starts the service and reports what answers on the port; under `sudo` it uses the invoking user's default directories. The tray first probes `GET /health` on the configured port: when a host answers (for example the service), it only controls that host — **Restart** stops the service's `serve` so its supervisor starts it with the new settings — and otherwise it runs the host in-process. Changing a setting from the tray writes `settings.json` and restarts the host. The tray's texts are Chinese on a Chinese system and English otherwise. The macOS tray needs cgo (Cocoa), so macOS release builds are built on macOS with `CGO_ENABLED=1`; Windows and Linux are cross-compiled with `CGO_ENABLED=0`, and the Windows build is a GUI executable that attaches to the parent console for command output.
+
+### Single instance
+
+A host takes an exclusive lock on `<data dir>/host.lock` before it opens the database and records its PID (and its supervisor's) there. A second host for the same data directory exits with "another n2n-nexus-host is running for <dir> (PID n)".
 
 ---
 
-## 📡 REST API
+## 🧩 Host internals
 
-### Tool capability (MCP-facing)
 ```
-GET  /api/tools              Return full tool definition list (JSON Schema)
-POST /api/tools/call         Execute tool call { tool, args, instanceId, caller? }
+host/
+├── cmd/n2n-nexus-host/   command line: tray (default), serve, service, autostart, version
+└── internal/
+    ├── config/           data and log directories, settings.json
+    ├── protocol/         loads the embedded contract (contract/contract.go), compiles the JSON Schemas,
+    │                     strips undeclared argument keys, validates arguments and results
+    ├── store/            opens nexus.db, runs the migrations, transactions
+    ├── core/             project, doc, meeting, chat, event and task tools and their tables
+    ├── agents/           conversations: hooks, direct-message tools, waits, their tables
+    ├── api/              HTTP server: the 4 endpoints, Host / Origin guard, body limit, rate limits
+    ├── discovery/        UDP LAN discovery responder
+    ├── host/             assembles one host: lock, database, tools, server, discovery, hourly maintenance, logs
+    ├── tray/             tray menu and its English / Chinese texts
+    ├── service/          boot service, tray autostart, the `serve --supervise` supervisor, firewall script
+    ├── clock/            system clock and the settable test clock
+    └── testhooks/        test-build only (`-tags testclock`): POST /test/clock, --test-listen-wait-ms
+```
+
+The Go module is `github.com/n2ns/n2n-nexus` at the repository root, so the host embeds `contract/` directly. A tool exists only if it is in `contract/tools.json`; the host registers one handler per tool and logs any tool without a handler at startup.
+
+**Conversation state machine**: `agents.Agents` is the in-process coordinator of one host. It holds all in-memory conversation state — held listening Stops, background waits, automatic-turn counts, wake times — behind one mutex; every hook and direct-message tool call runs under it, and whoever stores a message or notice delivers it to a waiting hook before releasing the lock. At startup it resets sessions a previous host left `listening` to `idle`. Shutting down answers every held hook (`{ "output": null }`) before the server closes. Time comes from a `Clock`: the system clock in release builds, a clock the conformance tests set through `POST /test/clock` in the `testclock` build.
+
+**Discovery**: a host whose `host` is not a loopback address answers `n2n-nexus/discover` datagrams on UDP `discoveryPort` with `{"service":"n2n-nexus","version","host","port"}`. Clients with `NEXUS_ENDPOINT=discover` broadcast the query on `NEXUS_DISCOVERY_PORT`, use the first answer and cache it in `~/.n2n-nexus/discovered-endpoint`.
+
+---
+
+## 📡 HTTP API
+
+The host has four endpoints (see `contract/errors.json`):
+
+```
+GET  /health                 { ok, service: "n2n-nexus", version, contractVersion }
+GET  /api/tools              Tool definitions from contract/tools.json (JSON Schema)
+POST /api/tools/call         { tool, args, instanceId, caller? } → { ok: true, result }
 POST /api/hook               Client hook event { client, input } → { output }; the BackgroundWait event is the background wait
 ```
 
-### System
-```
-GET  /health                 Health status + version
-```
-
-### Projects
-```
-POST /api/projects/sync
-POST /api/projects/update
-POST /api/projects/rename
-POST /api/projects/delete
-GET  /api/projects/search
-GET  /api/projects/topology
-GET  /api/projects/:projectId
-```
-
-### Messages & Global
-```
-POST /api/messages/send
-GET  /api/messages/unread
-GET  /api/events
-GET  /api/global/docs
-GET  /api/global/docs/:docId
-POST /api/global/docs/:docId
-GET  /api/global/strategy
-POST /api/global/strategy
-```
-
-### Meetings
-```
-GET  /api/meetings
-POST /api/meetings/start
-POST /api/meetings/end
-POST /api/meetings/archive
-POST /api/meetings/reopen
-GET  /api/meetings/:meetingId
-```
-
-### Tasks
-```
-POST /api/tasks
-GET  /api/tasks
-GET  /api/tasks/:taskId
-POST /api/tasks/:taskId/update
-POST /api/tasks/:taskId/cancel
-```
-
-### Maintenance
-```
-POST /api/maintenance/logs
-```
-
----
+Every capability is a tool; there are no other REST routes (an unknown route is 404). A tool call validates `args` against the tool's input schema after dropping keys the schema does not declare (400 `Invalid arguments for <tool>: ...`), and the result against its output schema. A failure the caller caused, including "not found", is 400 with the error text; an unknown tool is 404. Errors have the body `{ ok: false, error }`.
 
 ### Request guards
 
-The daemon rejects browser-originated requests (`Origin` header or cross-site `Sec-Fetch-Site`: 403), `Host` names that are neither IP literals nor local/allow-listed names (403, prevents DNS rebinding), non-JSON POST bodies (415) and bodies above 16 MB (413). Tool calls are rate limited per instance and per client address (429 with `Retry-After`). See `SECURITY.md`.
+The host has no authentication, so it keeps web pages out: it rejects browser-originated requests (`Origin` header or cross-site `Sec-Fetch-Site`: 403), `Host` names that are neither IP literals nor `localhost`, `host.docker.internal` or a name in `allowedHosts` (403, prevents DNS rebinding), POST bodies that are not `application/json` (415) and bodies above 16 MB (413).
+
+Rate limits are token buckets (`rateLimit` per second, `rateBurst` at once; `rateLimit: 0` disables them), answered with 429 and `Retry-After`:
+
+- tool calls per `instanceId`, and, because instance IDs are self-declared, per client address at 5x;
+- hooks per conversation (`<client>:<session_id>`) and per client address at 5x, in buckets of their own, so a busy conversation's hooks do not use up the tool-call budget of its address;
+- `GET /health` and `GET /api/tools` are not limited.
+
+The trust model is unchanged: every process of the same operating-system user is trusted. See `SECURITY.md`.
 
 ## Scope Boundaries
 
 - No cloud bridge by default.
-- No cross-machine live sync by default — point `NEXUS_ENDPOINT` at a reachable host for that, or set it to `discover` to find a daemon bound to `0.0.0.0` on the LAN through a UDP broadcast.
-- Single daemon node; no built-in clustering.
+- No cross-machine live sync by default — point `NEXUS_ENDPOINT` at a reachable host for that, or set it to `discover` to find a host with LAN access on through a UDP broadcast.
+- Single host node; no built-in clustering.
 - No authentication layer in the open-source baseline.

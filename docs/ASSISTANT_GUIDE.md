@@ -1,8 +1,8 @@
 # Nexus Assistant Guide
 
-You are now part of the **n2ns Nexus** coordination network. All capabilities are provided by a standalone **daemon** — every tool you use is defined and executed by the daemon. The MCP adapter is a transparent forwarding layer only.
+You are now part of the **n2ns Nexus** coordination network. All capabilities are provided by a standalone **host** (`n2n-nexus-host`) — every tool you use is defined and executed by the host. The MCP adapter is a transparent forwarding layer only.
 
-> **Prerequisite**: Before calling any tool, confirm that the daemon is running (`n2n-nexus daemon --port 5688`) and that your MCP is connected (a non-empty tool list means you are connected).
+> **Prerequisite**: Before calling any tool, confirm that the host is running (the `n2n-nexus-host` tray app or background service, or `n2n-nexus-host serve`) and that your MCP is connected (a non-empty tool list means you are connected).
 
 ---
 
@@ -85,6 +85,7 @@ reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 
 ```
 create_task(source_meeting_id?, metadata?)  → create a task you manage yourself, returns taskId
+update_task(taskId, status?, progress?, result_uri?, error_message?, metadata?) → update a task, returns it
 get_task(taskId)                            → query status and progress
 list_tasks(status?)                         → list all tasks
 cancel_task(taskId)                         → cancel a pending or running task
@@ -129,7 +130,7 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 
 ## Notes
 
-- `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is managed automatically by the daemon — do not pass `afterId`.
+- `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is kept per adapter instance by the host — do not pass `afterId`.
 - Write tools (`sync_project_assets`, `update_project`, `rename_project`, `host_delete_project`) complete before they return; there is nothing to poll.
 - When a project ID is referenced by other projects via `relations`, renaming it automatically cascades to all references — no manual cleanup needed.
-- After a daemon restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.
+- After a host restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.

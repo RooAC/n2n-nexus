@@ -4,34 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Version 1.0.0 of both programs: the host is now `n2n-nexus-host`, a separate Go program, and the npm package `n2n-nexus` is the client only.
+
 ### Added
 
-- LAN discovery: `NEXUS_ENDPOINT=discover` (or `--endpoint discover`) makes the MCP adapter and the hooks find a daemon by UDP broadcast on `NEXUS_DISCOVERY_PORT` (default 5688), cache it in `~/.n2n-nexus/discovered-endpoint` and look again when it cannot be reached. A daemon bound to a non-loopback address answers these queries. When none answers, clients use the local endpoint `http://127.0.0.1:5688`.
+- `n2n-nexus-host`, the host rewritten in Go as one executable for Windows, macOS and Linux (amd64 and arm64). Without arguments it runs as a tray app: status and address, open the log and data folders, LAN access on / off (on Windows it adds the TCP and UDP firewall rules after a UAC prompt; elsewhere it names the ports to allow), start at login, restart, quit; Chinese texts on a Chinese system, English otherwise. `serve` runs it in the foreground; `service install|uninstall|status` registers a boot service that runs as the installing user and restarts the host 5 s after it exits (Windows scheduled task, macOS LaunchDaemon, Linux systemd unit); `autostart on|off` starts the tray at login. When a host already answers on the port (the service), the tray only controls it. One host runs per data directory.
+- Installation through Homebrew (`brew install n2ns/tap/n2n-nexus-host`, built from source), Scoop (`scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`, `scoop install n2ns/n2n-nexus-host`) and archives on GitHub Releases (tags `host-v*`) with `SHA256SUMS` and build provenance (`gh attestation verify`). The binaries are not code-signed yet.
+- `update_task`: update a task's `status`, `progress` (0–1), `result_uri`, `error_message` or `metadata`; returns the task.
+- `contract/`: the protocol between host and client in JSON (`tools.json`, `hook.json`, `errors.json`), shipped in the npm package. `GET /health` reports the host's `contractVersion`, and `n2n-nexus doctor` checks that the host answers with the client's.
+- LAN discovery: `NEXUS_ENDPOINT=discover` (or `--endpoint discover`) makes the MCP adapter and the hooks find a host by UDP broadcast on `NEXUS_DISCOVERY_PORT` (default 5688), cache it in `~/.n2n-nexus/discovered-endpoint` and look again when it cannot be reached. A host listening on a non-loopback address answers on its `discoveryPort`. When none answers, clients use the local endpoint `http://127.0.0.1:5688`.
 - The SessionStart hook tells a new conversation its own session name and ID and which other sessions are not offline, so it can message them without being asked to look first.
 - The MCP adapter sends server instructions describing how to find and message other AI sessions.
-
 - Idle conversations are woken: `install` adds a second Stop hook (`n2n-nexus hook <client> --wait`) that waits up to an hour after a turn for new messages or notices and then starts a turn with them, through an `asyncRewake` hook in Claude Code and `codex queue` in Codex (`NEXUS_CODEX_COMMAND` overrides the command). The session shows as `listening` meanwhile; any new activity ends the wait. Run `n2n-nexus install <client>` again to add the hook.
-
-- Automatic turn limit: wakes, listening Stops and Stops held open for messages count as automatic turns, and after `NEXUS_MAX_AUTO_TURNS` (default 8; `0` = no limit) since the user's last prompt, messages are stored but no longer wake or hold the conversation, so two AI sessions cannot keep waking each other. The announcement says `Automatic turn n of N`; the prompt that starts a woken turn does not reset the count.
-
-- `n2n-nexus install host [--host] [--port] [--root] [--node]` runs the daemon as a service that starts at boot, independent of any IDE (Windows scheduled task, from an elevated terminal); `n2n-nexus uninstall host` removes it and stops its daemon. Installing stops a daemon already started from this package (also through npm's shims) and waits for a running task instance to end before starting the new one; it notes which `NEXUS_*` variables of the installing shell the service daemon does not get.
+- Automatic turn limit: wakes, listening Stops and Stops held open for messages count as automatic turns, and after `maxAutoTurns` (host `settings.json`, default 8; `0` = no limit) since the user's last prompt, messages are stored but no longer wake or hold the conversation, so two AI sessions cannot keep waking each other. The announcement says `Automatic turn n of N`; the prompt that starts a woken turn does not reset the count.
 
 ### Changed
 
-- The MCP adapter and the hooks no longer start a daemon when none answers at a local endpoint. A daemon they started could take the port while the service daemon restarted, and run old code after an upgrade. Tool calls now fail with a message saying how to start the daemon; the hooks skip silently. Start it with `n2n-nexus install host` or `n2n-nexus daemon`.
+- **Breaking:** the npm package `n2n-nexus` is the client only (MCP adapter, `hook`, `install` / `uninstall`, `doctor`); `n2n-nexus daemon` is removed and the package no longer depends on `better-sqlite3`. Run the host with `n2n-nexus-host`.
+- **Breaking:** storage is a new SQLite database, `nexus.db` in the host's data directory (`%LOCALAPPDATA%\n2n-nexus`, `~/Library/Application Support/n2n-nexus`, `$XDG_DATA_HOME/n2n-nexus` with default `~/.local/share/n2n-nexus`; `--root` or `NEXUS_ROOT` overrides it). Projects, assets and global docs are tables in it instead of files, every write is one transaction, and the schema is managed by numbered migrations. The data of earlier versions in `~/.n2n-nexus` is not imported and is left untouched.
+- **Breaking:** the host has only four endpoints: `GET /health`, `GET /api/tools`, `POST /api/tools/call` and `POST /api/hook`. The project, message, global, meeting, task, event and maintenance REST endpoints are removed; every one of them has a tool of the same purpose.
+- **Breaking:** `read_messages` needs an `instanceId` (the MCP adapter always sends one); calls without one no longer share an `unknown` read cursor.
+- **Breaking:** host settings live in `settings.json` in the data directory (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`), overridden by command-line flags; the host reads no environment variable except `NEXUS_ROOT`. `NEXUS_HOST`, `NEXUS_DAEMON_PORT`, `NEXUS_ALLOWED_HOSTS`, `NEXUS_RATE_LIMIT`, `NEXUS_RATE_BURST` and `NEXUS_MAX_AUTO_TURNS` are gone; `NEXUS_DISCOVERY_PORT` remains for clients using `discover`.
+- Hooks are rate limited per conversation and per client address, in buckets separate from tool calls.
+- The host keeps data for a bounded time: events, read or expired direct messages and delivered notices for 30 days, finished tasks for 7 days; `host.log` rotates at 10 MB with 3 old files kept.
+- The MCP adapter and the hooks never start a host. When none answers at a local endpoint, tool calls fail with a message saying to install and start `n2n-nexus-host`; at a remote endpoint, that it must be started on that machine. The hooks skip silently.
 - `peers` lists only the sessions that are not offline; `includeOffline: true` adds the offline ones active in the last 24 hours, as before.
 - An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.
 
 ### Fixed
 
-- A background wait counts as activity, so a session waiting longer than 30 minutes is not marked `offline` between two waits. A session with `listen` on no longer stays `listening` after its waits have ended, and a daemon restart resets sessions left `listening`, so they go `offline` after 30 minutes without activity like any other session.
-- An unreadable `registry.json` or global docs index (permission denied, file locked) no longer counts as empty: the write fails instead of overwriting the index and dropping the other projects or docs. A missing or corrupt file still heals itself.
-- Deleting a project removes its registry entry before its directory, so a failed write cannot leave the registry listing a project whose files are gone.
-- Starting, ending and reopening a meeting each update the meeting and the active-meeting state in one transaction.
+- A background wait counts as activity, so a session waiting longer than 30 minutes is not marked `offline` between two waits. A session with `listen` on no longer stays `listening` after its waits have ended, and a host restart resets sessions left `listening`, so they go `offline` after 30 minutes without activity like any other session.
+- Starting, ending and reopening a meeting each update the meeting and the active meeting in one transaction.
 - The event filter `action` matches the exact name or the exact `<action>.` prefix; it no longer ignores case or treats `_` and `%` as wildcards.
-- Malformed percent-encoding or an unsafe document id in a REST path returns 400 instead of 500.
-- A tool call the daemon does not answer within the request timeout fails on its own; the MCP adapter no longer drops the tool list and reconnects, which led clients to retry calls the daemon was still completing.
-- When no daemon answers at a remote endpoint, the message says to start it on that machine instead of suggesting `install host` here.
+- A tool call the host does not answer within the request timeout fails on its own; the MCP adapter no longer drops the tool list and reconnects, which led clients to retry calls the host was still completing.
 - Windows: `install <claude|codex>` finds `claude.cmd` / `codex.cmd` installed by npm, and the `--wait` hook wakes Codex installed that way. The script behind npm's shim runs with Node directly, never through cmd.exe, so a message text cannot run commands and keeps its line breaks; installing from an npx cache path is refused as on other systems.
 - The `create_task` description no longer points to a tool that does not exist.
 - The npm package includes the documents its README and guides link to (tools reference, security, contributing, Chinese assistant guide, 2025-12-29 meeting notes).

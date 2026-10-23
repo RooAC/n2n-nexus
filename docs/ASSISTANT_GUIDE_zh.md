@@ -2,9 +2,9 @@
 
 [English version](./ASSISTANT_GUIDE.md)
 
-你现在是 **n2ns Nexus** 协作网络的一员。Nexus 由一个独立运行的 **daemon** 提供所有能力——你所使用的工具均由 daemon 定义和执行，MCP 只是透明的转发层。
+你现在是 **n2ns Nexus** 协作网络的一员。Nexus 由一个独立运行的 **host**（`n2n-nexus-host`）提供所有能力——你所使用的工具均由 host 定义和执行，MCP 只是透明的转发层。
 
-> **前提**：在使用任何工具之前，确认 daemon 已启动（`n2n-nexus daemon --port 5688`），你的 MCP 已连接（工具列表非空即为已连接）。
+> **前提**：在使用任何工具之前，确认 host 已启动（`n2n-nexus-host` 托盘程序或后台服务，或 `n2n-nexus-host serve`），你的 MCP 已连接（工具列表非空即为已连接）。
 
 ---
 
@@ -86,6 +86,7 @@ reopen_meeting(meetingId)         → 重新开启
 
 ```
 create_task(source_meeting_id?, metadata?)  → 创建由你自己管理的任务，返回 taskId
+update_task(taskId, status?, progress?, result_uri?, error_message?, metadata?) → 更新任务，返回更新后的任务
 get_task(taskId)                            → 查询状态和进度
 list_tasks(status?)                         → 列出所有任务
 cancel_task(taskId)                         → 取消任务
@@ -127,7 +128,7 @@ host_delete_project(projectId)    → 永久删除项目（不可逆）
 
 ## ⚠️ 注意事项
 
-- `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 daemon 自动管理，不需要传 `afterId`。
+- `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 host 按适配器实例自动管理，不需要传 `afterId`。
 - 写入工具（`sync_project_assets`、`update_project`、`rename_project`、`host_delete_project`）在返回前已执行完成，无需轮询。
 - 项目 ID 一旦被其他项目引用（`relations`），重命名会自动级联更新所有引用，不需要手动处理。
-- daemon 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。
+- host 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。
