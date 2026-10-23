@@ -515,7 +515,8 @@ function backgroundWait(sessionId: string, waitMs: number, signal: AbortSignal):
             signal.removeEventListener("abort", stopWaiting);
             waits.delete(stopWaiting);
             if (waits.size === 0) backgroundWaits.delete(sessionId);
-            if (!output?.wake && !AgentStore.get(sessionId)?.listening) AgentStore.setStatusIf(sessionId, "listening", "idle");
+            // Nothing waits for the session any more: it stops counting as listening (even with listen on).
+            if (!output?.wake && !backgroundWaits.has(sessionId) && !listeningStops.has(sessionId)) AgentStore.setStatusIf(sessionId, "listening", "idle");
             resolve(output);
         };
         const stopWaiting = () => finish(null);
@@ -683,6 +684,15 @@ async function callTool(name: ToolName, args: unknown, instanceId: string, calle
     }
 }
 
+/** A percent-encoded path segment; malformed encoding is the caller's fault. */
+function decodePathParam(segment: string): string {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        throw new HttpError(400, `Malformed percent-encoding in path: '${segment}'`);
+    }
+}
+
 /** Instance id recorded for requests that do not name one. */
 const UNKNOWN_INSTANCE = "unknown";
 
@@ -804,6 +814,7 @@ export async function createDaemonServer(options: {
     maxAutoTurns?: number;
 }): Promise<{ server: http.Server }> {
     await initializeStorage();
+    AgentStore.resetListening();
     const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
     const allowedHosts = options.allowedHosts ?? allowedHostsFromEnv();
     const listenWaitMs = options.listenWaitMs ?? LISTEN_WAIT_MS;
@@ -933,7 +944,7 @@ export async function createDaemonServer(options: {
             const projectMatch = path.match(/^\/api\/projects\/([^/]+)$/);
             if (method === "GET" && projectMatch && !["search", "topology"].includes(projectMatch[1])) {
                 const includeDocs = url.searchParams.get("includeDocs") !== "false";
-                return jsonResponse(res, 200, await call("get_project", { projectId: decodeURIComponent(projectMatch[1]), includeDocs }, UNKNOWN_INSTANCE));
+                return jsonResponse(res, 200, await call("get_project", { projectId: decodePathParam(projectMatch[1]), includeDocs }, UNKNOWN_INSTANCE));
             }
 
             if (method === "GET" && path === "/api/projects/topology") {
@@ -948,8 +959,9 @@ export async function createDaemonServer(options: {
 
             const docMatch = path.match(/^\/api\/global\/docs\/(.+)$/);
             if (docMatch) {
-                const docId = decodeURIComponent(docMatch[1]);
+                const docId = decodePathParam(docMatch[1]);
                 if (method === "GET") {
+                    parseToolArgs("get_global_doc", { docId });          // an unsafe id is a 400, as for the tool
                     const doc = await StorageManager.getGlobalDoc(docId);
                     if (!doc) return jsonResponse(res, 404, { ok: false, error: `Document '${docId}' not found.` });
                     return jsonResponse(res, 200, doc);
@@ -997,7 +1009,7 @@ export async function createDaemonServer(options: {
 
             const meetingMatch = path.match(/^\/api\/meetings\/(.+)$/);
             if (meetingMatch && method === "GET") {
-                const meetingId = decodeURIComponent(meetingMatch[1]);
+                const meetingId = decodePathParam(meetingMatch[1]);
                 const meeting = SqliteMeetingStore.getMeeting(meetingId);
                 if (!meeting) return jsonResponse(res, 404, { ok: false, error: `Meeting '${meetingId}' not found.` });
                 return jsonResponse(res, 200, meeting);
@@ -1015,7 +1027,7 @@ export async function createDaemonServer(options: {
 
             const taskMatch = path.match(/^\/api\/tasks\/([^/]+)(\/(.+))?$/);
             if (taskMatch) {
-                const taskId = decodeURIComponent(taskMatch[1]);
+                const taskId = decodePathParam(taskMatch[1]);
                 const action = taskMatch[3];
 
                 if (method === "GET" && !action) {

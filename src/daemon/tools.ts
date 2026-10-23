@@ -183,7 +183,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     end_meeting: "End active meeting. Locks history.",
     archive_meeting: "Archive closed meeting. Read-only after.",
     reopen_meeting: "Reopen closed/archived meeting.",
-    create_task: "Create a task you track yourself. Returns taskId; update it via get_task/cancel_task.",
+    create_task: "Create a task you track yourself. Returns taskId; read it with get_task/list_tasks, cancel it with cancel_task. No tool updates status or progress: that is REST POST /api/tasks/{id}/update.",
     get_task: "Get task status and progress by ID.",
     list_tasks: "List tasks with optional status filter.",
     cancel_task: "Cancel pending/running task.",

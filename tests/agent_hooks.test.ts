@@ -397,6 +397,18 @@ describe("POST /api/hook: background wait", () => {
         expect(payload.output?.wake).not.toContain("for the listening stop");
     });
 
+    it("with listen on, leaves listening once neither a background wait nor a listening Stop is pending", async () => {
+        await start();
+        await hook("codex", "SessionStart", "r");
+        await codexTool("r", "listen", { on: true });
+        expect(await hook("codex", "Stop", "r", { stop_hook_active: true })).toBeNull();   // listening Stop times out
+        expect(status("codex:r")).toBe("idle");
+        const background = openHook("codex", BACKGROUND_WAIT_EVENT, "r");
+        await until(() => status("codex:r") === "listening");
+        expect((await background.response).payload.output).toEqual({ timeout: true });
+        expect(status("codex:r")).toBe("idle");             // the client asks no more: it can go stale
+    });
+
     it("never runs for an unknown session", async () => {
         await start();
         expect(await hook("claude", BACKGROUND_WAIT_EVENT, "nobody")).toBeNull();
@@ -588,6 +600,20 @@ describe("POST /api/hook: listen mode", () => {
         expect((await waiting.response).payload).toEqual({ output: null });
         expect(Date.now() - started).toBeLessThan(1000);
         expect(status("claude:off")).toBe("idle");
+    });
+
+    it("resets sessions left listening by a previous daemon, so they can go stale", async () => {
+        await start();
+        await hook("codex", "SessionStart", "r");
+        AgentStore.setListening("codex:r", true);
+        AgentStore.setStatus("codex:r", "listening");
+        server!.closeAllConnections();
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
+        closeDatabase();
+        StorageManager.resetInit();
+        ({ server } = await createDaemonServer({ port: 0, version: "test", listenWaitMs: LISTEN_MS }));
+        expect(status("codex:r")).toBe("idle");
+        expect(AgentStore.get("codex:r")?.listening).toBe(true);
     });
 
     it("lets the daemon shut down without waiting for a listening Stop hook", async () => {

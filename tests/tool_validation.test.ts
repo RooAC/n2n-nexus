@@ -36,6 +36,10 @@ describe("Tool contracts", () => {
             expect(byName[name].inputSchema, name).toEqual({ type: "object", properties: {}, additionalProperties: false });
         }
 
+        // No tool updates a task: create_task must not point to one.
+        expect(byName.create_task.description).not.toMatch(/update it via/);
+        expect(byName.create_task.description).toContain("POST /api/tasks/{id}/update");
+
         const send = TOOL_DEFINITIONS.find((t) => t.name === "send_message")!;
         expect((send.inputSchema.properties.category as { enum: string[] }).enum).toEqual([...MESSAGE_CATEGORIES]);
         expect(send.inputSchema.required).toEqual(["message"]);

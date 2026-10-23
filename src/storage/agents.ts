@@ -190,6 +190,11 @@ export class AgentStore {
         return row ? toSession(row) : null;
     }
 
+    /** At daemon start no wait is held for any session: listening ones become idle, so they can go stale. */
+    static resetListening(): void {
+        getDatabase().prepare("UPDATE agent_sessions SET status = 'idle' WHERE status = 'listening'").run();
+    }
+
     /** Set idle and working sessions without activity since `before` offline; returns how many changed. */
     static expireStale(before: number): number {
         return getDatabase().prepare(

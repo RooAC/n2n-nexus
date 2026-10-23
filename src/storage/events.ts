@@ -32,7 +32,9 @@ export class EventStore {
     static list(limit: number, action?: string): NexusEvent[] {
         const db = getDatabase();
         const rows = (action
-            ? db.prepare("SELECT * FROM events WHERE action = ? OR action LIKE ? ORDER BY id DESC LIMIT ?").all(action, `${action}.%`, limit)
+            // Exact comparison: LIKE folds ASCII case and treats `_` and `%` as wildcards.
+            ? db.prepare("SELECT * FROM events WHERE action = ? OR substr(action, 1, length(?) + 1) = ? || '.' ORDER BY id DESC LIMIT ?")
+                .all(action, action, action, limit)
             : db.prepare("SELECT * FROM events ORDER BY id DESC LIMIT ?").all(limit)) as Row[];
         return rows.map(toEvent);
     }
