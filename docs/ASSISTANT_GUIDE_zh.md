@@ -25,7 +25,24 @@ read_messages(count)            → 获取你尚未读取的消息（增量，�
 ### 2. 项目 ID
 
 项目工具不依赖隐式的当前项目：每个项目工具都显式传入要操作的 `projectId`。
-项目 ID 格式必须为 `[prefix]_[name]`，例如：`web_datafrog.io`、`api_user-auth`、`mcp_nexus`。
+
+项目 ID 格式必须为 `[prefix]_[name]`：
+
+| 前缀 | 分类 | 示例 |
+|------|------|------|
+| `web_` | 网站 | `web_datafrog.io` |
+| `api_` | 后端服务 | `api_user-auth` |
+| `mcp_` | MCP 服务器 | `mcp_nexus` |
+| `lib_` | 库/SDK | `lib_crypto-core` |
+| `chrome_` | Chrome 扩展 | `chrome_evisa-helper` |
+| `vscode_` | VSCode 扩展 | `vscode_super-theme` |
+| `android_` | Android 应用 | `android_client-app` |
+| `ios_` | iOS 应用 | `ios_client-app` |
+| `flutter_` | Flutter 应用 | `flutter_unified-app` |
+| `desktop_` | 桌面应用 | `desktop_main-hub` |
+| `bot_` | 机器人 | `bot_auto-moderator` |
+| `infra_` | 基础设施/DevOps | `infra_k8s-config` |
+| `doc_` | 文档 | `doc_coding-guide` |
 
 ### 3. 项目数据写入
 

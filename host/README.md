@@ -1,26 +1,10 @@
 # n2n-nexus-host
 
-The host of n2n-nexus: one Go executable that owns all coordination data and serves the HTTP protocol in [`contract/`](../contract/README.md) to the `n2n-nexus` npm client (MCP adapter and hooks). See the [README](../README.md) for using it and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the design.
+The host of n2n-nexus: one Go executable that owns all coordination data and serves the HTTP protocol in [`contract/`](../contract/README.md) to the `n2n-nexus` npm client (MCP adapter and hooks). See the [User guide](../docs/USER_GUIDE.md) for using it and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the design.
 
 ## Install
 
-| Platform | Install |
-| --- | --- |
-| Windows (Scoop) | `scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`, then `scoop install n2ns/n2n-nexus-host` |
-| Windows (winget) | coming soon |
-| macOS (Homebrew) | `brew install n2ns/tap/n2n-nexus-host` (built from source) |
-| Linux, or any platform by hand | `n2n-nexus-host_<version>_<os>_<arch>.tar.gz` / `.zip` from [Releases](https://github.com/n2ns/n2n-nexus/releases) (tags `host-v<version>`) |
-
-Verify a downloaded archive:
-
-```bash
-sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify n2n-nexus-host_<version>_<os>_<arch>.tar.gz --repo n2ns/n2n-nexus
-```
-
-Then run `n2n-nexus-host` (tray) or `n2n-nexus-host service install` (boot service, elevated / sudo). `n2n-nexus-host help` lists the commands.
-
-The binaries are not code-signed yet: on Windows the first start may show a SmartScreen warning (**More info → Run anyway**); Homebrew builds from source, so macOS shows no Gatekeeper prompt. Signing is planned in [TODO.md](../TODO.md).
+Installing, starting and configuring the host: [User guide](../docs/USER_GUIDE.md#1-install-and-start-the-host). Code signing is planned in [TODO.md](../TODO.md).
 
 ## Layout
 

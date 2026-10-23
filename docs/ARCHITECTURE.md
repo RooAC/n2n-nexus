@@ -107,14 +107,13 @@ The wait never delivers while the session is `working` or while a listening Stop
 
 ## 💾 Data Persistence
 
-All data lives in one SQLite file, `nexus.db`, in the host's data directory: `%LOCALAPPDATA%\n2n-nexus` on Windows, `~/Library/Application Support/n2n-nexus` on macOS, `$XDG_DATA_HOME/n2n-nexus` (default `~/.local/share/n2n-nexus`) on Linux; `--root` or `NEXUS_ROOT` overrides it. The same directory holds `settings.json` and `host.lock`.
+All data lives in one SQLite file, `nexus.db`, in the host's data directory, next to `settings.json` and `host.lock` (locations per OS: [User guide](USER_GUIDE.md#data-and-logs)).
 
 - **Schema**: numbered migrations embedded in the host (`host/internal/store/migrations/0001_core.sql`, `0002_agents.sql`) run in order at startup, each in one transaction; the version is `PRAGMA user_version`. A database newer than the host is refused ("upgrade n2n-nexus-host").
 - **Tables**: `projects` (scalar manifest fields as columns, structured fields as JSON, internal docs as text), `project_relations` and `project_assets` (asset bytes as BLOBs; both cascade on project rename and delete), `global_strategy`, `global_docs`, `meetings` (with `status` and `is_default`), `meeting_messages`, `decisions`, `global_messages`, `events`, `tasks`, `read_cursors`, and for conversations `agent_sessions`, `agent_messages`, `agent_notices`, `agent_idle_subscriptions`, `tool_use_bindings`.
 - **Transactions**: every write is one transaction, so a multi-row change (a meeting message, starting / ending / reopening a meeting, renaming a project) is applied completely or not at all. The database runs in WAL mode with `foreign_keys` on and a 5 s busy timeout, through a single connection.
 - **Only the host opens the database**. MCP adapters and hooks go through HTTP.
 - **Activity log**: state changes made through tools (project sync/update/rename/delete/asset, doc sync, strategy update, meeting start/end/archive/reopen, maintenance) are recorded as structured events and read with `list_events`; they are not mixed into chat streams.
-- **Old data**: the file-based storage of n2n-nexus 0.x (`~/.n2n-nexus`) is not imported or read, and is left untouched.
 
 ### Maintenance and retention
 
@@ -125,69 +124,17 @@ At startup and then every hour the host:
 - expires unread direct messages past their 24-hour lifetime (telling the senders), and deletes read or expired direct messages and delivered notices after 30 days;
 - deletes tool-use bindings once they have expired (5 minutes).
 
-Logs: the service, and the tray while it runs the host in-process, write `host.log` in the log directory (`%LOCALAPPDATA%\n2n-nexus\logs`, `~/Library/Logs/n2n-nexus`, `$XDG_STATE_HOME/n2n-nexus` with default `~/.local/state/n2n-nexus`), rotated at 10 MB with 3 old files kept; only the holder of `host.lock` writes it. The tray's own lines go to `tray.log` there, rotated the same way. `serve` writes to standard error.
-
----
-
-## 🏷️ Project ID Conventions
-
-All project IDs must follow the `[prefix]_[name]` format:
-
-| Prefix | Category | Example |
-|--------|----------|---------|
-| `web_` | Websites | `web_datafrog.io` |
-| `api_` | Backend services | `api_user-auth` |
-| `mcp_` | MCP servers | `mcp_nexus` |
-| `lib_` | Libraries / SDKs | `lib_crypto-core` |
-| `chrome_` | Chrome extensions | `chrome_evisa-helper` |
-| `vscode_` | VSCode extensions | `vscode_super-theme` |
-| `android_` | Android apps | `android_client-app` |
-| `ios_` | iOS apps | `ios_client-app` |
-| `flutter_` | Flutter apps | `flutter_unified-app` |
-| `desktop_` | Desktop apps | `desktop_main-hub` |
-| `bot_` | Bots | `bot_auto-moderator` |
-| `infra_` | Infrastructure / DevOps | `infra_k8s-config` |
-| `doc_` | Documentation | `doc_coding-guide` |
+Logs (files and locations: [User guide](USER_GUIDE.md#data-and-logs)): only the holder of `host.lock` writes `host.log`; the tray's own lines go to `tray.log`.
 
 ---
 
 ## 🌐 Deployment Model
 
-Two programs:
-
-```
-n2n-nexus-host                 Install once per host machine. Owns all data.
-  ├─ (no arguments)            Tray app; runs the host in-process, or only controls
-  │                            a host already answering on the configured port
-  ├─ serve                     Foreground, no tray (debugging; what the service runs)
-  ├─ service install|uninstall|status
-  │                            Boot service running as the installing user
-  ├─ autostart on|off          Start the tray at login
-  └─ version
-
-n2n-nexus (npm)                Install on every machine with an IDE.
-  ├─ n2n-nexus mcp             IDE starts automatically. Stateless proxy.
-  ├─ n2n-nexus hook            Run by Claude Code / Codex on each hook event.
-  ├─ n2n-nexus install         Write the hooks and MCP server into a client's user configuration.
-  └─ n2n-nexus doctor          Check the installed commands and the host's contract version.
-```
+The commands of both programs are listed in the [User guide](USER_GUIDE.md#12-reference).
 
 **Host**: started as a tray app or a boot service; the adapter and the hooks never start one, they report that none answers. Configuration comes only from `<data dir>/settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`), overridden by command-line flags; the only environment variable the host reads is `NEXUS_ROOT`. A service does not get the environment of the terminal that installed it, so the file is the one source the tray, the service and the command line share.
 
-**MCP** (IDE configuration):
-```json
-{
-  "mcpServers": {
-    "n2n-nexus": {
-      "command": "npx",
-      "args": ["-y", "n2n-nexus", "mcp"],
-      "env": { "NEXUS_ENDPOINT": "http://127.0.0.1:5688" }
-    }
-  }
-}
-```
-
-**Standalone host on a LAN**: run one host with LAN access on (tray **Allow LAN access**, or `n2n-nexus-host service install --host 0.0.0.0`), independent of any IDE, and allow TCP and UDP 5688 from the local subnet (on Windows the tray adds both firewall rules). Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
+**Standalone host on a LAN**: one host with LAN access on serves every machine, independent of any IDE; each client machine needs only the client, which finds the host by UDP broadcast (`--endpoint discover`). Setup: [User guide](USER_GUIDE.md#6-several-machines-and-environments).
 
 **No required startup order**: start the IDE before the host — tools appear automatically once the host comes up. Host restarts are transparent; MCP reconnects and notifies the IDE.
 

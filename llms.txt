@@ -32,40 +32,9 @@ n2n-nexus is a local-first Model Context Protocol (MCP) coordination hub from N2
 - Not a cloud sync service.
 - Not a replacement for repository-local memory tools such as n2n-memory.
 
-## Install
+## Install and configure
 
-Install the host, `n2n-nexus-host` (it runs as a tray app, or as a boot service with `n2n-nexus-host service install`):
-
-```bash
-brew install n2ns/tap/n2n-nexus-host                                   # macOS
-scoop bucket add n2ns https://github.com/n2ns/scoop-bucket             # Windows
-scoop install n2ns/n2n-nexus-host
-```
-
-Linux and all other platforms: archives on https://github.com/n2ns/n2n-nexus/releases (tags `host-v<version>`).
-
-Install the client and connect Claude Code or Codex:
-
-```bash
-npm i -g n2n-nexus
-n2n-nexus install claude    # or: n2n-nexus install codex
-```
-
-Configure other MCP clients with:
-
-```json
-{
-  "command": "npx",
-  "args": ["-y", "n2n-nexus", "mcp"],
-  "env": {
-    "NEXUS_ENDPOINT": "http://127.0.0.1:5688"
-  }
-}
-```
-
-## Storage
-
-The host keeps all data in one SQLite database, `nexus.db`, in its data directory: `%LOCALAPPDATA%\n2n-nexus` on Windows, `~/Library/Application Support/n2n-nexus` on macOS, `~/.local/share/n2n-nexus` on Linux (`--root` or `NEXUS_ROOT` overrides it). Host settings are in `settings.json` in the same directory.
+- [User guide](docs/USER_GUIDE.md): installing the host and the client, connecting Claude Code, Codex and other MCP clients, several machines, commands, environment variables, `settings.json`, data and logs ([Chinese](docs/USER_GUIDE_zh.md)).
 
 ## Brand
 

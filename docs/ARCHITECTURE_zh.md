@@ -107,14 +107,13 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 
 ## 💾 数据持久化
 
-全部数据都在 host 数据目录里的一个 SQLite 文件 `nexus.db` 中：Windows 为 `%LOCALAPPDATA%\n2n-nexus`，macOS 为 `~/Library/Application Support/n2n-nexus`，Linux 为 `$XDG_DATA_HOME/n2n-nexus`（默认 `~/.local/share/n2n-nexus`）；`--root` 或 `NEXUS_ROOT` 可改。同一目录下还有 `settings.json` 和 `host.lock`。
+全部数据都在 host 数据目录里的一个 SQLite 文件 `nexus.db` 中，同一目录下还有 `settings.json` 和 `host.lock`（各系统的位置见[使用指南](USER_GUIDE_zh.md#数据和日志)）。
 
 - **表结构**：嵌入 host 的编号迁移脚本（`host/internal/store/migrations/0001_core.sql`、`0002_agents.sql`）在启动时按序执行，每个文件一个事务；版本号存在 `PRAGMA user_version`。比 host 新的数据库会被拒绝（“upgrade n2n-nexus-host”）。
 - **表**：`projects`（manifest 的标量字段各占一列，结构化字段存 JSON，内部文档存文本）、`project_relations` 和 `project_assets`（资产内容存 BLOB；两者都随项目改名、删除级联）、`global_strategy`、`global_docs`、`meetings`（带 `status` 和 `is_default`）、`meeting_messages`、`decisions`、`global_messages`、`events`、`tasks`、`read_cursors`，以及对话用的 `agent_sessions`、`agent_messages`、`agent_notices`、`agent_idle_subscriptions`、`tool_use_bindings`。
 - **事务**：每个写操作一个事务，多行修改（会议消息，开始 / 结束 / 重开会议，项目改名）要么全部生效，要么都不生效。数据库使用 WAL 模式，开启 `foreign_keys`，忙等超时 5 秒，只用一个连接。
 - **只有 host 打开数据库**。MCP 适配器和 hooks 都走 HTTP。
 - **活动日志**：通过工具产生的状态变更（项目同步 / 更新 / 改名 / 删除 / 资产、文档同步、策略更新、会议开始 / 结束 / 归档 / 重开、维护）记录为结构化事件，用 `list_events` 读取，不混入聊天流。
-- **旧数据**：n2n-nexus 0.x 基于文件的存储（`~/.n2n-nexus`）不导入、不读取，原样保留。
 
 ### 清理与保留期
 
@@ -125,69 +124,17 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 - 让超过 24 小时有效期的未读直接消息过期（通知发送方），删除 30 天前已读或已过期的直接消息和已发出的通知；
 - 删除已过期（5 分钟）的工具调用绑定。
 
-日志：服务，以及在进程内运行 host 时的托盘，写到日志目录的 `host.log`（`%LOCALAPPDATA%\n2n-nexus\logs`、`~/Library/Logs/n2n-nexus`、`$XDG_STATE_HOME/n2n-nexus`，默认 `~/.local/state/n2n-nexus`），单个 10 MB 轮转，保留 3 个旧文件；只有持有 `host.lock` 的一方写它。托盘自己的日志写到同一目录的 `tray.log`，同样轮转。`serve` 输出到标准错误。
-
----
-
-## 🏷️ 项目 ID 命名规范
-
-所有项目 ID 必须遵循 `[prefix]_[name]` 格式：
-
-| 前缀 | 分类 | 示例 |
-|------|------|------|
-| `web_` | 网站 | `web_datafrog.io` |
-| `api_` | 后端服务 | `api_user-auth` |
-| `mcp_` | MCP 服务器 | `mcp_nexus` |
-| `lib_` | 库/SDK | `lib_crypto-core` |
-| `chrome_` | Chrome 扩展 | `chrome_evisa-helper` |
-| `vscode_` | VSCode 扩展 | `vscode_super-theme` |
-| `android_` | Android 应用 | `android_client-app` |
-| `ios_` | iOS 应用 | `ios_client-app` |
-| `flutter_` | Flutter 应用 | `flutter_unified-app` |
-| `desktop_` | 桌面应用 | `desktop_main-hub` |
-| `bot_` | 机器人 | `bot_auto-moderator` |
-| `infra_` | 基础设施/DevOps | `infra_k8s-config` |
-| `doc_` | 文档 | `doc_coding-guide` |
+日志（文件和位置见[使用指南](USER_GUIDE_zh.md#数据和日志)）：只有持有 `host.lock` 的一方写 `host.log`；托盘自己的日志写到 `tray.log`。
 
 ---
 
 ## 🌐 发布模型
 
-两个程序：
-
-```
-n2n-nexus-host                 每台 host 机器装一次，保存全部数据。
-  ├─ （不带参数）              托盘程序；在进程内运行 host，或者端口上已有
-  │                            host 应答时只做控制界面
-  ├─ serve                     前台运行，无托盘（调试用，也是服务运行的命令）
-  ├─ service install|uninstall|status
-  │                            以安装用户身份运行的开机服务
-  ├─ autostart on|off          托盘登录后自启
-  └─ version
-
-n2n-nexus（npm）               每台有 IDE 的机器都装。
-  ├─ n2n-nexus mcp             IDE 自动启动，无状态代理。
-  ├─ n2n-nexus hook            Claude Code / Codex 每个 hook 事件时运行。
-  ├─ n2n-nexus install         把 hooks 和 MCP 服务写进客户端的用户级配置。
-  └─ n2n-nexus doctor          检查已安装的命令和 host 的协议版本。
-```
+两个程序的命令见[使用指南](USER_GUIDE_zh.md#12-参考)。
 
 **Host**：以托盘程序或开机服务方式运行；适配器和 hooks 从不自己启动它，连不上时只报告。配置只来自 `<数据目录>/settings.json`（`host`、`port`、`discoveryPort`、`allowedHosts`、`rateLimit`、`rateBurst`、`maxAutoTurns`），命令行参数覆盖；host 只读取 `NEXUS_ROOT` 一个环境变量。服务拿不到安装终端的环境变量，所以这个文件是托盘、服务和命令行共用的唯一来源。
 
-**MCP**（IDE 配置）：
-```json
-{
-  "mcpServers": {
-    "n2n-nexus": {
-      "command": "npx",
-      "args": ["-y", "n2n-nexus", "mcp"],
-      "env": { "NEXUS_ENDPOINT": "http://127.0.0.1:5688" }
-    }
-  }
-}
-```
-
-**局域网独立 host**：运行一个开启局域网访问的 host（托盘 **允许局域网访问**，或 `n2n-nexus-host service install --host 0.0.0.0`），不依赖任何 IDE，并对本地子网放行 TCP 和 UDP 5688（Windows 上托盘会添加这两条防火墙规则）。每台客户端机器只需要客户端部分：`n2n-nexus install <claude|codex> --endpoint discover` 写入 MCP 服务和 hooks，它们通过 UDP 广播找到 host。在 Windows 上，`npm install -g` 要在普通终端里执行：Codex 这类打包（MSIX）应用里的终端会装进该应用私有的 `%APPDATA%` 副本，只有这个应用能看到，而且会让应用看不到之后的全局安装。
+**局域网独立 host**：一个开启局域网访问的 host 为所有机器服务，不依赖任何 IDE；每台客户端机器只需要客户端，它通过 UDP 广播找到 host（`--endpoint discover`）。配置步骤见[使用指南](USER_GUIDE_zh.md#6-多台机器和多个环境)。
 
 **无启动顺序要求**：可以先启动 IDE 再启动 host——host 上线后工具会自动出现。host 重启对 IDE 透明，MCP 自动重连并通知 IDE。
 

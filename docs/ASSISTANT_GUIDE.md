@@ -23,7 +23,24 @@ read_messages(count)            → fetch messages you have not yet read (increm
 ### 2. Project IDs
 
 Project tools do not depend on an implicit current project: every project tool takes the `projectId` it acts on.
-Project IDs must follow `[prefix]_[name]` format, for example: `web_my-site`, `api_user-auth`, `mcp_nexus`.
+
+Project IDs must follow `[prefix]_[name]` format:
+
+| Prefix | Category | Example |
+|--------|----------|---------|
+| `web_` | Websites | `web_datafrog.io` |
+| `api_` | Backend services | `api_user-auth` |
+| `mcp_` | MCP servers | `mcp_nexus` |
+| `lib_` | Libraries / SDKs | `lib_crypto-core` |
+| `chrome_` | Chrome extensions | `chrome_evisa-helper` |
+| `vscode_` | VSCode extensions | `vscode_super-theme` |
+| `android_` | Android apps | `android_client-app` |
+| `ios_` | iOS apps | `ios_client-app` |
+| `flutter_` | Flutter apps | `flutter_unified-app` |
+| `desktop_` | Desktop apps | `desktop_main-hub` |
+| `bot_` | Bots | `bot_auto-moderator` |
+| `infra_` | Infrastructure / DevOps | `infra_k8s-config` |
+| `doc_` | Documentation | `doc_coding-guide` |
 
 ### 3. Write project data
 

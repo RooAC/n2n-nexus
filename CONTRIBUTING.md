@@ -42,7 +42,7 @@ NEXUS_ENDPOINT=http://127.0.0.1:5799 node build/index.js mcp
 
 ## Architecture Notes
 
-The host (`n2n-nexus-host`, Go, `host/`) is the single source of truth. The MCP adapter (`n2n-nexus`, TypeScript, `src/`) is a stateless proxy — it has no tool definitions and no local data. Tool definitions live in `contract/tools.json`, their handlers in `host/internal/core` and `host/internal/agents`. See `docs/ARCHITECTURE.md` for the full system design and `host/README.md` for building and releasing the host.
+See `docs/ARCHITECTURE.md` for the system design and `host/README.md` for building and releasing the host.
 
 ## Changelog
 

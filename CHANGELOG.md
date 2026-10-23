@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - The Codex background wait loads what a wake needs before it starts waiting, so an upgrade of the package (or a cleared npx cache) during the wait no longer makes the wake fail silently.
 
+### Documentation
+
+- A user guide (`docs/USER_GUIDE.md`, `docs/USER_GUIDE_zh.md`) covers installing, configuring and running the host and the client, including the one-time Codex hook trust, and holds the command, environment variable, `settings.json` and data directory reference. The README now gives an overview and links to it; each document covers its own topic instead of repeating the others.
+
 ## [0.9.2] - 2026-10-24
 
 ### Fixed
