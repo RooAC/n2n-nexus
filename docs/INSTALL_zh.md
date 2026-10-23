@@ -54,9 +54,11 @@ n2n-nexus doctor             # 全面检查，包括 host 是否应答
 
 `install` 把 hooks 和 MCP 服务写进客户端的用户级配置。装完后要**新开**对话：正在进行的对话不会加载新的 MCP 服务器。
 
+MCP 服务器会自己更新：它通过 npm 的 npx 运行 `n2n-nexus@latest`，所以每次新开对话都会向 npm 查询最新版本并启动它（新版本只下载一次，之后从 npm 缓存启动）。hooks 用的是全局安装的包，需要你自己升级（第 8 步）。
+
 - host 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`；要在局域网里自动查找 host，就用 `--endpoint discover`（第 6 步）。
 - 在 Windows 上，`npm i -g` 和 `install` 要在普通终端里执行，不要在 Codex 这类打包应用自带的终端里执行：那里会装进该应用私有的 `%APPDATA%` 副本，并让应用看不到全局安装。
-- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
+- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。MCP 服务的命令是 `"<node>" "<npx>" -y n2n-nexus@latest mcp`，npx 取这个 Node 旁边的 npm 自带的那个；在 Windows 以外的系统上还会把 `PATH` 设为这个 Node 所在目录、`/usr/bin` 和 `/bin`，让 npx 启动的包能找到 Node。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
 - 用 `--node <path>` 手动指定 Node 路径。路径必须存在、可执行，且版本满足 package.json 的 `engines`（`^22.14.0 || >=23.6.0`），否则 `install` 以退出码 1 退出，不写任何配置。
 - 升级 Node 后：如果 `install` 提示 Node 路径位于带版本号的目录（Homebrew `Cellar`、nvm、fnm、Volta、asdf、`node-v<版本>`），每次升级 Node 后都要重新运行 `n2n-nexus install <claude|codex>`，或用 `--node` 指定稳定路径。
 - 支持 Linux、WSL 和 macOS；Codex hooks 也支持 Windows PowerShell。
@@ -124,11 +126,11 @@ macOS 上第一次连接时，系统可能会为运行客户端的应用（Claud
 
 ## 7. 检查安装
 
-`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令和 MCP 命令里的 Node 路径与入口脚本是否仍然存在、能否运行，以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
+`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令里的 Node 路径与入口脚本、MCP 命令里的 Node 路径与 npx 是否仍然存在、能否运行，以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
 
 ## 8. 升级
 
-- 客户端：`npm i -g n2n-nexus@latest`。hooks 立即用上新版本；正在进行的对话里的 MCP 服务器仍是旧版本，新开对话后才换。
+- 客户端：MCP 服务器不用管，每次新开对话都会启动最新版本（正在进行的对话保持它启动时的版本）。hooks 需要运行 `npm i -g n2n-nexus@latest`，之后立即用上新版本。
 - host：用当初安装它的包管理器升级（`scoop update n2n-nexus-host`、`brew upgrade n2n-nexus-host`），或直接替换程序，然后重启（托盘：**重启**；服务：在管理员终端里再运行一次 `n2n-nexus-host service install`）。
 
 ## 9. 卸载

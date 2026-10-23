@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
 
-import { runInstall, satisfiesEngines } from "../src/cli/install.js";
+import { npxScript, runInstall, satisfiesEngines } from "../src/cli/install.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -13,6 +13,12 @@ const ENTRY = path.join(REPO, "build", "index.js");
 const TMP = path.join(REPO, "tests", "tmp", "install");
 const NODE = process.execPath;
 const command = (client: string, endpoint?: string, node = NODE) => `"${node}" "${ENTRY}" hook ${client}${endpoint ? ` --endpoint ${endpoint}` : ""}`;
+/** The `<client> mcp add` arguments install runs for `"<node>" "<npx>" -y n2n-nexus@latest mcp`. */
+const mcpAdd = (client: "claude" | "codex", node = NODE, endpoint?: string) => {
+    const flag = client === "claude" ? "-e" : "--env";
+    const vars = [...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []), ...(process.platform === "win32" ? [] : [`PATH=${[path.dirname(node), "/usr/bin", "/bin"].join(path.delimiter)}`])];
+    return [client, "mcp", "add", ...(client === "claude" ? ["--scope", "user"] : []), "n2n-nexus", ...vars.flatMap((v) => [flag, v]), "--", node, npxScript(node), "-y", "n2n-nexus@latest", "mcp"];
+};
 const codexWindowsCommand = (endpoint?: string) => `& ${[NODE, ENTRY, "hook", "codex", ...(endpoint ? ["--endpoint", endpoint] : [])].map((arg) => `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`).join(" ")}`;
 
 let dir: string;
@@ -148,10 +154,10 @@ describe("install claude", () => {
         expect(calls()).toEqual([
             ["claude", "--version"],
             ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"],
-            ["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", NODE, ENTRY, "mcp"]
+            mcpAdd("claude", NODE)
         ]);
         expect(result.stdout).toContain(claudeSettings());
-        expect(result.stdout).toContain(`claude mcp add --scope user n2n-nexus -- ${NODE} ${ENTRY} mcp`);
+        expect(result.stdout).toContain(`Ran: ${mcpAdd("claude").join(" ")}\n`);
         expect(fs.readdirSync(claudeDir)).toEqual(["settings.json"]);
     });
 
@@ -167,7 +173,7 @@ describe("install claude", () => {
         const ours = ourCommands(claudeSettings(), "claude");
         expect(ours).toHaveLength(7);
         for (const hook of ours) expect(hook).toBe(command("claude", "http://127.0.0.1:5799"));
-        expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "-e", "NEXUS_ENDPOINT=http://127.0.0.1:5799", "--", NODE, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("claude", NODE, "http://127.0.0.1:5799"));
     });
 
     it("creates settings.json when it does not exist and ignores a failing mcp remove", () => {
@@ -282,7 +288,7 @@ describe("install codex", () => {
         expect(calls()).toEqual([
             ["codex", "--version"],
             ["codex", "mcp", "remove", "n2n-nexus"],
-            ["codex", "mcp", "add", "n2n-nexus", "--env", "NEXUS_ENDPOINT=http://127.0.0.1:5799", "--", NODE, ENTRY, "mcp"]
+            mcpAdd("codex", NODE, "http://127.0.0.1:5799")
         ]);
         expect(result.stdout).toContain(codexHooks());
         expect(result.stdout).toContain("/hooks");
@@ -339,7 +345,7 @@ describe("node path", () => {
         expect(result.code).toBe(0);
         expect(link).not.toBe(NODE);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", undefined, link)));
-        expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", link, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("claude", link));
         expect(result.stdout).toContain(`Node: ${link}\n`);
     });
 
@@ -351,7 +357,7 @@ describe("node path", () => {
         const result = run(["install", "codex"], { PATH: [bin, other, path.dirname(link)].join(path.delimiter) });
         expect(result.code).toBe(0);
         expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
-        expect(calls().at(-1)).toEqual(["codex", "mcp", "add", "n2n-nexus", "--", link, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("codex", link));
     });
 
     it("skips relative PATH entries and fnm's per-shell directory", () => {
@@ -364,7 +370,7 @@ describe("node path", () => {
         });
         expect(result.status).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude")));
-        expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", NODE, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("claude", NODE));
         expect(run(["install", "codex", "--node", multishell]).stdout).toContain("--node <path>");
     });
 
@@ -376,7 +382,7 @@ describe("node path", () => {
         const result = run(["install", "claude"]);
         expect(result.code).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude")));
-        expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "--", NODE, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("claude", NODE));
         expect(result.stdout).toContain(`Node: ${NODE}\n`);
     });
 
@@ -385,11 +391,11 @@ describe("node path", () => {
         const link = linkNode("stable/node");
         expect(run(["install", "claude", "--node", link, "--endpoint", "http://127.0.0.1:5799"]).code).toBe(0);
         expect(ourCommands(claudeSettings(), "claude")).toEqual(Array(7).fill(command("claude", "http://127.0.0.1:5799", link)));
-        expect(calls().at(-1)).toEqual(["claude", "mcp", "add", "--scope", "user", "n2n-nexus", "-e", "NEXUS_ENDPOINT=http://127.0.0.1:5799", "--", link, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("claude", link, "http://127.0.0.1:5799"));
 
         expect(run(["install", "codex", "--node", link]).code).toBe(0);
         expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
-        expect(calls().at(-1)).toEqual(["codex", "mcp", "add", "n2n-nexus", "--", link, ENTRY, "mcp"]);
+        expect(calls().at(-1)).toEqual(mcpAdd("codex", link));
     });
 
     it("--node rejects a missing path, a directory, a non-node program and an old Node, writing nothing", () => {
@@ -450,5 +456,35 @@ describe("node path", () => {
         for (const bad of ["v22.13.9", "v23.5.9", "v21.0.0", "v20.19.0", "", "latest"]) expect(satisfiesEngines(bad), bad).toBe(false);
         expect(satisfiesEngines("v18.0.0", ">=18.0.0")).toBe(true);
         expect(() => satisfiesEngines("v18.0.0", "~18.0.0")).toThrow("Unsupported engines.node clause");
+    });
+});
+
+describe("npx script", () => {
+    const realNpx = npxScript(NODE);
+
+    it("is npm's npx-cli.js next to the running Node", () => {
+        expect(fs.realpathSync(realNpx).endsWith(path.join("npm", "bin", "npx-cli.js"))).toBe(true);
+    });
+
+    it.skipIf(process.platform === "win32")("keeps an npx link next to the Node unresolved, and skips one that is not npm's script", () => {
+        const link = linkNode("stable/node");
+        expect(npxScript(link)).toBe(realNpx);
+        fs.symlinkSync(fs.realpathSync(realNpx), path.join(path.dirname(link), "npx"));
+        expect(npxScript(link)).toBe(path.join(path.dirname(link), "npx"));
+        const shim = linkNode("shim/node");
+        writeExecutable(path.join(path.dirname(shim), "npx"), "process.exit(0);");
+        expect(npxScript(shim)).toBe(realNpx);
+    });
+
+    it("install fails before writing anything when the Node has no npx", () => {
+        const lone = path.join(dir, "lone");
+        fs.mkdirSync(lone);
+        const node = path.join(lone, path.basename(NODE));
+        fs.copyFileSync(NODE, node);
+        fs.chmodSync(node, 0o755);
+        const result = run(["install", "claude", "--node", node]);
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain(`npm's npx was not found next to ${node}`);
+        expect(fs.existsSync(claudeSettings())).toBe(false);
     });
 });

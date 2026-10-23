@@ -4,7 +4,11 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
-## [未发布]
+## [0.9.3] - 2026-10-24
+
+### 变更
+
+- MCP 服务器会自己更新：`n2n-nexus install` 把它注册成 `"<node>" "<npx>" -y n2n-nexus@latest mcp`（npx 取所选 Node 旁边 npm 自带的那个；在 Windows 以外的系统上同时把 `PATH` 设为这个 Node 所在目录、`/usr/bin` 和 `/bin`），所以每次新开对话都启动最新发布的版本。hooks 仍运行全局安装的包，用 `npm i -g n2n-nexus@latest` 升级。已有的安装运行一次 `n2n-nexus install claude` / `n2n-nexus install codex` 即可切换；hook 命令不变，所以 Codex 不会要求重新信任。`n2n-nexus doctor` 检查新的写法，旧写法的 MCP 命令会报出来。
 
 ### 修复
 

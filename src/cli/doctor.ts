@@ -1,7 +1,8 @@
 /**
  * `n2n-nexus doctor [claude|codex]`: check that the Node path and the entry
- * script in the hook commands and in the MCP server command that `install`
- * wrote still exist and run, that the host those commands talk to answers
+ * script in the hook commands, and the Node path and npm's npx script in the
+ * MCP server command (`"<node>" "<npx>" -y n2n-nexus@latest mcp`), that
+ * `install` wrote still exist and run, that the host those commands talk to answers
  * GET /health as n2n-nexus-host with this client's contract version, and say
  * how to fix what does not. Without a client both are checked; a client with
  * nothing installed is only reported when it was named. Exit code 1 when a
@@ -14,7 +15,7 @@ import { CONTRACT_VERSION, HOOK_CLIENTS, MCP_SERVER_NAME, isHookClient, noDaemon
 import { NexusClient, NexusToolError } from "../client/nexus-client.js";
 import { LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
-import { VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup } from "./install.js";
+import { MCP_PACKAGE, VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup } from "./install.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
 type Check = { ok: boolean; text: string };
@@ -128,9 +129,9 @@ function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoin
         report(`MCP server ${MCP_SERVER_NAME} in ${mcpFile}`, bad("not registered"));
     } else {
         report(`MCP Node ${mcp.command}`, checkNode(mcp.command));
-        const entry = mcp.args[0];
-        if (entry) report(`MCP entry ${entry}`, checkEntry(entry));
-        else report(`MCP command in ${mcpFile}`, bad("has no entry script argument"));
+        const [npx, ...rest] = mcp.args;
+        if (npx && rest.join(" ") === `-y ${MCP_PACKAGE} mcp`) report(`MCP npx ${npx}`, checkEntry(npx));
+        else report(`MCP command in ${mcpFile}`, bad(`not in the form "<node>" "<npx>" -y ${MCP_PACKAGE} mcp`));
     }
     if (failed) {
         lines.push(`  fix: run "n2n-nexus install ${client}" again (add --node <path> to use a stable Node path such as /usr/local/bin/node).`);

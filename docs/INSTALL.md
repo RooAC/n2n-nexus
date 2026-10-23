@@ -54,9 +54,11 @@ n2n-nexus doctor             # checks everything, including that the host answer
 
 `install` writes the hooks and the MCP server into the client's user configuration. Start a **new** conversation afterwards: running conversations do not load the new MCP server.
 
+The MCP server updates itself: it runs `n2n-nexus@latest` through npm's npx, so every new conversation asks npm for the latest version and starts it (a new release is downloaded once, then started from npm's cache). The hooks run the globally installed package, which you update yourself (step 8).
+
 - Pass `--endpoint <url>` to both commands when the host is not at `http://127.0.0.1:5688`, or `--endpoint discover` to find a host on the LAN (step 6).
 - On Windows, run `npm i -g` and `install` from a regular terminal, not from the terminal of a packaged app such as Codex: that terminal installs into the app's private copy of `%APPDATA%`, which hides the global install from the app.
-- The hooks and the MCP server command use an absolute Node path, because GUI clients started from the Dock (such as Claude Desktop) do not read your shell's `PATH`. By default `install` writes the `node` found on `PATH` when it is the same file as the Node running `install` (for example `/usr/local/bin/node`, `/opt/homebrew/bin/node`, `~/.local/bin/node` or a version manager's stable entry point), and otherwise the real path of the running Node. `install` prints the path it wrote as `Node: <path>`.
+- The hooks and the MCP server command use an absolute Node path, because GUI clients started from the Dock (such as Claude Desktop) do not read your shell's `PATH`. The MCP server command is `"<node>" "<npx>" -y n2n-nexus@latest mcp`, with npm's npx found next to that Node; outside Windows it also sets `PATH` to that Node's folder, `/usr/bin` and `/bin`, so the package npx starts finds Node. By default `install` writes the `node` found on `PATH` when it is the same file as the Node running `install` (for example `/usr/local/bin/node`, `/opt/homebrew/bin/node`, `~/.local/bin/node` or a version manager's stable entry point), and otherwise the real path of the running Node. `install` prints the path it wrote as `Node: <path>`.
 - Pass `--node <path>` to choose the Node path yourself. It must exist, be executable and satisfy the `engines` range in package.json (`^22.14.0 || >=23.6.0`); otherwise `install` exits with code 1 and writes nothing.
 - After upgrading Node: if `install` warned that the Node path contains a version directory (Homebrew `Cellar`, nvm, fnm, Volta, asdf, `node-v<version>`), run `n2n-nexus install <claude|codex>` again after each upgrade, or pass `--node` with a stable path.
 - Supported on Linux, WSL and macOS; Codex hooks also support Windows PowerShell.
@@ -124,11 +126,11 @@ On macOS the first connection may trigger a **Local Network** permission prompt 
 
 ## 7. Check the installation
 
-`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook and MCP commands still exist and run, and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails.
+`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook commands, and the Node path and npx in the MCP command, still exist and run, and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails.
 
 ## 8. Upgrading
 
-- Client: `npm i -g n2n-nexus@latest`. Hooks use the new version at once; the MCP server in a running conversation keeps the old one until you start a new conversation.
+- Client: the MCP server needs nothing: each new conversation starts the latest version (a running conversation keeps the one it started with). For the hooks, run `npm i -g n2n-nexus@latest`; they use the new version at once.
 - Host: upgrade with the package manager you installed it with (`scoop update n2n-nexus-host`, `brew upgrade n2n-nexus-host`), or replace the program, then restart it (tray: **Restart**; service: run `n2n-nexus-host service install` again from an administrator terminal).
 
 ## 9. Uninstalling

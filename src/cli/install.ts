@@ -9,6 +9,9 @@
  * Dock do not read the shell PATH. The `node` found on PATH is preferred when it
  * is the running binary, because process.execPath is the resolved, versioned
  * location (nvm, Homebrew Cellar, ...) that disappears when Node is upgraded.
+ * The hooks run this installation's entry script; the MCP server runs
+ * `n2n-nexus@latest` through npm's npx with that Node, so every new
+ * conversation starts the latest published client.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -47,6 +50,8 @@ export class InstallError extends Error {}
 
 /** Path segments of Node installs that are replaced on upgrade. */
 export const VERSIONED_NODE_DIR = /[/\\]Cellar[/\\]|[/\\]\.nvm[/\\]versions[/\\]|[/\\]node-v\d|[/\\]fnm[/\\]|[/\\]fnm_multishells[/\\]|[/\\]\.volta[/\\]|[/\\]\.asdf[/\\]installs[/\\]/;
+/** The package the MCP server command starts through npx. */
+export const MCP_PACKAGE = `${pkg.name}@latest`;
 /** fnm puts a per-shell symlink directory first on PATH; it is gone when the shell ends. */
 const PER_SHELL_NODE_DIR = /[/\\]fnm_multishells[/\\]/;
 
@@ -70,6 +75,31 @@ export function stableNodePath(env: NodeJS.ProcessEnv = process.env): string {
         if (sameFile(candidate, process.execPath)) return candidate;
     }
     return process.execPath;
+}
+
+/**
+ * npm's npx script for `node`, run as `"<node>" "<script>"`: the `npx` link next to the Node (Unix; kept unresolved,
+ * like the Node path, when it leads to npx-cli.js) or `node_modules/npm/bin/npx-cli.js` next to it (Windows), else
+ * the same next to the resolved Node.
+ */
+export function npxScript(node: string): string {
+    const nearby = (dir: string): string | undefined => {
+        const candidate = process.platform === "win32" ? path.join(dir, "node_modules", "npm", "bin", "npx-cli.js") : path.join(dir, "npx");
+        try {
+            return fs.realpathSync(candidate).endsWith(".js") ? candidate : undefined;
+        } catch {
+            return undefined;
+        }
+    };
+    let resolved = node;
+    try {
+        resolved = fs.realpathSync(node);
+    } catch {
+        // checkNodePath / stableNodePath already made sure the Node exists
+    }
+    const script = nearby(path.dirname(node)) ?? nearby(path.dirname(resolved));
+    if (!script) throw new InstallError(`npm's npx was not found next to ${node}; install with --node <path> pointing at a Node.js that includes npm.`);
+    return script;
 }
 
 type Version = [number, number, number];
@@ -227,10 +257,18 @@ function mcpRemoveArgs(client: HookClient): string[] {
         : ["mcp", "remove", MCP_SERVER_NAME];
 }
 
-function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: string): string[] {
-    const env = endpoint ? [client === "claude" ? "-e" : "--env", `NEXUS_ENDPOINT=${endpoint}`] : [];
+/**
+ * `<client> mcp add` for `"<node>" "<npx>" -y n2n-nexus@latest mcp`. Off Windows, PATH starts with the Node's folder:
+ * npx starts the package's `#!/usr/bin/env node` script, and a GUI client started from the Dock has no Node on PATH.
+ */
+function mcpAddArgs(client: HookClient, node: string, npx: string, endpoint?: string): string[] {
+    const flag = client === "claude" ? "-e" : "--env";
+    const vars = [
+        ...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []),
+        ...(process.platform === "win32" ? [] : [`PATH=${[path.dirname(node), "/usr/bin", "/bin"].join(path.delimiter)}`])
+    ];
     const scope = client === "claude" ? ["--scope", "user"] : [];
-    return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...env, "--", node, entry, "mcp"];
+    return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...vars.flatMap((v) => [flag, v]), "--", node, npx, "-y", MCP_PACKAGE, "mcp"];
 }
 
 /**
@@ -282,13 +320,14 @@ export function runInstall(options: InstallOptions): number {
     const entry = options.entry ?? entryScript();
     try {
         if (action === "install" && /[/\\]_npx[/\\]/.test(entry)) {
-            throw new InstallError(`n2n-nexus is running from an npx cache (${entry}), which can be cleared at any time. Install it first: npm i -g n2n-nexus`);
+            throw new InstallError(`n2n-nexus is running from an npx cache (${entry}), which can be cleared at any time. Install it first: npm i -g ${MCP_PACKAGE}`);
         }
         const probe = spawnClientSync(client, ["--version"], { stdio: "ignore" });
         if (probe.error || probe.status !== 0) {
             throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
         }
         const node = action === "install" ? (options.node ? checkNodePath(options.node) : stableNodePath()) : undefined;
+        const npx = node && npxScript(node);
 
         const file = configFile(client);
         const config = readConfig(file);
@@ -306,8 +345,8 @@ export function runInstall(options: InstallOptions): number {
         }
 
         removeMcpServer(client, action, removed);
-        if (action === "install" && node) {
-            const addArgs = mcpAddArgs(client, node, entry, endpoint);
+        if (action === "install" && node && npx) {
+            const addArgs = mcpAddArgs(client, node, npx, endpoint);
             runClient(client, addArgs, ["ignore", "ignore", "inherit"]);
             process.stdout.write(`Ran: ${client} ${addArgs.join(" ")}\n`);
             process.stdout.write(`Node: ${node}\n`);

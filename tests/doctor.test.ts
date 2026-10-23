@@ -8,6 +8,7 @@ import path from "node:path";
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
 import { HOOK, Host } from "./conformance/harness.js";
 
+import { npxScript } from "../src/cli/install.js";
 import { readMcpCommand } from "../src/cli/mcp-config.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
@@ -15,6 +16,9 @@ const REPO = path.resolve(__dirname, "..");
 const ENTRY = path.join(REPO, "build", "index.js");
 const TMP = path.join(REPO, "tests", "tmp", "doctor");
 const NODE = process.execPath;
+const NPX = npxScript(NODE);
+/** The MCP server arguments install writes after the Node path. */
+const MCP_ARGS = [NPX, "-y", "n2n-nexus@latest", "mcp"];
 
 let dir: string;
 let claudeDir: string;
@@ -115,14 +119,14 @@ afterAll(async () => {
 
 describe("doctor", () => {
     it("passes when the hook and MCP commands use a Node that exists and runs", async () => {
-        writeClaude(hookCommand("claude"), { command: NODE, args: [ENTRY, "mcp"] });
-        writeCodex(hookCommand("codex"), { command: NODE, args: [ENTRY, "mcp"] });
+        writeClaude(hookCommand("claude"), { command: NODE, args: MCP_ARGS });
+        writeCodex(hookCommand("codex"), { command: NODE, args: MCP_ARGS });
         const result = await run([]);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain(`ok   hook Node ${NODE}: v${process.versions.node}`);
         expect(result.stdout).toContain(`ok   MCP Node ${NODE}: v${process.versions.node}`);
         expect(result.stdout).toContain(`ok   hook entry ${ENTRY}: ok`);
-        expect(result.stdout).toContain(`ok   MCP entry ${ENTRY}: ok`);
+        expect(result.stdout).toContain(`ok   MCP npx ${NPX}: ok`);
         expect(result.stdout).not.toContain("FAIL");
         expect(result.stdout).not.toContain("fix:");
         expect(result.stdout.match(/hook Node/g)).toHaveLength(2);
@@ -131,7 +135,7 @@ describe("doctor", () => {
 
     it("reports a missing Node in the hooks and the MCP command and says how to fix it", async () => {
         const gone = path.join(dir, "node-v22.0.0", "bin", "node");
-        writeClaude(hookCommand("claude", gone), { command: gone, args: [ENTRY, "mcp"] });
+        writeClaude(hookCommand("claude", gone), { command: gone, args: MCP_ARGS });
         const result = await run(["claude"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${gone}: missing`);
@@ -154,31 +158,40 @@ describe("doctor", () => {
             fs.symlinkSync(NODE, versioned);
         }
 
-        writeCodex(hookCommand("codex", broken, "/nowhere/build/index.js"), { command: old, args: ["/nowhere/build/index.js", "mcp"] });
+        writeCodex(hookCommand("codex", broken, "/nowhere/build/index.js"), { command: old, args: ["/nowhere/npx-cli.js", "-y", "n2n-nexus@latest", "mcp"] });
         let result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${broken}: does not run`);
         expect(result.stdout).toContain("FAIL hook entry /nowhere/build/index.js: missing");
         expect(result.stdout).toContain(`FAIL MCP Node ${old}: v20.1.0 does not satisfy ^22.14.0 || >=23.6.0`);
+        expect(result.stdout).toContain("FAIL MCP npx /nowhere/npx-cli.js: missing");
         expect(result.stdout).toContain('fix: run "n2n-nexus install codex" again');
 
-        writeCodex(hookCommand("codex", path.join(bin, "noexec")), { command: versioned, args: [ENTRY, "mcp"] });
+        writeCodex(hookCommand("codex", path.join(bin, "noexec")), { command: versioned, args: MCP_ARGS });
         result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "noexec")}: ${process.platform === "win32" ? "does not run" : "not executable"}`);
         expect(result.stdout).toContain(`ok   MCP Node ${versioned}: v${process.versions.node}, in a version directory that an upgrade may remove`);
         expect(result.stdout).not.toContain("note:");
 
-        writeCodex(hookCommand("codex", versioned), { command: versioned, args: [ENTRY, "mcp"] });
+        writeCodex(hookCommand("codex", versioned), { command: versioned, args: MCP_ARGS });
         result = await run(["codex"]);
         expect(result.code).toBe(0);
         expect(result.stdout).toContain('note: after upgrading Node, run "n2n-nexus install codex" again, or install with --node <path>');
     });
 
+    it("reports an MCP command not in the npx form, as an older install wrote it", async () => {
+        writeClaude(hookCommand("claude"), { command: NODE, args: [ENTRY, "mcp"] });
+        const result = await run(["claude"]);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain(`FAIL MCP command in ${path.join(claudeDir, ".claude.json")}: not in the form "<node>" "<npx>" -y n2n-nexus@latest mcp`);
+        expect(result.stdout).toContain('fix: run "n2n-nexus install claude" again');
+    });
+
     it("ignores hook groups whose hooks field is not an array", async () => {
         fs.mkdirSync(claudeDir, { recursive: true });
         fs.writeFileSync(path.join(claudeDir, "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: "oops" }, { hooks: [{ type: "command", command: hookCommand("claude") }] }] } }));
-        fs.writeFileSync(path.join(claudeDir, ".claude.json"), JSON.stringify({ mcpServers: { "n2n-nexus": { command: NODE, args: [ENTRY, "mcp"] } } }));
+        fs.writeFileSync(path.join(claudeDir, ".claude.json"), JSON.stringify({ mcpServers: { "n2n-nexus": { command: NODE, args: MCP_ARGS } } }));
         expect((await run(["claude"])).code).toBe(0);
     });
 
@@ -195,7 +208,7 @@ describe("doctor", () => {
         expect(result.stdout).toContain("codex\n  not installed");
 
         fs.rmSync(claudeDir, { recursive: true });
-        writeCodex('"/x/node" "/x/index.js" hook claude', { command: NODE, args: [ENTRY, "mcp"] });
+        writeCodex('"/x/node" "/x/index.js" hook claude', { command: NODE, args: MCP_ARGS });
         result = await run(["codex"]);
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hooks in ${path.join(codexHome, "hooks.json")}: not installed`);
@@ -218,8 +231,8 @@ describe("doctor", () => {
     it("checks the host each hook command talks to: --endpoint, else NEXUS_ENDPOINT", async () => {
         const other = await fakeHealth({ ok: true, service: "n2n-nexus", version: "9.9.9", contractVersion: HOOK.contractVersion });
         try {
-            writeClaude(`${hookCommand("claude")} --endpoint ${other.endpoint}`, { command: NODE, args: [ENTRY, "mcp"] });
-            writeCodex(hookCommand("codex"), { command: NODE, args: [ENTRY, "mcp"] });
+            writeClaude(`${hookCommand("claude")} --endpoint ${other.endpoint}`, { command: NODE, args: MCP_ARGS });
+            writeCodex(hookCommand("codex"), { command: NODE, args: MCP_ARGS });
             const result = await run([]);
             expect(result.code).toBe(0);
             expect(result.stdout).toContain(`host ${other.endpoint}\n  ok   n2n-nexus-host 9.9.9, contract version ${HOOK.contractVersion}\n`);
