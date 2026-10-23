@@ -200,7 +200,7 @@ describe("hook with --endpoint discover", () => {
             expect(fake.hits).toBe(1);
             expect(portOf(fs.readFileSync(CACHE, "utf8").trim())).toBe(fake.port);
 
-            fs.writeFileSync(CACHE, "http://127.0.0.2:1\n");                       // a daemon that is gone (not local: no autostart)
+            fs.writeFileSync(CACHE, "http://127.0.0.2:1\n");                       // a daemon that is gone
             expect(await runHook()).toContain("hi");
             expect(fake.hits).toBe(2);
             expect(portOf(fs.readFileSync(CACHE, "utf8").trim())).toBe(fake.port);
@@ -216,7 +216,7 @@ describe("MCP adapter with NEXUS_ENDPOINT=discover", () => {
         try {
             await responder(daemon.port);
             process.env.NEXUS_ENDPOINT = DISCOVER_ENDPOINT;
-            const adapter = new NexusServer({ autostart: false });
+            const adapter = new NexusServer();
             const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
             await adapter.run({ transport: serverSide });
             const client = new Client({ name: "test-ide", version: "1.0" });

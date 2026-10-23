@@ -6,7 +6,7 @@
 
 ### 新增
 
-- 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 daemon，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 daemon 会应答这些查询。没有应答时，客户端照旧使用本机 daemon。
+- 局域网发现：`NEXUS_ENDPOINT=discover`（或 `--endpoint discover`）让 MCP 适配器和 hooks 通过 `NEXUS_DISCOVERY_PORT`（默认 5688）上的 UDP 广播查找 daemon，缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上时重新查找。监听非回环地址的 daemon 会应答这些查询。没有应答时，客户端使用本机地址 `http://127.0.0.1:5688`。
 - SessionStart hook 告诉新对话它自己的会话名称和 ID，以及哪些其他会话不处于离线状态，不用先被要求查询就能给它们发消息。
 - MCP 适配器发送服务器 instructions，说明如何查找其他 AI 会话并给它们发消息。
 
@@ -14,8 +14,11 @@
 
 - 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `NEXUS_MAX_AUTO_TURNS`（默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
 
+- `n2n-nexus install host [--host] [--port] [--root] [--node]` 把 daemon 注册为开机启动的服务，不依赖任何 IDE（Windows 计划任务，需在管理员终端运行）；`n2n-nexus uninstall host` 删除这个服务并停止它的 daemon。
+
 ### 变更
 
+- 本机地址上没有 daemon 应答时，MCP 适配器和 hooks 不再自己启动 daemon。它们启动的 daemon 可能在服务 daemon 重启的空档里抢占端口，升级后还会继续运行旧代码。现在工具调用会报错并说明如何启动 daemon，hooks 静默跳过。请用 `n2n-nexus install host` 或 `n2n-nexus daemon` 启动。
 - `peers` 默认只列出未离线的会话；传 `includeOffline: true` 时，和以前一样再列出 24 小时内活跃过的离线会话。
 - `idle` 或 `working` 状态的会话 30 分钟没有任何活动就标为 `offline`，因为客户端不一定发送 SessionEnd（已结束或关闭的 Codex 对话此前会一直"在线"）；它下一次有事件时恢复。`peers` 与 SessionStart 介绍会说明只有 `listening` 的会话能马上回复。
 

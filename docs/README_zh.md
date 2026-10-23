@@ -81,8 +81,12 @@ n2n-nexus 为 AI 助手提供共享协作空间。不同助手不再只依赖自
 ### 1. 启动 daemon
 
 ```bash
-npx n2n-nexus daemon --port 5688
+npm i -g n2n-nexus
+n2n-nexus install host        # Windows：立即启动 daemon，并在每次开机时自动启动（需在管理员终端运行）
+n2n-nexus daemon --port 5688  # 或者自己运行：macOS / Linux，或临时试用
 ```
+
+加上 `--host 0.0.0.0`，它就成为局域网里其他机器的 host；`n2n-nexus uninstall host` 删除这个服务。
 
 ### 2. 配置 MCP 客户端
 
@@ -100,7 +104,7 @@ npx n2n-nexus daemon --port 5688
 }
 ```
 
-适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。本机地址（`127.0.0.1` 或 `localhost`）上没有 daemon 在监听时，适配器和 hooks 会在后台拉起一个（日志：`~/.n2n-nexus/daemon.log`）。
+适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。适配器和 hooks 从不自己启动 daemon：连不上时，工具调用会报错并说明如何启动，hooks 则静默跳过。
 
 ### 3. Claude Code 和 Codex 对话之间的直接消息
 
@@ -133,7 +137,7 @@ n2n-nexus install codex     # ~/.codex/hooks.json（或 $CODEX_HOME）+ codex mc
 | 远程机器 | `http://<Server-IP>:5688` |
 | 在局域网里自动查找 daemon | `discover` |
 
-设为 `discover` 时，适配器和 hooks 在 UDP `NEXUS_DISCOVERY_PORT` 上广播查询，使用第一个应答的 daemon；结果缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上该 daemon 时重新查找。只有监听非回环地址（`--host 0.0.0.0`）的 daemon 才应答，所以要在它的防火墙上对可信网络放行 UDP 和 TCP 5688。没有应答时，客户端使用 `http://127.0.0.1:5688`（照常启动本机 daemon），一分钟后再查找；客户端自己不会变成局域网可访问的 daemon。
+设为 `discover` 时，适配器和 hooks 在 UDP `NEXUS_DISCOVERY_PORT` 上广播查询，使用第一个应答的 daemon；结果缓存在 `~/.n2n-nexus/discovered-endpoint`，连不上该 daemon 时重新查找。只有监听非回环地址（`--host 0.0.0.0`）的 daemon 才应答，所以要在它的防火墙上对可信网络放行 UDP 和 TCP 5688。没有应答时，客户端使用 `http://127.0.0.1:5688`（本机作为服务运行的 daemon），一分钟后再查找；客户端自己不会变成局域网可访问的 daemon。
 
 ## 工具集
 
@@ -239,6 +243,10 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 
 # 启动 MCP 适配器
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
+
+# 把 daemon 注册为开机启动的服务 / 删除（Windows；需管理员终端）
+n2n-nexus install host [--host 127.0.0.1] [--port 5688] [--root ~/.n2n-nexus] [--node <path>]
+n2n-nexus uninstall host
 
 # 为 Claude Code 或 Codex 安装 / 删除 hooks 和 MCP 服务
 # --node <path>：写进客户端配置的 Node 可执行文件路径

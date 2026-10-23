@@ -121,7 +121,7 @@ describe("MCP proxy lifecycle", () => {
         const [, serverSide] = InMemoryTransport.createLinkedPair();
         const input = new PassThrough();
         let exited = false;
-        const proxy = new NexusServer({ autostart: false });
+        const proxy = new NexusServer();
         await proxy.run({ transport: serverSide, input, onExit: () => { exited = true; } });
         expect((proxy as unknown as { retryTimer: unknown }).retryTimer).not.toBeNull();
 
@@ -291,7 +291,7 @@ describe("MCP proxy reconnect race", () => {
         process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${port}`;
         process.env.NEXUS_INSTANCE_ID = "race";
 
-        const proxy = new NexusServer({ retryIntervalMs: 50, requestTimeoutMs: 500, autostart: false });
+        const proxy = new NexusServer({ retryIntervalMs: 50, requestTimeoutMs: 500 });
         const internals = proxy as unknown as { connected: boolean; notifyToolsChanged: () => Promise<void> };
         // Widen the window between "connected" and the end of the attempt (the client notification).
         const notify = internals.notifyToolsChanged.bind(proxy);

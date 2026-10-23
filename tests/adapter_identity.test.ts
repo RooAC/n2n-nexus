@@ -1,13 +1,8 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { PassThrough } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-
-const autostart = vi.hoisted(() => ({ calls: [] as string[], start: undefined as undefined | ((endpoint: string) => Promise<boolean>) }));
-vi.mock("../src/cli/autostart.js", () => ({
-    startLocalDaemon: async (endpoint: string) => { autostart.calls.push(endpoint); return autostart.start ? autostart.start(endpoint) : false; }
-}));
 
 import { NexusServer } from "../src/server/nexus.js";
 
@@ -17,8 +12,6 @@ const clients: Client[] = [];
 const servers: http.Server[] = [];
 
 beforeEach(() => {
-    autostart.calls.length = 0;
-    autostart.start = undefined;
     process.env.NEXUS_INSTANCE_ID = "identity-test";
 });
 
@@ -106,7 +99,7 @@ for (const stateless of [false, true]) {
     });
 }
 
-describe("Daemon autostart from the adapter", () => {
+describe("No daemon", () => {
     async function closedPort(): Promise<number> {
         const probe = http.createServer();
         await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
@@ -115,23 +108,15 @@ describe("Daemon autostart from the adapter", () => {
         return port;
     }
 
-    async function runAgainst(endpoint: string, options: ConstructorParameters<typeof NexusServer>[0] = {}) {
-        process.env.NEXUS_ENDPOINT = endpoint;
-        const proxy = new NexusServer({ retryIntervalMs: 60_000, ...options });
-        proxies.push(proxy);
-        const [, serverSide] = InMemoryTransport.createLinkedPair();
-        await proxy.run({ transport: serverSide, input: new PassThrough(), onExit: () => { } });
-    }
-
-    it("tries to start a daemon once when nothing listens at the endpoint", async () => {
-        const endpoint = `http://127.0.0.1:${await closedPort()}`;
-        await runAgainst(endpoint);
-        expect(autostart.calls).toEqual([endpoint]);
+    const answers = (port: number) => new Promise<boolean>((resolve) => {
+        const req = http.get(`http://127.0.0.1:${port}/api/tools`, { timeout: 500 }, (res) => { res.resume(); resolve(true); });
+        req.on("error", () => resolve(false));
+        req.on("timeout", () => req.destroy());
     });
 
-    it("tries again once per outage when the daemon goes away while connected", async () => {
-        await fakeDaemon();
-        const endpoint = process.env.NEXUS_ENDPOINT!;
+    it("never starts one: a tool call says how to start it, and the adapter connects once it is up", async () => {
+        const port = await closedPort();
+        process.env.NEXUS_ENDPOINT = `http://127.0.0.1:${port}`;
         const proxy = new NexusServer({ retryIntervalMs: 50 });
         proxies.push(proxy);
         const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
@@ -139,51 +124,31 @@ describe("Daemon autostart from the adapter", () => {
         const client = new Client({ name: "Cursor", version: "1" });
         clients.push(client);
         await client.connect(clientSide);
-        await client.listTools();
-        expect(autostart.calls).toEqual([]);
 
-        const daemon = servers.pop()!;
-        daemon.closeAllConnections();
-        await new Promise<void>((resolve) => daemon.close(() => resolve()));
         const failed = await client.callTool({ name: "echo", arguments: {} });
         expect(failed.isError).toBe(true);
-        await new Promise((resolve) => setTimeout(resolve, 400));     // several retry intervals
-        expect(autostart.calls).toEqual([endpoint]);
+        expect(JSON.stringify(failed.content)).toContain("n2n-nexus install host");
+        await new Promise((resolve) => setTimeout(resolve, 300));     // several retry intervals
+        expect(await answers(port)).toBe(false);
+
+        await fakeDaemon(port);
+        const deadline = Date.now() + 3000;
+        while (!(await client.listTools()).tools.some((t) => t.name === "echo") && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await callEcho(client, {});
     });
 
-    it("repeats the failed call once when the started daemon comes up", async () => {
+    it("says how to start the daemon when it goes away while connected", async () => {
         await fakeDaemon();
-        const port = Number(new URL(process.env.NEXUS_ENDPOINT!).port);
         const client = await connect("Cursor", false);
         await client.listTools();
         const daemon = servers.pop()!;
         daemon.closeAllConnections();
         await new Promise<void>((resolve) => daemon.close(() => resolve()));
-
         await new Promise((resolve) => setTimeout(resolve, 50));   // let the client see its pooled socket close
-        let restarted: Recorded[] = [];
-        autostart.start = async () => { restarted = await fakeDaemon(port); return true; };
-        const result = await client.callTool({ name: "echo", arguments: { n: 1 } });
-        expect(result.isError, JSON.stringify(result.content)).toBeFalsy();
-        expect(autostart.calls).toHaveLength(1);
-        expect(restarted.filter((r) => r.url === "/api/tools/call").map((r) => r.body.args)).toEqual([{ n: 1 }]);
-    });
-
-    it("does not start one when autostart is off", async () => {
-        await runAgainst(`http://127.0.0.1:${await closedPort()}`, { autostart: false });
-        expect(autostart.calls).toEqual([]);
-    });
-
-    it("does not start one when a daemon answers, or accepts but hangs", async () => {
-        await fakeDaemon();
-        await runAgainst(process.env.NEXUS_ENDPOINT!);
-        const net = await import("node:net");
-        const sockets: import("node:net").Socket[] = [];
-        const hung = net.createServer((sock) => { sockets.push(sock); });
-        await new Promise<void>((resolve) => hung.listen(0, "127.0.0.1", resolve));
-        await runAgainst(`http://127.0.0.1:${(hung.address() as AddressInfo).port}`, { requestTimeoutMs: 100 });
-        expect(autostart.calls).toEqual([]);
-        sockets.forEach((s) => s.destroy());
-        await new Promise((resolve) => hung.close(resolve));
+        const failed = await client.callTool({ name: "echo", arguments: {} });
+        expect(failed.isError).toBe(true);
+        expect(JSON.stringify(failed.content)).toContain("n2n-nexus install host");
     });
 });

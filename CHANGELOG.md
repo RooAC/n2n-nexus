@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- LAN discovery: `NEXUS_ENDPOINT=discover` (or `--endpoint discover`) makes the MCP adapter and the hooks find a daemon by UDP broadcast on `NEXUS_DISCOVERY_PORT` (default 5688), cache it in `~/.n2n-nexus/discovered-endpoint` and look again when it cannot be reached. A daemon bound to a non-loopback address answers these queries. When none answers, clients use the local daemon as before.
+- LAN discovery: `NEXUS_ENDPOINT=discover` (or `--endpoint discover`) makes the MCP adapter and the hooks find a daemon by UDP broadcast on `NEXUS_DISCOVERY_PORT` (default 5688), cache it in `~/.n2n-nexus/discovered-endpoint` and look again when it cannot be reached. A daemon bound to a non-loopback address answers these queries. When none answers, clients use the local endpoint `http://127.0.0.1:5688`.
 - The SessionStart hook tells a new conversation its own session name and ID and which other sessions are not offline, so it can message them without being asked to look first.
 - The MCP adapter sends server instructions describing how to find and message other AI sessions.
 
@@ -14,8 +14,11 @@ All notable changes to this project will be documented in this file.
 
 - Automatic turn limit: wakes, listening Stops and Stops held open for messages count as automatic turns, and after `NEXUS_MAX_AUTO_TURNS` (default 8; `0` = no limit) since the user's last prompt, messages are stored but no longer wake or hold the conversation, so two AI sessions cannot keep waking each other. The announcement says `Automatic turn n of N`; the prompt that starts a woken turn does not reset the count.
 
+- `n2n-nexus install host [--host] [--port] [--root] [--node]` runs the daemon as a service that starts at boot, independent of any IDE (Windows scheduled task, from an elevated terminal); `n2n-nexus uninstall host` removes it and stops its daemon.
+
 ### Changed
 
+- The MCP adapter and the hooks no longer start a daemon when none answers at a local endpoint. A daemon they started could take the port while the service daemon restarted, and run old code after an upgrade. Tool calls now fail with a message saying how to start the daemon; the hooks skip silently. Start it with `n2n-nexus install host` or `n2n-nexus daemon`.
 - `peers` lists only the sessions that are not offline; `includeOffline: true` adds the offline ones active in the last 24 hours, as before.
 - An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.
 

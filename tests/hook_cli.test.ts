@@ -4,7 +4,6 @@ import fs from "node:fs";
 import http from "node:http";
 import net, { AddressInfo } from "node:net";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 // Tests the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -314,54 +313,36 @@ describe("n2n-nexus hook, no daemon", () => {
         expect(result.ms).toBeLessThan(1_500);
     });
 
-    it("starts a local daemon on ECONNREFUSED and logs to ~/.n2n-nexus/daemon.log", async () => {
-        const home = path.join(TMP, "autostart-home");
-        fs.rmSync(home, { recursive: true, force: true });
+    it("never starts a local daemon: it says on stderr how to start one", async () => {
         const port = await freePort();
-        startedPorts.push(port);
-
-        const result = await runHook(
-            ["claude", "--endpoint", `http://127.0.0.1:${port}`],
-            JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }),
-            { HOME: home, USERPROFILE: home, NEXUS_ROOT: path.join(home, "root") }
-        );
-        const pid = listenerPid(port);
-        if (pid) started.push(pid);
-
-        expect(result.code).toBe(0);
-        expect(JSON.parse(result.stdout).hookSpecificOutput.additionalContext).toContain("This conversation is");
-        expect(pid).toBeDefined();
-        expect(await toolsAnswer(port)).toBe(true);
-        expect(fs.readFileSync(path.join(home, ".n2n-nexus", "daemon.log"), "utf8")).toContain(`listening on http://127.0.0.1:${port}`);
-        expect(fs.existsSync(path.join(home, "root"))).toBe(true);
+        const result = await runHook(["claude", "--endpoint", `http://127.0.0.1:${port}`], JSON.stringify({ hook_event_name: "SessionStart", session_id: "x" }));
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(result.stderr).toContain(`No daemon at http://127.0.0.1:${port}`);
+        expect(result.stderr).toContain("n2n-nexus install host");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        expect(await toolsAnswer(port)).toBe(false);
     }, 15_000);
+});
 
-    it("does not start a daemon for a non-local endpoint", async () => {
-        const autostart = await loadAutostart();
-        const before = Date.now();
-        expect(await autostart.startLocalDaemon("http://127.0.0.2:5688")).toBe(false);
-        expect(await autostart.startLocalDaemon("http://example.invalid:5688")).toBe(false);
-        expect(Date.now() - before).toBeLessThan(500);
-    });
+describe("daemons started at the same time", () => {
+    afterEach(stopStarted);
 
-    type Autostart = typeof import("../src/cli/autostart.js");
-    const loadAutostart = async () => await import(pathToFileURL(path.join(REPO, "build", "cli", "autostart.js")).href) as Autostart;
-
-    /** Call startLocalDaemon from this process (so the daemons are our children) with an isolated home and storage root. */
-    async function startConcurrently(home: string, endpoints: string[]): Promise<boolean[]> {
-        const autostart = await loadAutostart();
-        const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, NEXUS_ROOT: process.env.NEXUS_ROOT };
-        process.env.HOME = home;
-        process.env.USERPROFILE = home;
-        process.env.NEXUS_ROOT = path.join(home, "root");
-        startedPorts.push(...endpoints.map((endpoint) => Number(new URL(endpoint.includes("://") ? endpoint : `http://${endpoint}`).port)));
-        try {
-            return await Promise.all(endpoints.map((endpoint) => autostart.startLocalDaemon(endpoint)));
-        } finally {
-            for (const [key, value] of Object.entries(saved)) {
-                if (value === undefined) delete process.env[key];
-                else process.env[key] = value;
-            }
+    /** Start daemons on `ports` from this process (so they are our children) with an isolated home and storage root; resolves once one answers on each port. */
+    async function startConcurrently(home: string, ports: number[]): Promise<void> {
+        const logDir = path.join(home, ".n2n-nexus");
+        fs.mkdirSync(logDir, { recursive: true });
+        startedPorts.push(...ports);
+        for (const port of ports) {
+            const log = fs.openSync(path.join(logDir, "daemon.log"), "a");
+            spawn(process.execPath, [ENTRY, "daemon", "--port", String(port)], {
+                env: { ...process.env, HOME: home, USERPROFILE: home, NEXUS_ROOT: path.join(home, "root"), NEXUS_HOST: "" },
+                stdio: ["ignore", log, log]
+            });
+            fs.closeSync(log);
+        }
+        for (const port of new Set(ports)) {
+            const deadline = Date.now() + 5000;
+            while (!await toolsAnswer(port) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
         }
     }
 
@@ -370,23 +351,19 @@ describe("n2n-nexus hook, no daemon", () => {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
     };
 
-    it("leaves one serving daemon when two callers start one at the same time", async () => {
+    it("leaves one serving daemon when two start on the same port", async () => {
         const home = path.join(TMP, "race-home");
         fs.rmSync(home, { recursive: true, force: true });
 
         // Initialise the storage root first, so both racers reach listen().
         const setupPort = await freePort();
-        expect(await startConcurrently(home, [`http://127.0.0.1:${setupPort}`])).toEqual([true]);
-        started.push(...ownDaemonChildren(setupPort));
+        await startConcurrently(home, [setupPort]);
         await stopStarted();
         fs.rmSync(path.join(home, ".n2n-nexus"), { recursive: true, force: true });
 
         const port = await freePort();
-        const results = await startConcurrently(home, [`http://127.0.0.1:${port}`, `localhost:${port}`]);
-        started.push(...ownDaemonChildren(port));
-
-        expect(results).toEqual([true, true]);
-        // Both spawned a daemon: the loser exits on EADDRINUSE, the winner keeps serving.
+        await startConcurrently(home, [port, port]);
+        // The loser exits on EADDRINUSE, the winner keeps serving.
         expect(await waitFor(() => readLog(home).includes("EADDRINUSE"), 5000)).toBe(true);
         expect(readLog(home).match(/listening on/g)).toHaveLength(1);
         expect(await waitFor(() => ownDaemonChildren(port).length === 1, 5000)).toBe(true);
@@ -394,14 +371,12 @@ describe("n2n-nexus hook, no daemon", () => {
         expect(await toolsAnswer(port)).toBe(true);
     }, 20_000);
 
-    it("leaves one serving daemon when two callers race on a fresh storage root", async () => {
+    it("leaves one serving daemon when two race on a fresh storage root", async () => {
         const home = path.join(TMP, "race-fresh-home");
         fs.rmSync(home, { recursive: true, force: true });
         const port = await freePort();
-        const results = await startConcurrently(home, [`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
-        started.push(...ownDaemonChildren(port));
+        await startConcurrently(home, [port, port]);
 
-        expect(results).toEqual([true, true]);
         expect(await waitFor(() => (readLog(home).match(/Fatal error/g) ?? []).length === 1, 5000)).toBe(true);
         // The loser gets as far as listen(): storage initialisation tolerates a concurrent first start.
         expect(readLog(home)).toContain("EADDRINUSE");

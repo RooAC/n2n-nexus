@@ -15,6 +15,11 @@ n2n-nexus v${pkg.version} — Multi-AI assistant coordination hub
 USAGE:
   n2n-nexus daemon   Start the Nexus server (run once, stays alive)
   n2n-nexus mcp      Start the MCP proxy (launched by IDE automatically)
+  n2n-nexus install host [--host <addr>] [--port <port>] [--root <path>] [--node <path>]
+                     Run the daemon as a service that starts at boot (Windows scheduled task;
+                     needs an elevated terminal). Clients never start a daemon themselves.
+  n2n-nexus uninstall host
+                     Remove that service and stop its daemon
   n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
                      Register the hooks and the MCP server with Claude Code or Codex
   n2n-nexus uninstall <claude|codex>
@@ -53,6 +58,11 @@ async function main() {
     if (command === "hook") {
         const { runHook } = await import("./cli/hook.js");
         process.exit(await runHook(process.argv.slice(3)));
+    }
+
+    if ((command === "install" || command === "uninstall") && process.argv[3] === "host") {
+        const { runHostCommand } = await import("./cli/host.js");
+        process.exit(runHostCommand(command, process.argv.slice(4)));
     }
 
     if (command === "install" || command === "uninstall") {

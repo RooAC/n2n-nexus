@@ -6,7 +6,7 @@
 ┌──────────────────────────────────────────────────┐
 │              n2n-nexus daemon                    │
 │  Standalone HTTP server · started by the user,   │
-│  or in the background by a local hook / adapter  │
+│  or at boot by `n2n-nexus install host`          │
 │                                                  │
 │  ┌──────────────┐  ┌──────────────────────────┐  │
 │  │  REST API    │  │  Storage Layer           │  │
@@ -43,7 +43,7 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │     │  list_changed delivered on subscriptions/listen
   │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
   │
-  ├─ Connection refused at 127.0.0.1 / localhost: start a daemon in the background once
+  ├─ Nothing answers: say how to start the daemon (install host / daemon); never start one
   │
   ├─ If the daemon was down: retry loop (every 3 s)
   │     └─ GET /api/tools succeeds → cache tool list
@@ -155,13 +155,14 @@ One npm package, two commands:
 n2n-nexus
   │
   ├─ n2n-nexus daemon    Start once, keep running. Owns all data.
+  ├─ n2n-nexus install host   Run the daemon as a service that starts at boot (Windows).
   ├─ n2n-nexus mcp       IDE starts automatically via npx. Stateless proxy.
   ├─ n2n-nexus hook      Run by Claude Code / Codex on each hook event.
   ├─ n2n-nexus install   Write the hooks and MCP server into a client's user configuration.
   └─ n2n-nexus doctor    Check that the installed hook and MCP commands still run.
 ```
 
-**Daemon** (started by the user, or in the background by a hook or adapter when none listens at a local endpoint):
+**Daemon** (run as a boot service with `n2n-nexus install host`, or started by the user; the adapter and the hooks never start one, they report that none answers):
 ```bash
 npx n2n-nexus daemon --port 5688
 # or with explicit root
@@ -181,7 +182,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 }
 ```
 
-**Standalone host on a LAN**: run one daemon with `--host 0.0.0.0` as a service (a systemd unit, a launchd agent, or a Windows scheduled task that starts at boot), independent of any IDE, and allow TCP and UDP 5688 from the local subnet. Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
+**Standalone host on a LAN**: run one daemon with `--host 0.0.0.0` as a service (`n2n-nexus install host --host 0.0.0.0` on Windows, a systemd unit or a launchd agent elsewhere), independent of any IDE, and allow TCP and UDP 5688 from the local subnet. Each client machine then needs only the client side: `n2n-nexus install <claude|codex> --endpoint discover` writes the MCP server and the hooks, which find the host by UDP broadcast. On Windows, run `npm install -g` from a regular terminal: a terminal inside a packaged (MSIX) app such as Codex installs into that app's private copy of `%APPDATA%`, which only that app sees and which hides a later global install from it.
 
 **No required startup order**: start the IDE before the daemon — tools appear automatically once the daemon comes up. Daemon restarts are transparent; MCP reconnects and notifies the IDE.
 

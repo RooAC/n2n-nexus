@@ -20,7 +20,7 @@ import {
     type HookClient
 } from "../daemon/hook-contract.js";
 import { pkg } from "../config/index.js";
-import { entryScript } from "./autostart.js";
+import { entryScript } from "./entry.js";
 import { mcpConfigFile, readMcpCommand } from "./mcp-config.js";
 
 type HookEntry = { type: "command"; command: string; commandWindows?: string; asyncRewake?: boolean; timeout: number };
@@ -94,7 +94,7 @@ export function satisfiesEngines(version: string, range: string = pkg.engines.no
 }
 
 /** Check a `--node` path: it must exist, run, and satisfy engines.node. Returns the absolute path. */
-function checkNodePath(given: string): string {
+export function checkNodePath(given: string): string {
     const node = path.resolve(given);
     try {
         fs.accessSync(node, fs.constants.X_OK);

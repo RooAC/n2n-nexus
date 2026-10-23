@@ -8,7 +8,7 @@
 import { spawn, spawnSync } from "node:child_process";
 
 import {
-    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC,
+    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, NO_DAEMON_HINT, WAIT_HOOK_TIMEOUT_SEC,
     isHookClient, type HookClient, type HookResponse
 } from "../daemon/hook-contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
@@ -46,32 +46,29 @@ async function forward(argv: string[]): Promise<string> {
     }
     const timeoutMs = stdin.hook_event_name === "Stop" ? HOOK_STOP_REQUEST_TIMEOUT_MS : HOOK_REQUEST_TIMEOUT_MS;
 
-    /** Send to `endpoint`; when nothing listens there and it is local, start a daemon and send again. */
-    const sendOrStart = async (endpoint: string): Promise<HookResponse> => {
-        const send = () => new NexusClient({ endpoint }).hook({ client, input }, timeoutMs);
+    /** Send to `endpoint`; nothing listening there is reported with what to do about it. */
+    const send = async (endpoint: string): Promise<HookResponse> => {
         try {
-            return await send();
+            return await new NexusClient({ endpoint }).hook({ client, input }, timeoutMs);
         } catch (error) {
             if (!(error instanceof NexusTransportError && error.code === "ECONNREFUSED")) throw error;
-            const { startLocalDaemon } = await import("./autostart.js");
-            if (!await startLocalDaemon(endpoint)) throw error;
-            return await send();
+            throw new NexusTransportError(`No daemon at ${endpoint}. ${NO_DAEMON_HINT}`, error.code);
         }
     };
 
     const endpoint = await resolveEndpoint(configured);
     let response: HookResponse;
     try {
-        response = await sendOrStart(endpoint);
+        response = await send(endpoint);
     } catch (error) {
-        // The cached daemon is gone: look again, and fall back to a local one if none answers.
+        // The cached daemon is gone: look again, and fall back to the local endpoint if none answers.
         // A timed-out Stop may have been waiting for messages on purpose, so only other events count a timeout.
         const code = error instanceof NexusTransportError ? error.code ?? "" : "";
         const unreachable = UNREACHABLE_CODES.has(code) || (code === REQUEST_TIMEOUT_CODE && stdin.hook_event_name !== "Stop");
         if (configured !== DISCOVER_ENDPOINT || !unreachable) throw error;
         const found = await resolveEndpoint(configured, { fresh: true });
         if (found === endpoint) throw error;
-        response = await sendOrStart(found);
+        response = await send(found);
     }
 
     if (!isPlainObject(response) || !("output" in response)) throw new Error("invalid response from daemon");
@@ -118,7 +115,7 @@ async function runWait(argv: string[]): Promise<number> {
         if (!isPlainObject(stdin) || typeof stdin.session_id !== "string" || !stdin.session_id) return 0;
         sessionId = stdin.session_id;
         if (client === "codex") {
-            const { entryScript } = await import("./autostart.js");
+            const { entryScript } = await import("./entry.js");
             const args = [entryScript(), "hook", "codex", "--wait", "--session", sessionId, ...(argValue(argv, "--endpoint") ? ["--endpoint", configured] : [])];
             spawn(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true }).unref();
             return 0;

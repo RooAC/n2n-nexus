@@ -5,8 +5,8 @@
 ```
 ┌──────────────────────────────────────────────────┐
 │              n2n-nexus daemon                    │
-│  独立 HTTP 服务器 · 用户启动，或由本机的          │
-│  hook / 适配器在后台自动拉起，持续运行             │
+│  独立 HTTP 服务器 · 由用户启动，或由               │
+│  n2n-nexus install host 注册为开机服务             │
 │                                                  │
 │  ┌──────────────┐  ┌──────────────────────────┐  │
 │  │  REST API    │  │  存储层                   │  │
@@ -43,7 +43,7 @@ MCP-A  MCP-B  MCP-C      hooks（Claude Code / Codex）
   │     │  list_changed 经 subscriptions/listen 下发
   │     └─ 2025 代客户端：initialize 握手，主动下发 list_changed
   │
-  ├─ 连接 127.0.0.1 / localhost 被拒绝：在后台拉起一次 daemon
+  ├─ 连不上：提示如何启动 daemon（install host 或 daemon），自己从不启动
   │
   ├─ 若 daemon 不在线：重试循环（每 3 秒）
   │     └─ GET /api/tools 成功 → 缓存工具列表
@@ -155,13 +155,14 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 n2n-nexus
   │
   ├─ n2n-nexus daemon    启动一次，持续运行，持有所有数据。
+  ├─ n2n-nexus install host   把 daemon 注册为开机启动的服务（Windows）。
   ├─ n2n-nexus mcp       IDE 通过 npx 自动启动，无状态代理。
   ├─ n2n-nexus hook      Claude Code / Codex 在每个 hook 事件时运行。
   ├─ n2n-nexus install   把 hooks 和 MCP 服务写进客户端的用户级配置。
   └─ n2n-nexus doctor    检查已安装的 hook 和 MCP 命令是否还能运行。
 ```
 
-**Daemon**（由用户启动；本机地址上没有 daemon 时，也会由 hook 或适配器在后台拉起）：
+**Daemon**（用 `n2n-nexus install host` 注册为开机服务，或由用户启动；适配器和 hooks 从不启动 daemon，连不上时只提示）：
 ```bash
 npx n2n-nexus daemon --port 5688
 # 或显式指定存储路径
@@ -181,7 +182,7 @@ npx n2n-nexus daemon --root ~/.n2n-nexus --port 5688
 }
 ```
 
-**局域网中的独立 host**：用 `--host 0.0.0.0` 把一个 daemon 作为服务运行（systemd 单元、launchd agent，或开机启动的 Windows 计划任务），不依赖任何 IDE，并对本地子网放行 TCP 与 UDP 5688。之后每台客户端机器只需要客户端部分：`n2n-nexus install <claude|codex> --endpoint discover` 写入 MCP 服务和 hooks，它们通过 UDP 广播找到 host。在 Windows 上要在普通终端里执行 `npm install -g`：在 Codex 这类打包（MSIX）应用的终端里安装，会装进该应用私有的 `%APPDATA%` 副本，只有这个应用看得到，而且之后它会挡住真正的全局安装。
+**局域网中的独立 host**：用 `--host 0.0.0.0` 把一个 daemon 作为服务运行（Windows 上用 `n2n-nexus install host --host 0.0.0.0`，其他系统用 systemd 单元或 launchd agent），不依赖任何 IDE，并对本地子网放行 TCP 与 UDP 5688。之后每台客户端机器只需要客户端部分：`n2n-nexus install <claude|codex> --endpoint discover` 写入 MCP 服务和 hooks，它们通过 UDP 广播找到 host。在 Windows 上要在普通终端里执行 `npm install -g`：在 Codex 这类打包（MSIX）应用的终端里安装，会装进该应用私有的 `%APPDATA%` 副本，只有这个应用看得到，而且之后它会挡住真正的全局安装。
 
 **无强制启动顺序**：先开 IDE 再启动 daemon 也没问题，工具在 daemon 就绪后自动出现。Daemon 重启对 MCP 透明，自动重连后通知 IDE。
 

@@ -8,10 +8,9 @@ import type { Tool, Transport } from "@modelcontextprotocol/server";
 import { serveStdio, StdioServerTransport, type StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
 import { NexusClient, NexusToolError, NexusTransportError } from "../client/nexus-client.js";
-import { startLocalDaemon } from "../cli/autostart.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, cachedEndpoint, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
-import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, type Caller } from "../daemon/hook-contract.js";
+import { CLAUDE_TOOL_USE_META_KEY, CLIENT_INFO_NAMES, CODEX_SESSION_META_KEY, NO_DAEMON_HINT, type Caller } from "../daemon/hook-contract.js";
 import { resolveInstanceId } from "./instance-id.js";
 
 const RETRY_INTERVAL_MS = 3000;
@@ -41,8 +40,6 @@ export type NexusServerOptions = {
     retryIntervalMs?: number;
     /** Per-request timeout towards the daemon. */
     requestTimeoutMs?: number;
-    /** Start a daemon when none is listening at a local endpoint (default true). */
-    autostart?: boolean;
 };
 
 /**
@@ -70,13 +67,8 @@ export class NexusServer {
     private readonly discover: boolean;
     /** A lookup ran already, so the next one ignores the cache that led here. */
     private looked = false;
-    private readonly autostart: boolean;
     private instanceId: string | undefined;
     private readonly workspace = process.cwd();
-    /** Error code of the last failed connection attempt, e.g. "ECONNREFUSED". */
-    private lastConnectError: string | undefined;
-    /** A daemon start was attempted during the current outage; reset once connected. */
-    private autostartTried = false;
     private shutdownPromise: Promise<void> | null = null;
     private connected = false;
     private stopped = false;
@@ -94,7 +86,6 @@ export class NexusServer {
         this.discover = configured === DISCOVER_ENDPOINT;
         this.endpoint = this.discover ? LOCAL_ENDPOINT : configured;
         this.retryIntervalMs = options.retryIntervalMs ?? RETRY_INTERVAL_MS;
-        this.autostart = options.autostart ?? true;
         this.requestTimeoutMs = options.requestTimeoutMs ?? 5000;
         this.client = new NexusClient({ endpoint: this.endpoint, timeoutMs: this.requestTimeoutMs });
     }
@@ -119,7 +110,7 @@ export class NexusServer {
             this.identifyClient(ctx.mcpReq.envelope, server);
             if (!this.connected) {
                 return {
-                    content: [{ type: "text", text: "Daemon is not ready yet. Please wait a moment and retry." }],
+                    content: [{ type: "text", text: `Daemon is not available at ${this.endpoint}. ${NO_DAEMON_HINT} Then retry.` }],
                     isError: true
                 };
             }
@@ -142,10 +133,9 @@ export class NexusServer {
                 try {
                     result = await call();
                 } catch (e) {
-                    // The local daemon is gone: start one and repeat the call once.
+                    // The daemon is gone; with discover, another one a lookup finds takes the call once.
                     if (!(e instanceof NexusTransportError && e.code === "ECONNREFUSED")) throw e;
-                    this.lastConnectError = e.code;
-                    if (!await this.connectOrStart(true)) throw e;
+                    if (!await this.connect(true)) throw e;
                     result = await call();
                 }
                 // Every daemon result is a JSON object, so it goes out as structuredContent
@@ -169,8 +159,9 @@ export class NexusServer {
                 }
                 // Daemon went away — drop the tool list and start the retry loop
                 await this.daemonUnavailable();
+                const hint = e.code === "ECONNREFUSED" ? ` ${NO_DAEMON_HINT}` : "";
                 return {
-                    content: [{ type: "text", text: `Daemon unavailable: ${message}. Reconnecting...` }],
+                    content: [{ type: "text", text: `Daemon unavailable: ${message}.${hint} Reconnecting...` }],
                     isError: true
                 };
             }
@@ -229,12 +220,11 @@ export class NexusServer {
     }
 
     /**
-     * Connect (with NEXUS_ENDPOINT=discover, to the daemon a lookup finds); when
-     * nothing listens at a local endpoint, start a daemon once per outage and
-     * connect again. `refused` skips the first attempt when the caller
-     * has just seen ECONNREFUSED.
+     * Connect (with NEXUS_ENDPOINT=discover, to the daemon a lookup finds).
+     * `refused` skips the attempt when the caller has just seen ECONNREFUSED
+     * from the same endpoint.
      */
-    private async connectOrStart(refused = false): Promise<boolean> {
+    private async connect(refused = false): Promise<boolean> {
         if (this.discover) {
             // First the cached daemon; on every later attempt (it failed) a new lookup.
             const endpoint = await resolveEndpoint(DISCOVER_ENDPOINT, { fresh: this.looked });
@@ -245,10 +235,7 @@ export class NexusServer {
                 refused = false;                  // the refusal was from the previous endpoint
             }
         }
-        if (!refused && await this.tryConnect()) return true;
-        if (!this.autostart || this.stopped || this.autostartTried || this.lastConnectError !== "ECONNREFUSED") return false;
-        this.autostartTried = true;
-        return await startLocalDaemon(this.endpoint) && await this.tryConnect();
+        return !refused && await this.tryConnect();
     }
 
     private useEndpoint(endpoint: string): void {
@@ -264,12 +251,10 @@ export class NexusServer {
             // JSON Schema produced by the daemon; the SDK models it as JSON values.
             this.cachedTools = tools as unknown as Tool[];
             this.connected = true;
-            this.autostartTried = false;
             console.error(`[n2n-nexus] Connected to daemon. ${tools.length} tools loaded.`);
             await this.notifyToolsChanged();
             return true;
-        } catch (e) {
-            this.lastConnectError = e instanceof NexusTransportError ? e.code : undefined;
+        } catch {
             return false;
         }
     }
@@ -304,7 +289,7 @@ export class NexusServer {
         const next = () => {
             this.retryTimer = setTimeout(async () => {
                 console.error(`[n2n-nexus] Waiting for daemon at ${this.endpoint}...`);
-                const ok = await this.connectOrStart();
+                const ok = await this.connect();
                 if (!this.retrying) return;           // stopped while the attempt was in flight
                 // A tools/call may have lost the daemon again while this attempt was still
                 // notifying the client; only stop if the connection is still up.
@@ -345,11 +330,10 @@ export class NexusServer {
             void this.shutdown();
         };
 
-        // Nothing listening at a local endpoint: start a daemon instead of waiting for one.
-        this.initialFetch = this.connectOrStart();
+        this.initialFetch = this.connect();
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
-            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. Will retry every ${this.retryIntervalMs / 1000}s...`);
+            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. ${NO_DAEMON_HINT} Retrying every ${this.retryIntervalMs / 1000}s...`);
             this.scheduleRetry();
         }
     }

@@ -72,8 +72,12 @@ Requires Node.js 22.14+ on the 22.x release line, or Node.js 23.6+.
 ### 1. Start the daemon
 
 ```bash
-npx n2n-nexus daemon --port 5688
+npm i -g n2n-nexus
+n2n-nexus install host        # Windows: starts the daemon now and at every boot (run from an elevated terminal)
+n2n-nexus daemon --port 5688  # or run it yourself: macOS / Linux, or a quick try
 ```
+
+Add `--host 0.0.0.0` to make it the host for other machines on the LAN; `n2n-nexus uninstall host` removes the service.
 
 ### 2. Configure an MCP client
 
@@ -91,7 +95,7 @@ npx n2n-nexus daemon --port 5688
 }
 ```
 
-The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable. When nothing listens at a local endpoint (`127.0.0.1` or `localhost`), the adapter and the hooks start a daemon in the background (log: `~/.n2n-nexus/daemon.log`).
+The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable. The adapter and the hooks never start a daemon themselves: when none answers, tool calls fail with a message saying how to start it, and the hooks skip silently.
 
 ### 3. Direct messages between Claude Code and Codex conversations
 
@@ -124,7 +128,7 @@ Each conversation then appears in `peers`. A new direct message is announced to 
 | Remote machine | `http://<Server-IP>:5688` |
 | Find a daemon on the LAN | `discover` |
 
-With `discover`, the adapter and the hooks broadcast a query on UDP `NEXUS_DISCOVERY_PORT` and use the first daemon that answers; the result is cached in `~/.n2n-nexus/discovered-endpoint` and looked up again when that daemon cannot be reached. A daemon answers only when it is bound to a non-loopback address (`--host 0.0.0.0`), so allow UDP and TCP 5688 through its firewall for the trusted network. When none answers, the client uses `http://127.0.0.1:5688` (starting a local daemon as usual) and looks again after a minute; it never becomes reachable from the LAN itself.
+With `discover`, the adapter and the hooks broadcast a query on UDP `NEXUS_DISCOVERY_PORT` and use the first daemon that answers; the result is cached in `~/.n2n-nexus/discovered-endpoint` and looked up again when that daemon cannot be reached. A daemon answers only when it is bound to a non-loopback address (`--host 0.0.0.0`), so allow UDP and TCP 5688 through its firewall for the trusted network. When none answers, the client uses `http://127.0.0.1:5688` (a daemon running as a service on this machine) and looks again after a minute; it never becomes reachable from the LAN itself.
 
 ## 🛠️ Toolset
 
@@ -196,6 +200,10 @@ n2n-nexus daemon [--port 5688] [--root ~/.n2n-nexus] [--host 127.0.0.1]
 
 # Start MCP adapter
 NEXUS_ENDPOINT=http://127.0.0.1:5688 n2n-nexus mcp
+
+# Run the daemon as a service that starts at boot / remove it (Windows; elevated terminal)
+n2n-nexus install host [--host 127.0.0.1] [--port 5688] [--root ~/.n2n-nexus] [--node <path>]
+n2n-nexus uninstall host
 
 # Install / remove the hooks and MCP server for Claude Code or Codex
 # --node <path>: the Node executable to write into the client configuration

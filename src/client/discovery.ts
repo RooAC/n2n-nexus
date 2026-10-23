@@ -3,8 +3,8 @@
  * UDP queries on the discovery port; a client configured with the endpoint
  * `discover` broadcasts a query, uses the first daemon that answers and caches
  * it in `~/.n2n-nexus/discovered-endpoint`. When none answers it falls back to
- * the local default endpoint (a local daemon is started as before); it never
- * makes the local daemon reachable from the LAN.
+ * the local default endpoint (a daemon running as a service on this machine);
+ * it never starts a daemon or makes one reachable from the LAN.
  *
  * Node built-ins only: the hook command imports this on every client event.
  */
