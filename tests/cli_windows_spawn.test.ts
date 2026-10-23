@@ -82,7 +82,15 @@ describe("Windows .cmd shims", () => {
         const scripts = installShims();
         const { runInstall } = await import("../src/cli/install.js");
         const entry = path.join(dir, "index.js");
-        expect(runInstall({ action: "install", client: "claude", node: process.execPath, entry })).toBe(0);
+        // On Linux, a Windows Node folder: npm's npx-cli.js under node_modules next to the Node (a real Windows Node has it)
+        let node = process.execPath;
+        if (savedPlatform.value !== "win32") {
+            node = path.join(dir, "nodejs", "node");
+            fs.mkdirSync(path.join(dir, "nodejs", "node_modules", "npm", "bin"), { recursive: true });
+            fs.writeFileSync(path.join(dir, "nodejs", "node_modules", "npm", "bin", "npx-cli.js"), "");
+            fs.symlinkSync(process.execPath, node);
+        }
+        expect(runInstall({ action: "install", client: "claude", node, entry })).toBe(0);
         expect(launches.map((l) => l.command)).toEqual([process.execPath, process.execPath, process.execPath]);
         expect(launches.map((l) => l.args.slice(0, 3))).toEqual([
             [scripts.claude, "--version"], [scripts.claude, "mcp", "remove"], [scripts.claude, "mcp", "add"]
