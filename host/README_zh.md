@@ -2,11 +2,11 @@
 
 [English version](README.md)
 
-n2n-nexus 的 host：一个 Go 可执行文件，保存全部协调数据，并向 `n2n-nexus` npm 客户端（MCP 适配器和 hooks）提供 [`contract/`](../contract/README.md) 中定义的 HTTP 协议。使用方法见[使用指南](../docs/USER_GUIDE_zh.md)，设计见 [docs/ARCHITECTURE_zh.md](../docs/ARCHITECTURE_zh.md)。
+n2n-nexus 的 host：一个 Go 可执行文件，保存全部协调数据，并向 `n2n-nexus` npm 客户端（MCP 适配器和 hooks）提供 [`contract/`](../contract/README.md) 中定义的 HTTP 协议。使用方法见[使用手册](../docs/USER_GUIDE_zh.md)，设计见 [docs/ARCHITECTURE_zh.md](../docs/ARCHITECTURE_zh.md)。
 
 ## 安装
 
-安装、启动和配置 host：见[使用指南](../docs/USER_GUIDE_zh.md#1-安装并启动-host)。代码签名的计划见 [TODO.md](../TODO.md)。
+安装和启动 host：见[安装手册](../docs/INSTALL_zh.md#1-安装-host)。代码签名的计划见 [TODO.md](../TODO.md)。
 
 ## 目录结构
 

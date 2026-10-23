@@ -1,5 +1,7 @@
 # 更新日志 (Changelog)
 
+[English version](../CHANGELOG.md)
+
 本项目的所有重大变更都将记录在此文件中。
 
 ## [未发布]
@@ -10,7 +12,8 @@
 
 ### 文档
 
-- 新增使用指南（`docs/USER_GUIDE.md`、`docs/USER_GUIDE_zh.md`），介绍 host 和客户端的安装、配置和运行，包括 Codex hooks 的一次性信任，并收录命令、环境变量、`settings.json` 和数据目录参考。README 改为概览并链接到它；各文档只写自己负责的内容，不再互相重复。
+- 新增安装手册（`docs/INSTALL.md`），介绍 host 和客户端的安装、升级和卸载，包括 Codex hooks 的一次性信任；使用手册（`docs/USER_GUIDE.md`）介绍如何使用，并收录命令、环境变量、`settings.json` 和数据目录参考。README 改为概览并链接到它们；各文档只写自己负责的内容，不再互相重复。
+- 每份文档都有章节一致的中文版：新增中文的安装手册、使用手册、工具参考、host README、贡献指南和安全文档，中文更新日志补全了所有版本。
 
 ## [0.9.2] - 2026-10-24
 
@@ -426,7 +429,7 @@
 ## [v0.2.0] - 2025-12-31
 
 ### 🚀 任务原语系统 (Phase 2 & 3)
-- **异步深耕**: 关键阻塞操作 (`rename_project`, `host_delete_project`) 迁移至 Task 原语，支持背景级联更新。
+- **异步深耕**: 关键阻塞操作 (`rename_project`, `moderator_delete_project`) 迁移至 Task 原语，支持背景级联更新。
 - **可追溯性**: 所有任务现在都支持 `source_meeting_id`，将执行结果与会议决策关联。
 - **进度展示**: 增加了进度追踪 (0.0-1.0) 和 `result_uri` 结构化输出。
 - **生命周期工具**: 新增 `create_task`、`get_task`、`list_tasks`、`update_task` 和 `cancel_task`。

@@ -14,6 +14,7 @@
     "README.md",
     "llms.txt",
     "CHANGELOG.md",
+    "docs/CHANGELOG_zh.md",
     "LICENSE",
     "docs/README_zh.md",
     "docs/ARCHITECTURE.md",
@@ -29,7 +30,9 @@
     "docs/MEETING_MINUTES_2025-12-29.md",
     "docs/discussion_2025-12-29.md",
     "SECURITY.md",
-    "CONTRIBUTING.md"
+    "docs/SECURITY_zh.md",
+    "CONTRIBUTING.md",
+    "docs/CONTRIBUTING_zh.md"
   ],
   "keywords": [
     "mcp",
