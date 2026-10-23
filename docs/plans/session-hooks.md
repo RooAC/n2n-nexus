@@ -2,6 +2,8 @@
 
 状态：已实施，随 0.8.0 发布（2026-10-21）　｜　日期：2026-10-20
 
+> 后续变更：3.8 节的“自动拉起 daemon”已在 0.8.2 之后移除，客户端不再自己启动 daemon，改由 `n2n-nexus install host` 或手动 `n2n-nexus daemon` 启动（见 CHANGELOG [Unreleased]）；`src/cli/autostart.ts` 已删除。下文保留原方案原貌。
+
 ## 1. 目标与完成标准
 
 让 Claude Code 和 Codex 的每个对话拥有独立的 nexus 身份，彼此发直接消息；收件方由 hooks 自动得到通知，再用工具读取正文，不再依赖模型主动轮询。

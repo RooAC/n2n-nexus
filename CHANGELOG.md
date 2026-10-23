@@ -14,13 +14,27 @@ All notable changes to this project will be documented in this file.
 
 - Automatic turn limit: wakes, listening Stops and Stops held open for messages count as automatic turns, and after `NEXUS_MAX_AUTO_TURNS` (default 8; `0` = no limit) since the user's last prompt, messages are stored but no longer wake or hold the conversation, so two AI sessions cannot keep waking each other. The announcement says `Automatic turn n of N`; the prompt that starts a woken turn does not reset the count.
 
-- `n2n-nexus install host [--host] [--port] [--root] [--node]` runs the daemon as a service that starts at boot, independent of any IDE (Windows scheduled task, from an elevated terminal); `n2n-nexus uninstall host` removes it and stops its daemon.
+- `n2n-nexus install host [--host] [--port] [--root] [--node]` runs the daemon as a service that starts at boot, independent of any IDE (Windows scheduled task, from an elevated terminal); `n2n-nexus uninstall host` removes it and stops its daemon. Installing stops a daemon already started from this package (also through npm's shims) and waits for a running task instance to end before starting the new one; it notes which `NEXUS_*` variables of the installing shell the service daemon does not get.
 
 ### Changed
 
 - The MCP adapter and the hooks no longer start a daemon when none answers at a local endpoint. A daemon they started could take the port while the service daemon restarted, and run old code after an upgrade. Tool calls now fail with a message saying how to start the daemon; the hooks skip silently. Start it with `n2n-nexus install host` or `n2n-nexus daemon`.
 - `peers` lists only the sessions that are not offline; `includeOffline: true` adds the offline ones active in the last 24 hours, as before.
 - An `idle` or `working` session without activity for 30 minutes is marked `offline`, since clients do not always send SessionEnd (finished or closed Codex threads stayed "online" forever); its next event brings it back. `peers` and the SessionStart introduction say that only `listening` sessions answer right away.
+
+### Fixed
+
+- A background wait counts as activity, so a session waiting longer than 30 minutes is not marked `offline` between two waits. A session with `listen` on no longer stays `listening` after its waits have ended, and a daemon restart resets sessions left `listening`, so they go `offline` after 30 minutes without activity like any other session.
+- An unreadable `registry.json` or global docs index (permission denied, file locked) no longer counts as empty: the write fails instead of overwriting the index and dropping the other projects or docs. A missing or corrupt file still heals itself.
+- Deleting a project removes its registry entry before its directory, so a failed write cannot leave the registry listing a project whose files are gone.
+- Starting, ending and reopening a meeting each update the meeting and the active-meeting state in one transaction.
+- The event filter `action` matches the exact name or the exact `<action>.` prefix; it no longer ignores case or treats `_` and `%` as wildcards.
+- Malformed percent-encoding or an unsafe document id in a REST path returns 400 instead of 500.
+- A tool call the daemon does not answer within the request timeout fails on its own; the MCP adapter no longer drops the tool list and reconnects, which led clients to retry calls the daemon was still completing.
+- When no daemon answers at a remote endpoint, the message says to start it on that machine instead of suggesting `install host` here.
+- Windows: `install <claude|codex>` finds `claude.cmd` / `codex.cmd` installed by npm, and the `--wait` hook wakes Codex installed that way. The script behind npm's shim runs with Node directly, never through cmd.exe, so a message text cannot run commands and keeps its line breaks; installing from an npx cache path is refused as on other systems.
+- The `create_task` description no longer points to a tool that does not exist.
+- The npm package includes the documents its README and guides link to (tools reference, security, contributing, Chinese assistant guide, 2025-12-29 meeting notes).
 
 ## [0.8.2] - 2026-10-22
 

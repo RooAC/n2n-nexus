@@ -95,7 +95,7 @@ Add `--host 0.0.0.0` to make it the host for other machines on the LAN; `n2n-nex
 }
 ```
 
-The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable. The adapter and the hooks never start a daemon themselves: when none answers, tool calls fail with a message saying how to start it, and the hooks skip silently.
+The adapter can start before the daemon. It loads the daemon tool list once the daemon becomes reachable. The adapter and the hooks never start a daemon themselves: when none answers, tool calls fail with a message saying how to start it (or, for a remote endpoint, that it must be started on that machine), and the hooks skip silently. A call the daemon does not answer in time fails on its own; the daemon may still complete it.
 
 ### 3. Direct messages between Claude Code and Codex conversations
 
@@ -206,7 +206,7 @@ n2n-nexus install host [--host 127.0.0.1] [--port 5688] [--root ~/.n2n-nexus] [-
 n2n-nexus uninstall host
 
 # Install / remove the hooks and MCP server for Claude Code or Codex
-# --node <path>: the Node executable to write into the client configuration
+# --node <path>: the Node executable to write into the client configuration (install host writes it into the task)
 n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
 n2n-nexus uninstall <claude|codex>
 

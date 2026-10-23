@@ -14,13 +14,27 @@
 
 - 自动轮次上限：被叫醒、listen 等待、因消息被拦下不结束都算一次自动轮次。从用户上次输入算起达到 `NEXUS_MAX_AUTO_TURNS`（默认 8；`0` 表示不限制）后，消息照常保存，但不再叫醒或拦住对话，避免两个 AI 会话无限互相叫醒。提醒里会写明 `Automatic turn n of N`；被叫醒那一轮开始时的用户提交不清零计数。
 
-- `n2n-nexus install host [--host] [--port] [--root] [--node]` 把 daemon 注册为开机启动的服务，不依赖任何 IDE（Windows 计划任务，需在管理员终端运行）；`n2n-nexus uninstall host` 删除这个服务并停止它的 daemon。
+- `n2n-nexus install host [--host] [--port] [--root] [--node]` 把 daemon 注册为开机启动的服务，不依赖任何 IDE（Windows 计划任务，需在管理员终端运行）；`n2n-nexus uninstall host` 删除这个服务并停止它的 daemon。安装时会停掉已在运行、由本包启动的 daemon（包括经 npm 包装脚本启动的），并等正在运行的任务实例结束后再启动新的；安装终端里设置的 `NEXUS_*` 变量不会传给服务 daemon，安装时会列出提示。
 
 ### 变更
 
 - 本机地址上没有 daemon 应答时，MCP 适配器和 hooks 不再自己启动 daemon。它们启动的 daemon 可能在服务 daemon 重启的空档里抢占端口，升级后还会继续运行旧代码。现在工具调用会报错并说明如何启动 daemon，hooks 静默跳过。请用 `n2n-nexus install host` 或 `n2n-nexus daemon` 启动。
 - `peers` 默认只列出未离线的会话；传 `includeOffline: true` 时，和以前一样再列出 24 小时内活跃过的离线会话。
 - `idle` 或 `working` 状态的会话 30 分钟没有任何活动就标为 `offline`，因为客户端不一定发送 SessionEnd（已结束或关闭的 Codex 对话此前会一直"在线"）；它下一次有事件时恢复。`peers` 与 SessionStart 介绍会说明只有 `listening` 的会话能马上回复。
+
+### 修复
+
+- 后台等待算作活动，等待超过 30 分钟的会话不会在两次等待之间被标为 `offline`。开着 `listen` 的会话在等待全部结束后不再一直停在 `listening`；daemon 重启时也会复位残留的 `listening` 会话，30 分钟无活动后和其他会话一样变为 `offline`。
+- `registry.json` 或全局文档索引读不了（无权限、被占用）时不再当作空的：写入直接失败，不会覆盖索引、丢掉其他项目或文档。文件缺失或损坏仍会自动修复。
+- 删除项目时先删 registry 条目再删目录，写入失败不会留下指向已删除文件的项目。
+- 开始、结束、重新打开会议时，会议本身和活跃会议状态在同一个事务里更新。
+- 事件过滤 `action` 只匹配完整名称或完整的 `<action>.` 前缀，不再忽略大小写，也不再把 `_`、`%` 当通配符。
+- REST 路径里的百分号编码不合法或文档 id 不安全时返回 400，而不是 500。
+- daemon 在请求超时内没有应答的工具调用只让这一次失败；MCP 适配器不再因此丢掉工具列表并重连，避免客户端重试 daemon 仍在执行的调用。
+- 远程地址上没有 daemon 应答时，提示到那台机器上启动，而不是让在本机执行 `install host`。
+- Windows：`install <claude|codex>` 能找到 npm 安装的 `claude.cmd` / `codex.cmd`，`--wait` hook 也能叫醒这样安装的 Codex。直接用 Node 运行 npm 包装脚本背后的程序，不经过 cmd.exe，消息文本不会被当成命令执行，换行也能保留；从 npx 缓存路径安装会像其他系统一样被拒绝。
+- `create_task` 的说明不再指向不存在的工具。
+- npm 包带上 README 和指南里链接的文档（工具参考、安全、贡献指南、中文助手指南、2025-12-29 会议记录）。
 
 ## [0.8.2] - 2026-10-22
 

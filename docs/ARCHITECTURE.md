@@ -43,7 +43,9 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   │     │  list_changed delivered on subscriptions/listen
   │     └─ 2025-era clients: initialize handshake, unsolicited list_changed
   │
-  ├─ Nothing answers: say how to start the daemon (install host / daemon); never start one
+  ├─ Nothing answers: say how to start the daemon (install host / daemon on this machine,
+  │  or on the remote machine for a remote endpoint); never start one
+  ├─ A call not answered in time fails alone: tool list kept, no reconnect
   │
   ├─ If the daemon was down: retry loop (every 3 s)
   │     └─ GET /api/tools succeeds → cache tool list

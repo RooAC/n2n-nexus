@@ -43,7 +43,9 @@ MCP-A  MCP-B  MCP-C      hooks（Claude Code / Codex）
   │     │  list_changed 经 subscriptions/listen 下发
   │     └─ 2025 代客户端：initialize 握手，主动下发 list_changed
   │
-  ├─ 连不上：提示如何启动 daemon（install host 或 daemon），自己从不启动
+  ├─ 连不上：提示如何启动 daemon（本机用 install host 或 daemon，远程地址则
+  │  需在那台机器上启动），自己从不启动
+  ├─ 单次调用超时：只让这次调用失败，保留工具列表，不重连
   │
   ├─ 若 daemon 不在线：重试循环（每 3 秒）
   │     └─ GET /api/tools 成功 → 缓存工具列表

@@ -104,7 +104,7 @@ n2n-nexus daemon --port 5688  # 或者自己运行：macOS / Linux，或临时�
 }
 ```
 
-适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。适配器和 hooks 从不自己启动 daemon：连不上时，工具调用会报错并说明如何启动，hooks 则静默跳过。
+适配器可以先于 daemon 启动。daemon 可访问后，适配器会加载工具列表。适配器和 hooks 从不自己启动 daemon：连不上时，工具调用会报错并说明如何启动（远程地址则提示需在那台机器上启动），hooks 则静默跳过。daemon 没有及时应答的调用只让这一次失败，daemon 可能仍会执行完。
 
 ### 3. Claude Code 和 Codex 对话之间的直接消息
 
@@ -249,7 +249,7 @@ n2n-nexus install host [--host 127.0.0.1] [--port 5688] [--root ~/.n2n-nexus] [-
 n2n-nexus uninstall host
 
 # 为 Claude Code 或 Codex 安装 / 删除 hooks 和 MCP 服务
-# --node <path>：写进客户端配置的 Node 可执行文件路径
+# --node <path>：写进客户端配置的 Node 可执行文件路径（install host 写进计划任务）
 n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]
 n2n-nexus uninstall <claude|codex>
 
