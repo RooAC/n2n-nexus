@@ -1,5 +1,7 @@
 # 架构与标准
 
+[English version](ARCHITECTURE.md)
+
 ## 🏛️ 系统架构
 
 ```

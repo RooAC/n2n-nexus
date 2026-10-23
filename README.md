@@ -11,6 +11,7 @@ Local-first MCP coordination hub from N2NS Lab for multi-AI assistant collaborat
 [![license](https://img.shields.io/github/license/n2ns/n2n-nexus)](https://github.com/n2ns/n2n-nexus/blob/main/LICENSE)
 [![MCP Protocol](https://img.shields.io/badge/MCP-Protocol-blue)](https://modelcontextprotocol.io)
 [![node version](https://img.shields.io/node/v/n2n-nexus)](https://nodejs.org)
+[![DataFrog.io](https://datafrog.io/badges/datafrog.svg)](https://datafrog.io)
 
 [中文版](./docs/README_zh.md)
 
@@ -22,16 +23,43 @@ n2n-nexus is an open-source Model Context Protocol (MCP) coordination server for
 
 ## 📚 Contents
 
+- [Looking for](#-looking-for)
 - [What is n2n-nexus?](#-what-is-n2n-nexus)
+- [Why use it?](#-why-use-it)
 - [Architecture](#️-architecture)
 - [Quick start](#-quick-start)
 - [Toolset](#️-toolset)
 - [Real-world example](#-real-world-example)
+- [FAQ](#-faq)
 - [Documentation](#-documentation)
+
+## 🔎 Looking for
+
+If you are searching for:
+
+- multi-AI assistant collaboration over MCP
+- a local multi-agent collaboration server
+- a local MCP coordination hub
+- shared project context for AI coding assistants
+- a cross-IDE MCP collaboration tool
+- a project registry for AI assistants
+- meetings and task coordination for coding agents
+
+n2n-nexus is designed for these cases: shared host state, lightweight MCP adapters, project-aware collaboration, local storage and cross-environment IDE workflows.
 
 ## 💡 What is n2n-nexus?
 
 n2n-nexus gives AI assistants a shared coordination workspace. A long-running local host, `n2n-nexus-host`, owns project state, meetings, messages, tasks, shared docs, and project assets. Lightweight MCP adapters from the `n2n-nexus` npm package connect each IDE or assistant to the same host.
+
+**Quick summary**
+
+- **Install**: the host `n2n-nexus-host` with Scoop / Homebrew / a Releases archive; the client with `npm i -g n2n-nexus@latest`, then `n2n-nexus install <claude|codex>`
+- **Protocol**: Model Context Protocol (MCP); the adapters reach the host over HTTP
+- **Storage**: one SQLite database in the host's data directory
+- **Good for**: multi-assistant coding sessions, project handoffs, shared decisions, meeting records, task tracking, project manifests
+- **Not for**: cloud team chat, public project management SaaS, source code indexing, vector search or remote database hosting
+
+## 🎯 Why use it?
 
 - Coordinate multiple AI assistants working on the same project.
 - Share project manifests, decisions, and assets across IDEs and machines.
@@ -102,6 +130,32 @@ What to look for in the session:
 | [Discussion Log](docs/discussion_2025-12-29.md) | The full chronological stream: proposals, debug exchanges, decisions, and SYSTEM tool entries |
 | [Meeting Minutes](docs/MEETING_MINUTES_2025-12-29.md) | The structured output: participants, key decisions, test results, and action items |
 
+## ❓ FAQ
+
+### Is n2n-nexus a project management SaaS?
+
+No. It is a local MCP coordination server for AI assistants; its state stays local and is exposed to clients through MCP tools.
+
+### Does it replace n2n-memory?
+
+No. `n2n-memory` is a local memory tool for a single repository. `n2n-nexus` is a multi-assistant coordination hub for project manifests, messages, meetings, tasks and shared docs.
+
+### Does it support Claude Desktop, Cursor, VS Code and other clients?
+
+Yes, as long as the client can run a local MCP command server. The IDE starts the adapter, and the adapter reaches the local host through `NEXUS_ENDPOINT`.
+
+### Can Windows and WSL work together?
+
+Yes. Run the host in one environment and point every adapter at it with `NEXUS_ENDPOINT`.
+
+### Does it send data to the cloud?
+
+No cloud service is needed. Data stays in the configured local directory. Exposing the host to remote machines is your own network configuration.
+
+### Is it a vector database or a source code indexer?
+
+No. n2n-nexus coordinates project metadata, messages, meetings, docs, tasks and assets; it does no semantic code search.
+
 ## 📖 Documentation
 
 - **[Installation guide](./docs/INSTALL.md)**: Installing, upgrading and removing the host and the client; Codex hook trust, other MCP clients, several machines.
@@ -113,6 +167,8 @@ What to look for in the session:
 - **[Contributing](./CONTRIBUTING.md)**: Development setup, and how to report issues and contribute.
 - **[Changelog](./CHANGELOG.md)**: Version history and release notes.
 - **[Security](./SECURITY.md)**: Security model, and how to report vulnerabilities.
+- **[Chinese README](./docs/README_zh.md)**: This page in Chinese; every document above has a Chinese version.
+- **[llms.txt](./llms.txt)**: Index of the docs for AI models.
 
 ## 📄 License
 

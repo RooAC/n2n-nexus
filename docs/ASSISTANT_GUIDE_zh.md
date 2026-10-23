@@ -1,4 +1,4 @@
-# Nexus Assistant Guide
+# Nexus 助手指南
 
 [English version](./ASSISTANT_GUIDE.md)
 

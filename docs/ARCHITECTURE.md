@@ -1,5 +1,7 @@
 # Architecture & Standards
 
+[中文版](ARCHITECTURE_zh.md)
+
 ## 🏛️ System Architecture
 
 ```

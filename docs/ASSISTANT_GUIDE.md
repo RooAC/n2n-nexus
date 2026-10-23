@@ -1,5 +1,7 @@
 # Nexus Assistant Guide
 
+[中文版](./ASSISTANT_GUIDE_zh.md)
+
 You are now part of the **n2ns Nexus** coordination network. All capabilities are provided by a standalone **host** (`n2n-nexus-host`) — every tool you use is defined and executed by the host. The MCP adapter is a transparent forwarding layer only.
 
 > **Prerequisite**: Before calling any tool, confirm that the host is running (the `n2n-nexus-host` tray app or background service, or `n2n-nexus-host serve`) and that your MCP is connected (a non-empty tool list means you are connected). While the host is unreachable the tool list is empty; it comes back automatically once the host answers again.
