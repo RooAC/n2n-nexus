@@ -2,11 +2,22 @@
 // client hooks (POST /api/hook), the direct-message tools (peers, send, read,
 // reply, listen, set_profile), the listening / background-wait state machine
 // and their tables (store/migrations/0002_agents.sql).
+//
+// Agents is the coordinator of one host: it holds every piece of in-memory
+// state (held listening Stops, background waits, automatic-turn counts, wake
+// times) behind one mutex. Each hook and tool call runs under it, and so does
+// every wait's check, which wake runs synchronously like the event emitter of
+// the TypeScript daemon: whoever stores a message or notice delivers it to a
+// waiting hook before releasing the lock.
 package agents
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/n2ns/n2n-nexus/host/internal/api"
@@ -27,27 +38,496 @@ type Options struct {
 	MaxAutoTurns int
 }
 
+// RetentionDays: read or expired direct messages and delivered notices are kept this long.
+const RetentionDays = 30
+
 // Agents is the conversation state of one host.
 type Agents struct {
 	o Options
+
+	mu      sync.Mutex
+	closed  bool
+	closing chan struct{}
+	// waiters are the held hooks per session, in the order they started.
+	waiters map[string][]*waiter
+	// listeningStops: sessions whose listening Stop hook waits; it delivers before any background wait.
+	listeningStops map[string]bool
+	// backgroundWaits: sessions with background waits in progress.
+	backgroundWaits map[string]map[*waiter]bool
+	// autoTurns: automatic turns per session since its user last prompted.
+	autoTurns map[string]int
+	// wokenAt: when a background wait last woke each session, to tell the woken turn's prompt from the user's.
+	wokenAt map[string]time.Time
 }
 
-// New returns the agents of a host whose database was just opened (it resets
-// sessions a previous host left listening).
+// waiter is one held hook request. Its functions run with Agents.mu held.
+type waiter struct {
+	session   string
+	check     func()
+	onTimeout func()
+	onAbort   func()
+	finished  bool
+	out       map[string]any
+	done      chan struct{}
+}
+
+// New returns the agents of a host whose database was just opened. No wait is
+// held yet, so sessions a previous host left listening become idle (and can go stale).
 func New(o Options) (*Agents, error) {
-	return &Agents{o: o}, nil
+	if o.Clock == nil {
+		o.Clock = clock.System{}
+	}
+	if o.Logger == nil {
+		o.Logger = log.Default()
+	}
+	if _, err := o.Store.DB.Exec("UPDATE agent_sessions SET status = 'idle' WHERE status = 'listening'"); err != nil {
+		return nil, fmt.Errorf("reset listening sessions: %w", err)
+	}
+	return &Agents{
+		o:               o,
+		closing:         make(chan struct{}),
+		waiters:         map[string][]*waiter{},
+		listeningStops:  map[string]bool{},
+		backgroundWaits: map[string]map[*waiter]bool{},
+		autoTurns:       map[string]int{},
+		wokenAt:         map[string]time.Time{},
+	}, nil
 }
 
 // Register adds the direct-message tools and the hook handler to srv.
 func (a *Agents) Register(srv *api.Server) {
-	// TODO(agents): register peers, send, read, reply, listen, set_profile and srv.SetHook.
+	srv.Register("peers", a.locked(a.toolPeers))
+	srv.Register("send", a.locked(a.toolSend))
+	srv.Register("read", a.locked(a.toolRead))
+	srv.Register("reply", a.locked(a.toolReply))
+	srv.Register("listen", a.locked(a.toolListen))
+	srv.Register("set_profile", a.locked(a.toolSetProfile))
+	srv.SetHook(a.Hook)
 }
 
-// Maintain expires and purges old rows (read or expired direct messages and
-// delivered notices after 30 days, expired tool-use bindings); it returns a log line or "".
+func (a *Agents) locked(fn api.ToolFunc) api.ToolFunc {
+	return func(c api.Call) (any, error) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return fn(c)
+	}
+}
+
+// Close ends every held wait (host shutting down); later waits end at once.
+func (a *Agents) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.closed {
+		a.closed = true
+		close(a.closing)
+	}
+}
+
+// Maintain expires unread messages past their expiry (telling the senders),
+// deletes read or expired direct messages and delivered notices after
+// RetentionDays and tool-use bindings past their TTL; it returns a log line or "".
 func (a *Agents) Maintain(ctx context.Context) (string, error) {
-	return "", nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.o.Clock.Now()
+	senders, expired, err := a.expireMessages(now)
+	if err != nil {
+		return "", err
+	}
+	a.wake(senders...)
+	cutoff := a.iso(now.AddDate(0, 0, -RetentionDays))
+	bindingCutoff := a.iso(now.Add(-ms(a.o.Contract.Hook.Timing.ToolUseBindingTtlMs)))
+	var messages, notices, bindings int64
+	err = a.o.Store.Tx(ctx, func(tx *sql.Tx) error {
+		old := "(status = 'read' AND read_at < ?) OR (status = 'expired' AND expires_at < ?)"
+		// Replies keep their text when the message they answer goes.
+		if _, err := tx.ExecContext(ctx, "UPDATE agent_messages SET reply_to = NULL WHERE reply_to IN (SELECT id FROM agent_messages WHERE "+old+")", cutoff, cutoff); err != nil {
+			return err
+		}
+		var err error
+		if messages, err = affected(tx.ExecContext(ctx, "DELETE FROM agent_messages WHERE "+old, cutoff, cutoff)); err != nil {
+			return err
+		}
+		if notices, err = affected(tx.ExecContext(ctx, "DELETE FROM agent_notices WHERE notified_at IS NOT NULL AND notified_at < ?", cutoff)); err != nil {
+			return err
+		}
+		bindings, err = affected(tx.ExecContext(ctx, "DELETE FROM tool_use_bindings WHERE created_at <= ?", bindingCutoff))
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if expired == 0 && messages == 0 && notices == 0 && bindings == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("agents: %d messages expired; deleted %d messages, %d notices, %d tool-use bindings", expired, messages, notices, bindings), nil
 }
 
-// Close ends every held wait (host shutting down).
-func (a *Agents) Close() {}
+func affected(r sql.Result, err error) (int64, error) {
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
+}
+
+// ---------------------------------------------------------------------------
+// Waits
+// ---------------------------------------------------------------------------
+
+// wake runs the checks of every wait held for the sessions (mu held).
+func (a *Agents) wake(ids ...string) {
+	for _, id := range ids {
+		for _, w := range append([]*waiter(nil), a.waiters[id]...) {
+			if !w.finished {
+				w.check()
+			}
+		}
+	}
+}
+
+// startWait registers w and runs its first check (mu held).
+func (a *Agents) startWait(w *waiter) {
+	w.done = make(chan struct{})
+	a.waiters[w.session] = append(a.waiters[w.session], w)
+	if a.closed {
+		w.onAbort()
+		return
+	}
+	w.check()
+}
+
+// endWait records the output and unregisters w (mu held); it reports whether w was still waiting.
+func (a *Agents) endWait(w *waiter, out map[string]any) bool {
+	if w.finished {
+		return false
+	}
+	w.finished = true
+	w.out = out
+	list := a.waiters[w.session]
+	for i, x := range list {
+		if x == w {
+			list = append(list[:i:i], list[i+1:]...)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(a.waiters, w.session)
+	} else {
+		a.waiters[w.session] = list
+	}
+	close(w.done)
+	return true
+}
+
+// await blocks (without mu) until w ends: delivered by a check, timed out, the
+// client gone or the host closing.
+func (a *Agents) await(ctx context.Context, w *waiter) map[string]any {
+	timer := time.NewTimer(a.o.ListenWait)
+	defer timer.Stop()
+	var end func()
+	select {
+	case <-w.done:
+	case <-timer.C:
+		end = w.onTimeout
+	case <-ctx.Done():
+		end = w.onAbort
+	case <-a.closing:
+		end = w.onAbort
+	}
+	if end != nil {
+		a.mu.Lock()
+		if !w.finished {
+			end()
+		}
+		a.mu.Unlock()
+	}
+	<-w.done
+	return w.out
+}
+
+func (a *Agents) logErr(what string, err error) {
+	if err != nil {
+		a.o.Logger.Printf("agents: %s: %v", what, err)
+	}
+}
+
+// waitForMessages holds a listening Stop hook: until something not notified
+// yet arrives (then the stop is blocked with it), the wait runs out, or the
+// hook's client goes away (mu held).
+func (a *Agents) waitForMessages(sessionID string) *waiter {
+	a.listeningStops[sessionID] = true
+	w := &waiter{session: sessionID}
+	finish := func(out map[string]any) {
+		if a.endWait(w, out) {
+			delete(a.listeningStops, sessionID)
+		}
+	}
+	stopWaiting := func() {
+		if w.finished {
+			return
+		}
+		a.logErr("listening stop", a.setStatusIf(sessionID, "listening", "idle"))
+		finish(nil)
+		a.wake(sessionID) // a background wait takes over
+	}
+	w.onTimeout, w.onAbort = stopWaiting, stopWaiting
+	w.check = func() {
+		if w.finished {
+			return
+		}
+		s, err := getSession(a.db(), sessionID)
+		if err != nil {
+			a.logErr("listening stop", err)
+			return
+		}
+		// SessionEnd (or listen off) during the wait: nobody will act on a block any more.
+		// stopWaiting sets idle only while still listening, so SessionEnd stays offline.
+		if s == nil || !s.Listening || !a.autoTurnAllowed(sessionID) {
+			stopWaiting()
+			return
+		}
+		text, err := a.notifyFresh(sessionID, a.o.Contract.Hook.Texts.StopClosing)
+		if err != nil || text == "" {
+			a.logErr("listening stop", err)
+			return
+		}
+		a.logErr("listening stop", a.setStatus(sessionID, "working"))
+		finish(blockOutput(a.autoTurn(sessionID, text)))
+	}
+	a.startWait(w)
+	return w
+}
+
+// backgroundWait (the BackgroundWait pseudo event): the session counts as
+// listening, and the wait returns {wake} with what was not notified yet as
+// soon as there is any, {timeout: true} when the wait runs out (the client asks
+// again) and null when the session became active or the client went away.
+// While a listening Stop hook waits, that hook delivers instead. It never
+// delivers while the session is working: the wait starts alongside Stop, which
+// announces what is unread at the end of the turn itself, and Stop wakes the
+// wait again once the turn has ended (mu held).
+func (a *Agents) backgroundWait(sessionID string) *waiter {
+	w := &waiter{session: sessionID}
+	waits := a.backgroundWaits[sessionID]
+	if waits == nil {
+		waits = map[*waiter]bool{}
+		a.backgroundWaits[sessionID] = waits
+	}
+	waits[w] = true
+	finish := func(out map[string]any) {
+		if !a.endWait(w, out) {
+			return
+		}
+		delete(waits, w)
+		if len(waits) == 0 {
+			delete(a.backgroundWaits, sessionID)
+		}
+		// Nothing waits for the session any more: it stops counting as listening (even with listen on).
+		_, woke := out["wake"]
+		if !woke && len(a.backgroundWaits[sessionID]) == 0 && !a.listeningStops[sessionID] {
+			a.logErr("background wait", a.setStatusIf(sessionID, "listening", "idle"))
+		}
+	}
+	stopWaiting := func() { finish(nil) }
+	w.onAbort = stopWaiting
+	w.onTimeout = func() { finish(map[string]any{"timeout": true}) }
+	w.check = func() {
+		if w.finished {
+			return
+		}
+		s, err := getSession(a.db(), sessionID)
+		if err != nil {
+			a.logErr("background wait", err)
+			return
+		}
+		if s == nil || s.Status == "offline" {
+			stopWaiting()
+			return
+		}
+		if s.Status == "working" || a.listeningStops[sessionID] {
+			return
+		}
+		if !a.autoTurnAllowed(sessionID) { // messages wait for the user
+			stopWaiting()
+			return
+		}
+		if s.Status == "idle" {
+			a.logErr("background wait", a.setStatus(sessionID, "listening"))
+		}
+		text, err := a.notifyFresh(sessionID, a.o.Contract.Hook.Texts.NotifyClosing)
+		if err != nil || text == "" {
+			a.logErr("background wait", err)
+			return
+		}
+		a.logErr("background wait", a.setStatus(sessionID, "working"))
+		a.wokenAt[sessionID] = a.o.Clock.Now()
+		finish(map[string]any{"wake": a.autoTurn(sessionID, text)})
+	}
+	a.startWait(w)
+	return w
+}
+
+// cancelBackgroundWaits: the session became active again; its background waits
+// end and the client handles messages itself (mu held).
+func (a *Agents) cancelBackgroundWaits(sessionID string) {
+	for w := range a.backgroundWaits[sessionID] {
+		w.onAbort()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Automatic turns
+// ---------------------------------------------------------------------------
+
+func (a *Agents) autoTurnAllowed(sessionID string) bool {
+	return a.o.MaxAutoTurns == 0 || a.autoTurns[sessionID] < a.o.MaxAutoTurns
+}
+
+// autoTurn counts an automatic turn for text (a notification that continues the session) and says so in it.
+func (a *Agents) autoTurn(sessionID, text string) string {
+	n := a.autoTurns[sessionID] + 1
+	a.autoTurns[sessionID] = n
+	if a.o.MaxAutoTurns == 0 {
+		return text
+	}
+	return fmt.Sprintf("%s\n%s Automatic turn %d of %d since your user's last prompt; after that, messages wait until your user prompts again.",
+		text, a.o.Contract.Hook.Texts.NoticePrefix, n, a.o.MaxAutoTurns)
+}
+
+// userPrompted: a prompt resets the count, unless it starts the turn a wake just began.
+func (a *Agents) userPrompted(sessionID string, now time.Time) {
+	woken, ok := a.wokenAt[sessionID]
+	delete(a.wokenAt, sessionID)
+	if !ok || now.Sub(woken) > ms(a.o.Contract.Hook.Timing.WakePromptWindowMs) {
+		delete(a.autoTurns, sessionID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+// notify builds the notification text for messages and notices and marks them
+// notified. closing ends the message part.
+func (a *Agents) notify(messages []*message, notices []notice, label, closing string) (string, error) {
+	h := a.o.Contract.Hook
+	limit := h.Limits.NotifyListLimit
+	var lines []string
+	if n := len(messages); n > 0 {
+		plural := "s"
+		if n == 1 {
+			plural = ""
+		}
+		lines = append(lines, fmt.Sprintf("%s %d %s direct message%s:", h.Texts.NoticePrefix, n, label, plural))
+		for i, m := range messages {
+			if i == limit {
+				break
+			}
+			lines = append(lines, fmt.Sprintf("- From %s (%s) at %s: %s", m.FromName, m.FromID, m.CreatedAt, a.preview(m.Text)))
+		}
+		if n > limit {
+			lines = append(lines, fmt.Sprintf("- ...and %d more", n-limit))
+		}
+	}
+	if len(notices) > 0 {
+		if len(messages) > 0 {
+			lines = append(lines, "Notices:")
+		} else {
+			lines = append(lines, h.Texts.NoticePrefix+" Notices:")
+		}
+		for _, n := range notices {
+			lines = append(lines, "- "+n.Text)
+		}
+	}
+	if len(messages) > 0 {
+		lines = append(lines, h.Texts.MessageTrustNote+" "+closing)
+	}
+	if err := a.markNotified(messages, notices, a.o.Clock.Now()); err != nil {
+		return "", err
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// notifyAll: every unread message and pending notice, or "" when there are none.
+func (a *Agents) notifyAll(sessionID, closing string) (string, error) {
+	return a.notifyWith(sessionID, false, "unread", closing)
+}
+
+// notifyFresh: what was not notified yet, or "" when nothing is new.
+func (a *Agents) notifyFresh(sessionID, closing string) (string, error) {
+	return a.notifyWith(sessionID, true, "new", closing)
+}
+
+func (a *Agents) notifyWith(sessionID string, fresh bool, label, closing string) (string, error) {
+	messages, err := unread(a.db(), sessionID, fresh)
+	if err != nil {
+		return "", err
+	}
+	notices, err := a.pendingNotices(sessionID)
+	if err != nil {
+		return "", err
+	}
+	if len(messages) == 0 && len(notices) == 0 {
+		return "", nil
+	}
+	return a.notify(messages, notices, label, closing)
+}
+
+// introduce: the SessionStart introduction, who this session is and which other sessions are online now.
+func (a *Agents) introduce(sessionID string) (string, error) {
+	h := a.o.Contract.Hook
+	self, err := getSession(a.db(), sessionID)
+	if err != nil {
+		return "", err
+	}
+	peers, err := a.listPeers(sessionID, a.o.Clock.Now())
+	if err != nil {
+		return "", err
+	}
+	var online []*session
+	for _, p := range peers {
+		if p.Status != "offline" {
+			online = append(online, p)
+		}
+	}
+	lines := []string{fmt.Sprintf("%s This conversation is %s (%s) on n2n-nexus, where AI sessions can message each other.", h.Texts.NoticePrefix, self.Name, self.ID)}
+	if n := len(online); n == 0 {
+		lines = append(lines, "No other AI sessions are online.")
+	} else {
+		verb := "s are"
+		if n == 1 {
+			verb = " is"
+		}
+		lines = append(lines, fmt.Sprintf("%d other AI session%s online:", n, verb))
+		for i, p := range online {
+			if i == h.Limits.NotifyListLimit {
+				break
+			}
+			line := fmt.Sprintf("- %s (%s), %s, %s", p.Name, p.ID, p.Client, p.Status)
+			if p.Cwd != "" {
+				line += ", " + p.Cwd
+			}
+			if p.Note != "" {
+				line += ": " + p.Note
+			}
+			lines = append(lines, line)
+		}
+		if n > h.Limits.NotifyListLimit {
+			lines = append(lines, fmt.Sprintf("- ...and %d more", n-h.Limits.NotifyListLimit))
+		}
+		lines = append(lines, h.Texts.StatusNote)
+	}
+	lines = append(lines, h.Texts.SessionStartClosing)
+	return strings.Join(lines, "\n"), nil
+}
+
+func contextOutput(event, text string) map[string]any {
+	if text == "" {
+		return nil
+	}
+	return map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": event, "additionalContext": text}}
+}
+
+func blockOutput(reason string) map[string]any {
+	return map[string]any{"decision": "block", "reason": reason}
+}
