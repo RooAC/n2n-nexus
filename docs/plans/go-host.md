@@ -1,6 +1,6 @@
 # 实施方案：Go 重写独立 host（n2n-nexus-host）
 
-状态：已实施（进行中：发布）　｜　日期：2026-10-23
+状态：已实施，`host-v0.9.0` 与 `n2n-nexus@0.9.0` 于 2026-10-23 发布（验收记录见第 9 节）　｜　日期：2026-10-23
 
 ## 1. 目标与完成标准
 
@@ -189,3 +189,14 @@ n2n-nexus-host version
 - 会话状态机的时序最容易移植出错：以一致性测试为准，且第 2 步先证明测试在 TS 上成立。
 - Linux 托盘依赖桌面环境支持 StatusNotifierItem；没有桌面的服务器只用 `service install`。
 - 未签名：Windows 首次运行可能有 SmartScreen / Defender 提示，README 说明处理办法；签名见 TODO。
+
+## 9. 验收记录（2026-10-23）
+
+- 一致性测试：Linux、Windows、macOS 的 CI 对 Go host 全部通过（100 项）；`go test ./host/...` 与客户端 `npm test` 通过。
+- 端到端：`tests/e2e/hooks-e2e.sh` 用真实的 `claude` 与 `codex` 跑通自动场景 1、2+3、5；交互场景 4（listen）、6（/clear）未跑。
+- Windows 手动验收（Windows 11，测试用端口 5801、临时数据目录）：
+  - 托盘：首次运行打开登录后自启；菜单逐项通过窗口命令触发——重启（进程内与控制模式）、局域网开关（UAC 后添加 TCP 与 UDP 防火墙规则，监听在 `0.0.0.0` 与 `127.0.0.1` 间切换，WSL 中的客户端经局域网发现找到 host）、登录后自启开关、打开日志目录、打开数据目录、退出。
+  - 服务：托盘在进程内运行 host 时 `service install` 拒绝；安装后计划任务为 S4U、以当前用户运行，`/health` 应答；结束 serve 后 5 秒内由监督进程重启；托盘在服务运行时只做控制界面，重启与局域网切换经 `restart-request` 文件生效；`service uninstall` 删除任务、只停服务的 serve。
+  - 未做：重启电脑验证开机启动（见 TODO）。
+- 发布：`host-v0.9.0-rc.1` / `rc.2` 试跑后发布 `host-v0.9.0`（6 个平台、SHA256SUMS、构建证明 `gh attestation verify` 通过）与 npm `n2n-nexus@0.9.0`（带 provenance）；Homebrew tap 与 Scoop bucket 已更新（0.9.0 因工作流条件错误跳过，手动补推，条件已修）；winget 清单 `winget validate` 通过，已提交 microsoft/winget-pkgs#460226 待审。
+

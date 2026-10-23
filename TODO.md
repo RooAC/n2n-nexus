@@ -21,8 +21,8 @@
 ## Backlog
 
 ### Near-term
-- [ ] Release `host-v0.9.0` and npm `v0.9.0` (see docs/plans/go-host.md)
-- [ ] Submit the winget manifest (N2NS.n2n-nexus-host) to microsoft/winget-pkgs
+- [ ] winget: N2NS.n2n-nexus-host 0.9.0 is submitted (microsoft/winget-pkgs#460226); once merged, change "coming soon" in README / README_zh to `winget install N2NS.n2n-nexus-host`, and submit later versions from the `winget-manifests.zip` of each release
+- [ ] Boot check of `service install` on Windows: the scheduled task's AtStartup trigger has not been tried with a reboot (install, restart and supervisor restart were checked on 2026-10-23)
 - [ ] LAN test from a second machine — discovery, firewall rules (TCP and UDP 5688) and direct messages across machines; so far everything ran on one Windows machine
 - [ ] Codex messages left waiting after Codex restarts — the background wait ends with the Codex app and `codex queue` only starts a turn for a conversation loaded in the app, so messages wait until the user prompts that conversation; consider a per-machine waker that loads the conversation through the app-server
 - [ ] Hide Codex background sessions (e.g. `codex@memories`) from peers and the SessionStart introduction; they never answer
