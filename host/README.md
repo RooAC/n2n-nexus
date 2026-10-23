@@ -1,5 +1,7 @@
 # n2n-nexus-host
 
+[中文版](README_zh.md)
+
 The host of n2n-nexus: one Go executable that owns all coordination data and serves the HTTP protocol in [`contract/`](../contract/README.md) to the `n2n-nexus` npm client (MCP adapter and hooks). See the [User guide](../docs/USER_GUIDE.md) for using it and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the design.
 
 ## Install

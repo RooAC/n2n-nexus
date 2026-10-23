@@ -1,5 +1,7 @@
 # Contributing
 
+[中文版](docs/CONTRIBUTING_zh.md)
+
 Thanks for helping improve n2n-nexus.
 
 ## Development Setup
