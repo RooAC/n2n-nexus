@@ -52,6 +52,20 @@ export function toDict<T>(entries: Iterable<[string, T]> = []): Record<string, T
     return dict;
 }
 
+/**
+ * Reads a text file; null only when it does not exist. Any other failure
+ * (EACCES, EBUSY, EMFILE, ...) is thrown: callers that write an index back
+ * after reading it must not mistake an unreadable file for an empty one.
+ */
+export async function readTextIfExists(filePath: string): Promise<string | null> {
+    try {
+        return await fs.readFile(filePath, FILE_ENCODING);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+    }
+}
+
 export function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
     return writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 }

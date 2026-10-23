@@ -1,12 +1,11 @@
 import { promises as fs } from "fs";
 import { ProjectManifest } from "../types.js";
-import { FILE_ENCODING } from "../constants.js";
 
 import { NexusPaths } from "./paths.js";
 import { RegistryStorage } from "./registry.js";
 import { ProjectStorage } from "./projects.js";
 import { DocStorage } from "./docs.js";
-import { fileStoreLock, restoreFile, snapshotFile, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { fileStoreLock, readTextIfExists, restoreFile, snapshotFile, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 
 export const BLUEPRINT_PLACEHOLDER = "# Global Coordination Blueprint\n\nShared meeting space.";
 
@@ -42,13 +41,14 @@ export class StorageManager {
         this.initialized = false;
     }
 
+    /** Missing or unparseable is (re)written with the default; a failed read throws. */
     private static async loadJsonSafe<T>(filePath: string, defaultValue: T): Promise<T> {
+        const content = await readTextIfExists(filePath);
+        if (content === null) {
+            await writeJsonAtomic(filePath, defaultValue);
+            return defaultValue;
+        }
         try {
-            if (!await this.exists(filePath)) {
-                await writeJsonAtomic(filePath, defaultValue);
-                return defaultValue;
-            }
-            const content = await fs.readFile(filePath, FILE_ENCODING);
             return JSON.parse(content.replace(/^\uFEFF/, '').trim());
         } catch {
             console.warn(`[Nexus Storage] Repairing corrupted file: ${filePath}`);
@@ -121,11 +121,22 @@ export class StorageManager {
             return ProjectStorage.saveAsset(id, fileName, content);
         });
     }
-    /** Files first, index last: if the files cannot be removed, the throw leaves the registry entry in place. */
+    /**
+     * Index first, files second, so the registry never lists a project whose
+     * directory is gone: if the registry write fails, nothing is removed. If
+     * the files cannot be removed, the registry is put back to its original
+     * bytes and the original error is rethrown, leaving the entry in place.
+     */
     static deleteProject(id: string) {
         return this.write(async () => {
-            await ProjectStorage.deleteProject(id);
+            const snapshot = await snapshotFile(NexusPaths.registryFile);
             await RegistryStorage.deleteProject(id);
+            try {
+                await ProjectStorage.deleteProject(id);
+            } catch (error) {
+                await restoreFile(snapshot);
+                throw error;
+            }
         });
     }
     /** RegistryStorage.renameProject moves the directory, manifests and registry together and rolls back on failure. */

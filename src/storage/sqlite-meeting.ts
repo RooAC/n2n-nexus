@@ -48,17 +48,20 @@ export class SqliteMeetingStore {
         const now = new Date().toISOString();
         const participants = JSON.stringify([initiator]);
 
-        const stmt = db.prepare(`
-            INSERT INTO meetings (id, topic, status, initiator, participants, created_at)
-            VALUES (?, ?, 'active', ?, ?, ?)
-        `);
-        stmt.run(id, topic, initiator, participants, now);
+        // One transaction: the meeting row and the state keys change together or not at all.
+        db.transaction(() => {
+            const stmt = db.prepare(`
+                INSERT INTO meetings (id, topic, status, initiator, participants, created_at)
+                VALUES (?, ?, 'active', ?, ?, ?)
+            `);
+            stmt.run(id, topic, initiator, participants, now);
 
-        // Update state
-        this.updateState("default_meeting", id);
-        const activeMeetings = this.getActiveMeetingIds();
-        activeMeetings.push(id);
-        this.updateState("active_meetings", JSON.stringify(activeMeetings));
+            // Update state
+            this.updateState("default_meeting", id);
+            const activeMeetings = this.getActiveMeetingIds();
+            activeMeetings.push(id);
+            this.updateState("active_meetings", JSON.stringify(activeMeetings));
+        })();
 
         return {
             id,
@@ -176,17 +179,20 @@ export class SqliteMeetingStore {
             throw new Error(`Permission denied: Only initiator (${meeting.initiator}) can end this meeting.`);
         }
 
-        // Update meeting
-        const stmt = db.prepare(`
-            UPDATE meetings SET status = 'closed', closed_at = ?, summary = ?
-            WHERE id = ?
-        `);
-        stmt.run(now, summary || null, meetingId);
+        // One transaction: the status and the state keys change together or not at all.
+        db.transaction(() => {
+            // Update meeting
+            const stmt = db.prepare(`
+                UPDATE meetings SET status = 'closed', closed_at = ?, summary = ?
+                WHERE id = ?
+            `);
+            stmt.run(now, summary || null, meetingId);
 
-        // Update state
-        const activeMeetings = this.getActiveMeetingIds().filter(id => id !== meetingId);
-        this.updateState("active_meetings", JSON.stringify(activeMeetings));
-        this.updateState("default_meeting", activeMeetings.length > 0 ? activeMeetings[activeMeetings.length - 1] : "");
+            // Update state
+            const activeMeetings = this.getActiveMeetingIds().filter(id => id !== meetingId);
+            this.updateState("active_meetings", JSON.stringify(activeMeetings));
+            this.updateState("default_meeting", activeMeetings.length > 0 ? activeMeetings[activeMeetings.length - 1] : "");
+        })();
 
         return this.getMeeting(meetingId)!;
     }
@@ -225,17 +231,20 @@ export class SqliteMeetingStore {
             throw new Error(`Permission denied: Only initiator (${meeting.initiator}) can reopen this meeting.`);
         }
 
-        // Update status to active
-        const stmt = db.prepare("UPDATE meetings SET status = 'active', closed_at = NULL WHERE id = ?");
-        stmt.run(meetingId);
+        // One transaction: the status and the state keys change together or not at all.
+        db.transaction(() => {
+            // Update status to active
+            const stmt = db.prepare("UPDATE meetings SET status = 'active', closed_at = NULL WHERE id = ?");
+            stmt.run(meetingId);
 
-        // Update state
-        const activeMeetings = this.getActiveMeetingIds();
-        if (!activeMeetings.includes(meetingId)) {
-            activeMeetings.push(meetingId);
-            this.updateState("active_meetings", JSON.stringify(activeMeetings));
-        }
-        this.updateState("default_meeting", meetingId);
+            // Update state
+            const activeMeetings = this.getActiveMeetingIds();
+            if (!activeMeetings.includes(meetingId)) {
+                activeMeetings.push(meetingId);
+                this.updateState("active_meetings", JSON.stringify(activeMeetings));
+            }
+            this.updateState("default_meeting", meetingId);
+        })();
 
         return this.getMeeting(meetingId)!;
     }
