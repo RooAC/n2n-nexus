@@ -1,5 +1,7 @@
 # Security Policy
 
+[中文版](docs/SECURITY_zh.md)
+
 ## Supported Versions
 
 Security fixes target the latest published versions of n2n-nexus (npm client) and n2n-nexus-host.

@@ -287,11 +287,12 @@
 - **Immediate Handshake**: 实现了请求缓冲机制 (Request Buffering)，允许 Server 在 Host 选举 (~300ms) 完成前就立即接受 (<10ms) IDE 的请求，彻底解决了启动时的竞态条件。
 - **Stability**: 增加了针对进程故障转移 (`tests/failover.test.ts`) 和请求缓冲 (`tests/buffered_requests.test.ts`) 的端到端测试。
 
-## [0.3.9] - 2026-01-14
-### 🚀 故障切换与立即握手
-- **立即握手**: 实现了基于缓冲区的设计，Stdio 启动后 <10ms 内即可响应，不再阻塞 IDE 等待选举。
-- **自动故障切换**: 新增了 `Failover` 机制。如果 Host 进程被杀或崩溃，存活的 Guest 会在检测到连接断开后立即触发重新选举，并自动晋升为新 Host。
-- **零配置 V2**: 进一步优化了启动流程，完全无需用户干预即可组建高可用集群。
+## [0.3.9] - 2026-01-11
+### 🚀 在线优先架构 (Online First Architecture)
+- **性能**: 移除了等待选举的顶层阻塞 await。服务端现在 <300ms 内即可启动（在线优先），在网络拥堵时启动时间缩短 99%。
+- **稳定性**: 确保 Host 选举完成前 `tools/list` 就已可用，修复了 MCP 客户端（Cursor/Claude）中的 "Timeout" 错误。
+- **竞态修复**: 从 Local 模式切换到 Guest 模式前先显式关闭服务端，防止 Stdio 流冲突。
+- **重构**: 将 `isHost` 逻辑从静态配置移到动态的 `updateConfig` 流程。
 
 ## [0.3.5] - 2026-01-10
 ### 协议与稳定性
@@ -315,6 +316,24 @@
 - **数据持久化**: 数据现在可以从 `npx` 缓存清理、项目删除和重新安装中幸存。
 - **监听地址**: 默认监听地址更改为 `0.0.0.0` 以支持 WSL 镜像模式网络。
 - **身份安全**: 默认的 "Assistant" ID 现在会自动追加随机后缀（例如 `Assistant-x9a2`），以防止多个空 IDE 连接时发生冲突。
+
+## [0.3.8] - 2026-01-11
+
+### 修复
+- **Guest 代理分帧**: 在 Guest 到 Host 的代理中实现了正确的消息分帧（按换行分隔的 JSON 缓冲区），解决了 IDE 的 stdin 管道把 JSON-RPC 消息拆成碎片时出现的 "context deadline exceeded" 超时。
+
+## [0.3.7] - 2026-01-08
+### 安全与稳定性
+- **安全**: 修复了 Guest 代理连接 URL 中潜在的 URL 参数注入。
+- **稳定性**: 将 Host 选举的回退循环从异步递归改为 `while(true)`，防止长时间运行后栈溢出。
+- **重构**: 改进了 `config.ts` 的代码结构，便于维护。
+
+## [0.3.1] - 2026-01-08
+### 修复
+- **严重**: Guest 代理重连逻辑中的递归栈溢出（部分修复）。
+- **严重**: 回退端口绑定失败时服务端崩溃（现在会带退避重试）。
+- **性能**: 用批量并发优化端口扫描（扫描时间 56 秒 -> 3 秒）。
+- **配置**: 端口范围扩大到 5688-5800（113 个端口）。
 
 ## [v0.3.0] - 2026-01-08
 
@@ -410,3 +429,163 @@
 - **异步深耕**: 关键阻塞操作 (`rename_project`, `host_delete_project`) 迁移至 Task 原语，支持背景级联更新。
 - **可追溯性**: 所有任务现在都支持 `source_meeting_id`，将执行结果与会议决策关联。
 - **进度展示**: 增加了进度追踪 (0.0-1.0) 和 `result_uri` 结构化输出。
+- **生命周期工具**: 新增 `create_task`、`get_task`、`list_tasks`、`update_task` 和 `cancel_task`。
+
+### 🛡️ 类型安全与安全性
+- **纵深防御**: 在 `handleRemoveProject` 和 `handleModeratorMaintenance` 内部增加了二次权限检查，最大限度隔离项目。
+- **会议加固**: `end_meeting` 和 `archive_meeting` 现在严格**仅限 Moderator** 调用。
+- **Zod 集成**: 所有工具定义迁移到严格类型的 Zod schema，并用正则校验防止路径穿越。
+- **基础设施**: 工具链升级到 **TypeScript 5.9.3**、**Vitest 4.0.16** 和 **ESLint 9.39.2**。
+
+### ✂️ 代码瘦身 (架构整洁)
+- **大清理**: 删除了 6 个冗余工具（`list_projects`、`read_project`、`list_global_docs`、`read_global_doc`、`list_meetings`、`read_meeting`），改用 Resource URI。
+- **原生 Zod 4 Schema**: 移除 `zod-to-json-schema` 依赖，改用 Zod 4 原生的 `toJSONSchema()` 生成。
+
+## [v0.1.9] - 2025-12-30
+
+### 🛡️ 协作与安全
+- **仅发起者可操作**: `end_meeting` 和 `archive_meeting` 改为受限访问。
+- **会话在线感知**: 在全局日志中自动发布 `[ONLINE/OFFLINE]` 状态消息。
+- **工具命名整理**: 完成向 `send_message` 和 `read_messages` 的过渡。
+
+### 🌐 资源命名空间 (MCP 2025 标准)
+- **统一的 authority**: 所有核心资源 URI 迁移到 `mcp://nexus/`。
+- **新资源**: 新增 `mcp://nexus/status` 和 `mcp://nexus/active-meeting`。
+
+## [v0.1.8] - 2025-12-30
+
+### 🎯 会议架构 (Phase 1 & 2)
+- **混合存储后端**: 在 **SQLite**（优先）和 **JSON 回退**之间自动选择。
+- **SQLite 引擎**: 基于 `better-sqlite3`，启用 **WAL 模式**，支持高并发和多进程安全。
+- **新的生命周期实体**: `MeetingSession` 用一个个独立会议取代单一的聊天日志。
+- **生命周期工具**:
+  - `start_meeting(topic)`: 创建专用会议，带唯一 ID 和随机熵。
+  - `end_meeting(meetingId?, summary?)`: 结束会议，汇总决策。
+  - `archive_meeting(meetingId)`: 把会议移入历史归档。
+  - `list_meetings(status?)`: 按条件列出会议。
+  - `read_meeting(meetingId)`: 读取会议的历史、参与者和决策详情。
+
+### 🏗️ API 与存储改进
+- **结构化 JSON 响应**: 会议工具现在返回机器可读的 JSON，便于代理集成。
+- **智能自动路由**: 全局讨论消息自动转发到当前活跃的会议。
+- **ID 生成**: 稳健的 slug 生成，非 ASCII 主题（中文/Unicode）回退为 Base64。
+- **并发控制**: 共享的 `AsyncMutex` 工具和 SQLite 原生锁。
+- **状态报告**: `mcp://nexus/status` 现在报告 `storage_mode` 和 `is_degraded` 标志。
+
+### 🧪 质量保证
+- **完整测试套件**: 新增 24 个以上集成测试和压力测试（全部通过）。
+- **并发压力测试**: 验证了消息快速连发时的数据完整性。
+- **回退验证**: 确认原生模块不可用时系统依然稳定。
+
+### 🛡️ 安全
+- **加固项目删除**: 将 `delete_project` 重命名为 `moderator_delete_project`，并强制显式的 Moderator 校验，防止未授权删除项目。
+- **路径清理**: 改进错误处理，从 MCP 错误消息中去掉本地文件的绝对路径。
+
+### 📄 资源与文档
+- **新资源**: 新增 `mcp://nexus/active-meeting`，可直接读取当前会议的记录和决策。
+- **改进工具体验**: 在工具定义中写明返回值结构和管理权限要求。
+- **手册**: 更新 `ASSISTANT_GUIDE.md` 和中英文 README，加入新的管理工具文档和 Phase 2 最佳实践。
+
+## [v0.1.7] - 2025-12-30
+
+### ⚙️ CLI 简化
+- **Moderator 参数**: 用简单的布尔参数 `--moderator` 取代 `--moderator-id <id>`。
+  - Moderator: `--id Master-AI --moderator`
+  - 普通 AI: `--id Assistant-AI`（无需额外参数）
+
+### ✅ 测试
+- 新增会话资源测试，验证角色（Moderator/普通）。
+- 全部 17 个单元测试通过。
+
+## [v0.1.6] - 2025-12-29
+
+### 🔒 并发安全
+- **AsyncMutex 锁**: 实现基于互斥锁的并发控制，防止同时写文件时的竞态条件。
+- 受保护的写操作:
+  - 讨论: `addGlobalLog()`、`pruneGlobalLogs()`、`clearGlobalLogs()`
+  - 注册表: `saveProjectManifest()`、`renameProject()`、`deleteProject()`
+
+### 📦 Schema v2.0
+- **Manifest Schema 增强**: 新增若干可选字段，用于跨项目协作和兼容性声明:
+  - `apiDependencies`: projectId 到版本约束的映射（例如 `">=v2.1"`）
+  - `gatewayCompatibility`: 网关版本兼容性字符串
+  - `api_versions`: 功能级 API 版本
+  - `feature_tier`: 能力类别声明，用于互操作
+
+## [v0.1.5] - 2025-12-29
+
+### 🚀 主要功能
+- **项目 ID 命名规范**: 强制采用 `[prefix]_[technical-name]` 标准，共 13 种类型前缀（web_、api_、chrome_、vscode_、mcp_、android_、ios_、flutter_、desktop_、lib_、bot_、infra_、doc_）。
+- **MCP Prompts 能力**: 新增 `init_project_nexus` prompt，引导 AI 按正确流程注册项目。
+- **delete_project 工具**: 新的管理工具，完整删除项目（manifest、资产、注册表条目）。
+
+### 🔒 防护
+- 新增 `validateProjectId()`，在 `handleRegisterSession`、`handleSyncProjectAssets` 和 `handleRenameProject` 中做运行时正则校验。
+- ID 格式无效的项目现在在 API 层即被拒绝。
+
+### ✨ 增强
+- 资源名称现在显示项目类型图标（例如 "🌐 Website: web_example.com"）。
+- 处理函数单元测试扩展到删除、重命名和校验场景。
+
+### 📄 文档
+- 在 README.md 中新增 "Project ID Conventions" 章节。
+- 工具说明中加入前缀字典指引。
+
+## [v0.1.4] - 2025-12-29
+
+### 🐛 缺陷修复
+- 添加 shebang（`#!/usr/bin/env node`），修复 Windows 上 npx 无法执行的问题。
+
+## [v0.1.3] - 2025-12-29
+
+### 🔧 CI/CD
+- 改用 npm Trusted Publishing（OIDC），不再需要 NPM_TOKEN。
+- 升级到 Node.js 22，以支持 npm 11.5.1+。
+- 添加 `--provenance` 参数，提升供应链安全。
+
+## [v0.1.2] - 2025-12-29
+
+### 🔧 重构
+- 把代码库拆分为 `tools/`、`resources/` 和 `storage/` 模块。
+- `index.ts` 从 535 行缩减到 115 行。
+- 测试从 `src/__tests__/` 移到顶层 `tests/` 目录。
+
+### 📦 CI/CD
+- GitHub Actions 的触发方式从 `release` 改为推送标签（`v*`）。
+
+### 📄 文档
+- 新增 npm 下载量徽章。
+- 仓库 URL 修正为 `n2n-nexus`。
+
+## [v0.1.1] - 2025-12-29
+
+### 📦 npm 发布
+- 以 `n2n-nexus` 发布到 npm。
+- README 增加 `npx` 配置，便于接入 MCP。
+- 新增 CLI 参数说明表。
+
+## [v0.1.0] - 2025-12-29
+
+### 🚀 主要功能
+- **项目资产中心**: 集中存储项目 Manifest、内部文档和资产（图片/文件）。
+- **通讯频道**:
+    - `mcp://chat/global`: 代理之间的实时消息流。
+    - `post_global_discussion`: 用于协调的广播工具。
+- **拓扑引擎**:
+    - `get_global_topology`: 根据 manifest 的 `relations` 自动生成依赖图。
+- **全局知识库**:
+    - 新的 `docs/` 目录结构，存放共享规范。
+    - 工具: `sync_global_doc`、`read_global_doc`、`list_global_docs`。
+- **自愈存储**:
+    - 自动修复损坏的 JSON 注册表或日志。
+    - 缺少配置时使用安全的默认值。
+
+### 🛠️ 工具
+- 新增 `update_project`，用于局部修补 manifest。
+- 新增 `rename_project`，自动级联更新所有项目中的引用。
+- 新增 `register_session_context`，用于绑定 IDE 会话。
+- 新增 `moderator_maintenance`，用于清理日志。
+
+### 📚 文档
+- 更新 `README.md`，加入完整的架构图和数据持久化说明。
+- 新增 `ASSISTANT_GUIDE.md`，描述 AI 之间的操作协议。
