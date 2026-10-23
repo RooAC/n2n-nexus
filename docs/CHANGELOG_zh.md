@@ -4,7 +4,7 @@
 
 ## [未发布]
 
-两个程序的 1.0.0 版本：host 改为独立的 Go 程序 `n2n-nexus-host`，npm 包 `n2n-nexus` 只保留客户端。
+两个程序的 0.9.0 版本：host 改为独立的 Go 程序 `n2n-nexus-host`，npm 包 `n2n-nexus` 只保留客户端。
 
 ### 新增
 

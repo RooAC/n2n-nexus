@@ -13,7 +13,7 @@
 3. `tests/e2e/hooks-e2e.sh` 用真实的 `claude` 和 `codex` 连 Go host 跑通，留下日志。
 4. 在 Windows 上手动验收托盘和 `--service`：托盘菜单每一项、登录后自启、服务开机启动和退出后 5 秒内重启、局域网模式加防火墙规则；结果记入验收记录。
 5. 仓库里不再有 TS daemon、TS 存储层、`install host` 及其测试；文档里不再出现它们。
-6. `host-v1.0.0` 与 npm `n2n-nexus@1.0.0` 发布成功：GitHub Release 含各平台文件、SHA-256 校验值和构建证明，scoop、Homebrew formula、winget 清单可用。
+6. `host-v0.9.0` 与 npm `n2n-nexus@0.9.0` 发布成功：GitHub Release 含各平台文件、SHA-256 校验值和构建证明，scoop、Homebrew formula、winget 清单可用。
 
 ## 2. 已确认的决定
 
@@ -29,7 +29,7 @@
 | 数据目录 | Windows `%LOCALAPPDATA%\n2n-nexus`，macOS `~/Library/Application Support/n2n-nexus`，Linux `$XDG_DATA_HOME/n2n-nexus`（默认 `~/.local/share/n2n-nexus`）；`--root` 或 `NEXUS_ROOT` 可改 |
 | 托盘语言 | 跟随系统语言：中文系统中文，其他英文 |
 | 数据清理 | 事件、已读或已过期的直接消息、已发出的通知保留 30 天；工具调用绑定过期即删；已结束的任务 7 天；日志单个 10 MB、保留 3 个 |
-| 版本 | host 与 npm 客户端都从 1.0.0 开始；当前 [Unreleased] 不单独发布 |
+| 版本 | host 与 npm 客户端都用 0.9.0（用户定）；当前 [Unreleased] 不单独发布 |
 | 发版标签 | npm 客户端 `v*`（现有 `publish.yml`）；host `host-v*`（新 `host-release.yml`） |
 
 ## 3. 协议（`contract/`）
@@ -178,9 +178,9 @@ n2n-nexus-host version
 | 4 | 托盘、自启、`service install` 三个平台 | Windows 手动验收（第 1 节第 4 条）；macOS、Linux 用 CI 检查注册文件内容，并各手动跑一次 |
 | 5 | CI：`.github/workflows/host.yml`，在 `host/`、`contract/`、`tests/conformance/` 变化时于 ubuntu、windows、macos 上跑 `go test` 和一致性测试；lefthook pre-push 加 `go test` 与一致性测试 | 三个平台 CI 通过 |
 | 6 | 精简 npm 客户端（第 5 节），删除 TS daemon、存储层、`install host` 及其测试 | `npm run check` 通过；`hooks-e2e.sh` 对 Go host 跑通 |
-| 7 | 发布流程：`.github/workflows/host-release.yml`（`host-v*` 触发）；新建 `n2ns/homebrew-tap`（从源码编译的 formula）与 `n2ns/scoop-bucket`；winget 清单随 Release 生成，首次手动提交 `microsoft/winget-pkgs` | 用 `host-v1.0.0-rc.1` 试跑：Release 文件、校验值、`gh attestation verify` 通过，三种包管理器能装上 |
+| 7 | 发布流程：`.github/workflows/host-release.yml`（`host-v*` 触发）；新建 `n2ns/homebrew-tap`（从源码编译的 formula）与 `n2ns/scoop-bucket`；winget 清单随 Release 生成，首次手动提交 `microsoft/winget-pkgs` | 用 `host-v0.9.0-rc.1` 试跑：Release 文件、校验值、`gh attestation verify` 通过，三种包管理器能装上 |
 | 8 | 文档：README（中英）、ARCHITECTURE（中英）、TOOLS_REFERENCE（删 REST 一节，加 `update_task`）、CLAUDE.md、llms.txt、SECURITY、CHANGELOG（中英）、TODO；新增 `host/README.md` | 全仓库搜索 `install host`、`n2n-nexus daemon`、`/api/projects`、`better-sqlite3` 无残留 |
-| 9 | 发布 `host-v1.0.0` 与 npm `v1.0.0` | 第 1 节第 6 条 |
+| 9 | 发布 `host-v0.9.0` 与 npm `v0.9.0` | 第 1 节第 6 条 |
 
 构建说明：Windows、Linux 的二进制用 `CGO_ENABLED=0` 交叉编译；macOS 托盘依赖 cgo（Cocoa），在 `macos-latest` 上用 `CGO_ENABLED=1` 构建 amd64 与 arm64。
 

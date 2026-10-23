@@ -19,7 +19,7 @@ import (
 	"github.com/n2ns/n2n-nexus/host/internal/tray"
 )
 
-// version is set at build time: -ldflags "-X main.version=1.0.0".
+// version is set at build time: -ldflags "-X main.version=0.9.0".
 var version = "dev"
 
 const usage = `usage:

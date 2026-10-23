@@ -21,7 +21,7 @@
 ## Backlog
 
 ### Near-term
-- [ ] Release `host-v1.0.0` and npm `v1.0.0` (see docs/plans/go-host.md)
+- [ ] Release `host-v0.9.0` and npm `v0.9.0` (see docs/plans/go-host.md)
 - [ ] Submit the winget manifest (N2NS.n2n-nexus-host) to microsoft/winget-pkgs
 - [ ] LAN test from a second machine — discovery, firewall rules (TCP and UDP 5688) and direct messages across machines; so far everything ran on one Windows machine
 - [ ] Codex messages left waiting after Codex restarts — the background wait ends with the Codex app and `codex queue` only starts a turn for a conversation loaded in the app, so messages wait until the user prompts that conversation; consider a per-machine waker that loads the conversation through the app-server

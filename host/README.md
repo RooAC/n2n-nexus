@@ -70,7 +70,7 @@ The lefthook pre-push hook and CI (`.github/workflows/host.yml`, on ubuntu, wind
    - builds `n2n-nexus-host_<version>_<os>_<arch>` for linux, windows (`.zip`) and darwin (`.tar.gz`, built on macOS with cgo), each amd64 and arm64, with `-X main.version=<version>`;
    - writes `SHA256SUMS` and attests build provenance for every archive;
    - renders the package manifests with `host/release/render.mjs` (the Homebrew formula builds the tagged source tarball);
-   - creates the GitHub release `host-vX.Y.Z` with the archives, `SHA256SUMS` and `winget-manifests.zip` (a tag with `-`, such as `host-v1.0.0-rc.1`, becomes a prerelease);
+   - creates the GitHub release `host-vX.Y.Z` with the archives, `SHA256SUMS` and `winget-manifests.zip` (a tag with `-`, such as `host-v0.9.0-rc.1`, becomes a prerelease);
    - for tags without `-`, pushes the formula to `n2ns/homebrew-tap` (`Formula/n2n-nexus-host.rb`) and the manifest to `n2ns/scoop-bucket` (`bucket/n2n-nexus-host.json`).
 2. Repository secrets: `HOMEBREW_TAP_DEPLOY_KEY` and `SCOOP_BUCKET_DEPLOY_KEY`, SSH deploy keys with write access to those two repositories.
 3. winget: unpack `winget-manifests.zip` from the release and submit its `winget/` manifests (`N2NS.n2n-nexus-host`) to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) by hand.

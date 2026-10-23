@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Version 1.0.0 of both programs: the host is now `n2n-nexus-host`, a separate Go program, and the npm package `n2n-nexus` is the client only.
+Version 0.9.0 of both programs: the host is now `n2n-nexus-host`, a separate Go program, and the npm package `n2n-nexus` is the client only.
 
 ### Added
 
