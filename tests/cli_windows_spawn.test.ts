@@ -95,6 +95,8 @@ describe("Windows .cmd shims", () => {
         expect(launches.map((l) => l.args.slice(0, 3))).toEqual([
             [scripts.claude, "--version"], [scripts.claude, "mcp", "remove"], [scripts.claude, "mcp", "add"]
         ]);
+        // npx starts the package through its .cmd shim, which runs the node on PATH: the chosen Node's folder comes first
+        expect(launches[2].args).toContain(`PATH=${[path.dirname(node), path.join(process.env.SystemRoot || "C:\\Windows", "System32"), process.env.SystemRoot || "C:\\Windows"].join(";")}`);
     });
 
     it("the background wait passes the notification to codex queue unchanged, newlines and cmd metacharacters included", async () => {

@@ -58,7 +58,7 @@ MCP 服务器会自己更新：它通过 npm 的 npx 运行 `n2n-nexus@latest`�
 
 - host 不在 `http://127.0.0.1:5688` 时，两条命令都加上 `--endpoint <url>`；要在局域网里自动查找 host，就用 `--endpoint discover`（第 6 步）。
 - 在 Windows 上，`npm i -g` 和 `install` 要在普通终端里执行，不要在 Codex 这类打包应用自带的终端里执行：那里会装进该应用私有的 `%APPDATA%` 副本，并让应用看不到全局安装。
-- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。MCP 服务的命令是 `"<node>" "<npx>" -y n2n-nexus@latest mcp`，npx 取这个 Node 旁边的 npm 自带的那个；在 Windows 以外的系统上还会把 `PATH` 设为这个 Node 所在目录、`/usr/bin` 和 `/bin`，让 npx 启动的包能找到 Node。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
+- hooks 和 MCP 服务的命令里写的是 Node 的绝对路径，因为从 Dock 启动的 GUI 客户端（如 Claude 桌面版）不读取 shell 的 `PATH`。MCP 服务的命令是 `"<node>" "<npx>" -y n2n-nexus@latest mcp`，npx 取这个 Node 旁边的 npm 自带的那个（版本管理工具的 shim 则取它实际运行的 Node 旁边的）；同时把 `PATH` 设为一个其中 `node` 就是这个 Node 的目录，后面跟系统目录（`/usr/bin` 和 `/bin`；Windows 上是 `System32` 和 Windows 目录），让 npx 启动的包能找到 Node。默认情况下，`PATH` 上的 `node` 与运行 `install` 的 Node 是同一个文件时，`install` 写入 `PATH` 上的路径（例如 `/usr/local/bin/node`、`/opt/homebrew/bin/node`、`~/.local/bin/node` 或版本管理工具的稳定入口），否则写入当前运行的 Node 的真实路径。`install` 会打印一行 `Node: <path>` 显示实际写入的路径。
 - 用 `--node <path>` 手动指定 Node 路径。路径必须存在、可执行，且版本满足 package.json 的 `engines`（`^22.14.0 || >=23.6.0`），否则 `install` 以退出码 1 退出，不写任何配置。
 - 升级 Node 后：如果 `install` 提示 Node 路径位于带版本号的目录（Homebrew `Cellar`、nvm、fnm、Volta、asdf、`node-v<版本>`），每次升级 Node 后都要重新运行 `n2n-nexus install <claude|codex>`，或用 `--node` 指定稳定路径。
 - 支持 Linux、WSL 和 macOS；Codex hooks 也支持 Windows PowerShell。

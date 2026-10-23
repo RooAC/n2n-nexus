@@ -78,12 +78,15 @@ export function stableNodePath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
- * npm's npx script for `node`, run as `"<node>" "<script>"`: the `npx` link next to the Node (Unix; kept unresolved,
- * like the Node path, when it leads to npx-cli.js) or `node_modules/npm/bin/npx-cli.js` next to it (Windows), else
- * the same next to the resolved Node.
+ * What the MCP server command needs from `node`: npm's npx script, run as `"<node>" "<npx>"`, and `bin`, a folder
+ * whose `node` (`node.exe`) is that Node, put first on the server's PATH. npx is the `npx` link next to the Node
+ * (Unix; kept unresolved, like the Node path, when it leads to npx-cli.js) or `node_modules/npm/bin/npx-cli.js` next
+ * to it (Windows), else the same next to the resolved Node, else next to the binary the Node runs (a version
+ * manager's shim reports it as process.execPath).
  */
-export function npxScript(node: string): string {
-    const nearby = (dir: string): string | undefined => {
+export function npxFor(node: string): { npx: string; bin: string } {
+    const nearby = (file: string): string | undefined => {
+        const dir = path.dirname(file);
         const candidate = process.platform === "win32" ? path.join(dir, "node_modules", "npm", "bin", "npx-cli.js") : path.join(dir, "npx");
         try {
             return fs.realpathSync(candidate).endsWith(".js") ? candidate : undefined;
@@ -91,15 +94,26 @@ export function npxScript(node: string): string {
             return undefined;
         }
     };
+    const named = (file: string): boolean => /^node(\.exe)?$/i.test(path.basename(file));
     let resolved = node;
     try {
         resolved = fs.realpathSync(node);
     } catch {
         // checkNodePath / stableNodePath already made sure the Node exists
     }
-    const script = nearby(path.dirname(node)) ?? nearby(path.dirname(resolved));
-    if (!script) throw new InstallError(`npm's npx was not found next to ${node}; install with --node <path> pointing at a Node.js that includes npm.`);
-    return script;
+    let npx = nearby(node) ?? nearby(resolved);
+    let bin = [node, resolved].find(named);
+    if (!npx || !bin) {
+        const probe = spawnSync(node, ["-p", "process.execPath"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        const runs = probe.status === 0 ? probe.stdout.trim() : "";
+        if (runs) {
+            npx ??= nearby(runs);
+            if (named(runs)) bin ??= runs;
+        }
+    }
+    if (!npx) throw new InstallError(`npm's npx was not found next to ${node}; install with --node <path> pointing at a Node.js that includes npm.`);
+    if (!bin) throw new InstallError(`No file named node runs ${node}, so the package npx starts would not find it; install with --node <path> pointing at a file named node.`);
+    return { npx, bin: path.dirname(bin) };
 }
 
 type Version = [number, number, number];
@@ -258,15 +272,15 @@ function mcpRemoveArgs(client: HookClient): string[] {
 }
 
 /**
- * `<client> mcp add` for `"<node>" "<npx>" -y n2n-nexus@latest mcp`. Off Windows, PATH starts with the Node's folder:
- * npx starts the package's `#!/usr/bin/env node` script, and a GUI client started from the Dock has no Node on PATH.
+ * `<client> mcp add` for `"<node>" "<npx>" -y n2n-nexus@latest mcp`. PATH starts with `bin` (see npxFor): npx starts
+ * the package's bin, `#!/usr/bin/env node` (Unix) or a .cmd shim running `node` (Windows), which looks Node up on
+ * PATH, and a GUI client started from the Dock has none there. The rest is the system folders.
  */
-function mcpAddArgs(client: HookClient, node: string, npx: string, endpoint?: string): string[] {
+function mcpAddArgs(client: HookClient, node: string, { npx, bin }: { npx: string; bin: string }, endpoint?: string): string[] {
     const flag = client === "claude" ? "-e" : "--env";
-    const vars = [
-        ...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []),
-        ...(process.platform === "win32" ? [] : [`PATH=${[path.dirname(node), "/usr/bin", "/bin"].join(path.delimiter)}`])
-    ];
+    const systemRoot = process.env.SystemRoot || "C:\\Windows";
+    const dirs = process.platform === "win32" ? [bin, path.join(systemRoot, "System32"), systemRoot] : [bin, "/usr/bin", "/bin"];
+    const vars = [...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []), `PATH=${dirs.join(process.platform === "win32" ? ";" : ":")}`];
     const scope = client === "claude" ? ["--scope", "user"] : [];
     return ["mcp", "add", ...scope, MCP_SERVER_NAME, ...vars.flatMap((v) => [flag, v]), "--", node, npx, "-y", MCP_PACKAGE, "mcp"];
 }
@@ -327,7 +341,7 @@ export function runInstall(options: InstallOptions): number {
             throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
         }
         const node = action === "install" ? (options.node ? checkNodePath(options.node) : stableNodePath()) : undefined;
-        const npx = node && npxScript(node);
+        const npm = node ? npxFor(node) : undefined;
 
         const file = configFile(client);
         const config = readConfig(file);
@@ -345,13 +359,13 @@ export function runInstall(options: InstallOptions): number {
         }
 
         removeMcpServer(client, action, removed);
-        if (action === "install" && node && npx) {
-            const addArgs = mcpAddArgs(client, node, npx, endpoint);
+        if (action === "install" && node && npm) {
+            const addArgs = mcpAddArgs(client, node, npm, endpoint);
             runClient(client, addArgs, ["ignore", "ignore", "inherit"]);
             process.stdout.write(`Ran: ${client} ${addArgs.join(" ")}\n`);
             process.stdout.write(`Node: ${node}\n`);
-            if (VERSIONED_NODE_DIR.test(node)) {
-                process.stdout.write(`Note: this Node path contains a version directory that an upgrade may remove. After upgrading Node, run "n2n-nexus install ${client}" again, or install with --node <path> pointing at a stable entry such as /usr/local/bin/node.\n`);
+            if (VERSIONED_NODE_DIR.test(node) || VERSIONED_NODE_DIR.test(npm.npx)) {
+                process.stdout.write(`Note: this Node or npx path contains a version directory that an upgrade may remove. After upgrading Node, run "n2n-nexus install ${client}" again, or install with --node <path> pointing at a stable entry such as /usr/local/bin/node.\n`);
             }
             if (client === "codex") {
                 process.stdout.write("Next: open Codex and run /hooks to trust the n2n-nexus hooks; until then they do not run.\n");

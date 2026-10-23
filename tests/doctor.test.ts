@@ -8,7 +8,7 @@ import path from "node:path";
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
 import { HOOK, Host } from "./conformance/harness.js";
 
-import { npxScript } from "../src/cli/install.js";
+import { npxFor } from "../src/cli/install.js";
 import { readMcpCommand } from "../src/cli/mcp-config.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
@@ -16,7 +16,7 @@ const REPO = path.resolve(__dirname, "..");
 const ENTRY = path.join(REPO, "build", "index.js");
 const TMP = path.join(REPO, "tests", "tmp", "doctor");
 const NODE = process.execPath;
-const NPX = npxScript(NODE);
+const NPX = npxFor(NODE).npx;
 /** The MCP server arguments install writes after the Node path. */
 const MCP_ARGS = [NPX, "-y", "n2n-nexus@latest", "mcp"];
 

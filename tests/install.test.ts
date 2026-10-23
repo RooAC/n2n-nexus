@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
 
-import { npxScript, runInstall, satisfiesEngines } from "../src/cli/install.js";
+import { npxFor, runInstall, satisfiesEngines } from "../src/cli/install.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -16,8 +16,8 @@ const command = (client: string, endpoint?: string, node = NODE) => `"${node}" "
 /** The `<client> mcp add` arguments install runs for `"<node>" "<npx>" -y n2n-nexus@latest mcp`. */
 const mcpAdd = (client: "claude" | "codex", node = NODE, endpoint?: string) => {
     const flag = client === "claude" ? "-e" : "--env";
-    const vars = [...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []), ...(process.platform === "win32" ? [] : [`PATH=${[path.dirname(node), "/usr/bin", "/bin"].join(path.delimiter)}`])];
-    return [client, "mcp", "add", ...(client === "claude" ? ["--scope", "user"] : []), "n2n-nexus", ...vars.flatMap((v) => [flag, v]), "--", node, npxScript(node), "-y", "n2n-nexus@latest", "mcp"];
+    const vars = [...(endpoint ? [`NEXUS_ENDPOINT=${endpoint}`] : []), `PATH=${(process.platform === "win32" ? [npxFor(node).bin, path.join(process.env.SystemRoot || "C:\\Windows", "System32"), process.env.SystemRoot || "C:\\Windows"] : [npxFor(node).bin, "/usr/bin", "/bin"]).join(path.delimiter)}`];
+    return [client, "mcp", "add", ...(client === "claude" ? ["--scope", "user"] : []), "n2n-nexus", ...vars.flatMap((v) => [flag, v]), "--", node, npxFor(node).npx, "-y", "n2n-nexus@latest", "mcp"];
 };
 const codexWindowsCommand = (endpoint?: string) => `& ${[NODE, ENTRY, "hook", "codex", ...(endpoint ? ["--endpoint", endpoint] : [])].map((arg) => `'${arg.replace(/['\u2018\u2019]/g, "$&$&")}'`).join(" ")}`;
 
@@ -427,7 +427,9 @@ describe("node path", () => {
         expect(result.code).toBe(0);
         expect(result.stdout).toContain(`Node: ${link}\n`);
         expect(result.stdout).toContain('run "n2n-nexus install claude" again, or install with --node <path>');
-        expect(run(["install", "codex", "--node", linkNode("stable/node")]).stdout).not.toContain("--node <path>");
+        const stable = linkNode("stable/node");
+        if (process.platform !== "win32") fs.symlinkSync(fs.realpathSync(npxFor(NODE).npx), path.join(path.dirname(stable), "npx"));
+        expect(run(["install", "codex", "--node", stable]).stdout).not.toContain("--node <path>");
     });
 
     it("replaces the entries when reinstalled with another node path and uninstalls cleanly", () => {
@@ -460,7 +462,7 @@ describe("node path", () => {
 });
 
 describe("npx script", () => {
-    const realNpx = npxScript(NODE);
+    const realNpx = npxFor(NODE).npx;
 
     it("is npm's npx-cli.js next to the running Node", () => {
         expect(fs.realpathSync(realNpx).endsWith(path.join("npm", "bin", "npx-cli.js"))).toBe(true);
@@ -468,12 +470,48 @@ describe("npx script", () => {
 
     it.skipIf(process.platform === "win32")("keeps an npx link next to the Node unresolved, and skips one that is not npm's script", () => {
         const link = linkNode("stable/node");
-        expect(npxScript(link)).toBe(realNpx);
+        expect(npxFor(link).npx).toBe(realNpx);
         fs.symlinkSync(fs.realpathSync(realNpx), path.join(path.dirname(link), "npx"));
-        expect(npxScript(link)).toBe(path.join(path.dirname(link), "npx"));
+        expect(npxFor(link).npx).toBe(path.join(path.dirname(link), "npx"));
         const shim = linkNode("shim/node");
         writeExecutable(path.join(path.dirname(shim), "npx"), "process.exit(0);");
-        expect(npxScript(shim)).toBe(realNpx);
+        expect(npxFor(shim).npx).toBe(realNpx);
+    });
+
+    /** A version manager style shim: a script, not a link, that runs the real Node. */
+    const nodeShim = (relative: string): string => {
+        const shim = path.join(dir, relative);
+        fs.mkdirSync(path.dirname(shim), { recursive: true });
+        fs.writeFileSync(shim, `#!/bin/sh\nexec '${NODE}' "$@"\n`, { mode: 0o755 });
+        return shim;
+    };
+
+    it.skipIf(process.platform === "win32")("finds npx through the Node a shim runs, and keeps the shim's folder first on PATH", () => {
+        const shim = nodeShim("volta/bin/node");
+        expect(run(["install", "claude", "--node", shim]).code).toBe(0);
+        const add = calls().at(-1)!;
+        expect(add.slice(add.indexOf("--") + 1)).toEqual([shim, realNpx, "-y", "n2n-nexus@latest", "mcp"]);
+        expect(add).toContain(`PATH=${[path.dirname(shim), "/usr/bin", "/bin"].join(path.delimiter)}`);
+    });
+
+    it.skipIf(process.platform === "win32")("puts a folder with a file named node on PATH when --node has another name", () => {
+        const link = path.join(dir, "aliases", "node22");
+        fs.mkdirSync(path.dirname(link), { recursive: true });
+        fs.symlinkSync(NODE, link);
+        expect(run(["install", "claude", "--node", link]).code).toBe(0);
+        expect(calls().at(-1)).toContain(`PATH=${[path.dirname(fs.realpathSync(NODE)), "/usr/bin", "/bin"].join(path.delimiter)}`);
+    });
+
+    it.skipIf(process.platform === "win32")("warns when the npx it writes is in a version directory, though the Node path is not", () => {
+        const versioned = nodeShim(".nvm/versions/node/v99.0.0/bin/node");
+        fs.symlinkSync(fs.realpathSync(realNpx), path.join(path.dirname(versioned), "npx"));
+        const stable = path.join(dir, "stable2", "node");
+        fs.mkdirSync(path.dirname(stable), { recursive: true });
+        fs.symlinkSync(versioned, stable);
+        const result = run(["install", "claude", "--node", stable]);
+        expect(result.code).toBe(0);
+        expect(calls().at(-1)).toContain(path.join(path.dirname(versioned), "npx"));
+        expect(result.stdout).toContain("version directory that an upgrade may remove");
     });
 
     it("install fails before writing anything when the Node has no npx", () => {
