@@ -4,6 +4,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -33,13 +35,16 @@ func TestSettingsForAppliesFlags(t *testing.T) {
 func TestProbe(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
-			_, _ = io.WriteString(w, `{"ok":true,"service":"n2n-nexus","version":"9.9.9"}`)
+			_, _ = io.WriteString(w, `{"ok":true,"service":"n2n-nexus","version":"9.9.9","sessions":{"online":3}}`)
 		}
 	}))
 	defer srv.Close()
 	addr := strings.TrimPrefix(srv.URL, "http://")
 	if v, ok := Probe(addr, time.Second); !ok || v != "9.9.9" {
 		t.Fatal(v, ok)
+	}
+	if h, ok := Health(addr, time.Second); !ok || h != (HealthInfo{Version: "9.9.9", Online: 3}) {
+		t.Fatal(h, ok)
 	}
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, `{"service":"x"}`) }))
 	defer other.Close()
@@ -51,13 +56,101 @@ func TestProbe(t *testing.T) {
 	}
 }
 
+// startLockHelper runs the test binary holding dir's lock in role; it returns
+// a channel closed when the helper exits.
+func startLockHelper(t *testing.T, dir, role string) (*exec.Cmd, chan struct{}) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), helperEnv+"=lock:"+role+":"+dir)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-exited })
+	for i := 0; i < 500; i++ {
+		if info, _ := host.ReadLock(dir); info.Held {
+			return cmd, exited
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("helper did not take the lock")
+	return nil, nil
+}
+
+// Uninstall stops the service's host; a tray hosting the host in-process, or
+// a foreground serve, keeps running. Install refuses while a tray holds the lock.
+func TestUninstallLeavesATrayRunning(t *testing.T) {
+	for _, role := range []string{host.RoleTray, host.RoleServe} {
+		dir := t.TempDir()
+		_, exited := startLockHelper(t, dir, role)
+		var out strings.Builder
+		if err := stopServiceHost(dir, &out); err != nil { // what Uninstall runs after removing the service
+			t.Fatalf("%s: %v", role, err)
+		}
+		if !strings.Contains(out.String(), "keeps running") {
+			t.Errorf("%s: %q", role, out.String())
+		}
+		select {
+		case <-exited:
+			t.Fatalf("the %s holding the lock was terminated", role)
+		case <-time.After(500 * time.Millisecond):
+		}
+		if role != host.RoleTray {
+			continue
+		}
+		for _, err := range []error{refuseTray(dir), StopLockHolder(dir, io.Discard)} {
+			if err == nil || !strings.Contains(err.Error(), "quit the n2n-nexus-host tray first; after the service starts, the tray can be opened again and will control it") {
+				t.Fatalf("tray holder: %v", err)
+			}
+		}
+		select {
+		case <-exited:
+			t.Fatal("StopLockHolder terminated the tray")
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	// The service's own serve is stopped.
+	dir := t.TempDir()
+	_, exited := startLockHelper(t, dir, host.RoleSupervised)
+	if err := refuseTray(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := stopServiceHost(dir, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the supervised serve was not stopped")
+	}
+}
+
+// HealthAddr reaches a host bound to the wildcard of either family (each binds its own family only).
+func TestHealthAddrReachesTheHost(t *testing.T) {
+	for _, bind := range []string{"0.0.0.0", "::"} {
+		s := config.Defaults()
+		s.Host, s.Port, s.DiscoveryPort = bind, 0, 0
+		h, err := host.Start(host.Options{Version: "test", DataDir: t.TempDir(), Settings: s, Logger: host.NewLogger(io.Discard)})
+		if err != nil {
+			t.Fatalf("%s: %v", bind, err)
+		}
+		addr := HealthAddr(bind, h.Addr.Port)
+		_, ok := Probe(addr, time.Second)
+		h.Stop()
+		if !ok {
+			t.Errorf("host bound to %s does not answer on %s", bind, addr)
+		}
+	}
+}
+
 func TestStopLockHolderWithoutHolder(t *testing.T) {
 	dir := t.TempDir()
 	if err := StopLockHolder(dir, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	// A released lock with a stale record stops nothing.
-	l, _ := host.AcquireLock(dir, 1, 1)
+	l, _ := host.AcquireLock(dir, 1, 1, host.RoleSupervised)
 	l.Release()
 	if err := StopLockHolder(dir, io.Discard); err != nil {
 		t.Fatal(err)

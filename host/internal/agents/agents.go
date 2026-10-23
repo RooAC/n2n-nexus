@@ -117,6 +117,26 @@ func (a *Agents) locked(fn api.ToolFunc) api.ToolFunc {
 	}
 }
 
+// OnlineSessions counts the sessions that are not offline; an idle or working
+// session without activity past the stale limit counts as offline, as the next
+// hook would mark it.
+func (a *Agents) OnlineSessions() (int, error) {
+	before := a.o.Clock.Now().Add(-ms(a.o.Contract.Hook.Timing.StaleSessionMs))
+	var n int
+	err := a.db().QueryRowContext(bg, "SELECT COUNT(*) FROM agent_sessions WHERE status != 'offline' AND NOT (status IN ('idle', 'working') AND last_active_at < ?)", a.iso(before)).Scan(&n)
+	return n, err
+}
+
+// Health is the agents' part of GET /health: {"sessions": {"online": n}}.
+func (a *Agents) Health() map[string]any {
+	n, err := a.OnlineSessions()
+	if err != nil {
+		a.o.Logger.Printf("health: count sessions: %v", err)
+		return nil
+	}
+	return map[string]any{"sessions": map[string]any{"online": n}}
+}
+
 // Close ends every held wait (host shutting down); later waits end at once.
 func (a *Agents) Close() {
 	a.mu.Lock()

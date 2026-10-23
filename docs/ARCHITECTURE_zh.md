@@ -125,7 +125,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 - 让超过 24 小时有效期的未读直接消息过期（通知发送方），删除 30 天前已读或已过期的直接消息和已发出的通知；
 - 删除已过期（5 分钟）的工具调用绑定。
 
-日志：托盘和服务写到日志目录的 `host.log`（`%LOCALAPPDATA%\n2n-nexus\logs`、`~/Library/Logs/n2n-nexus`、`$XDG_STATE_HOME/n2n-nexus`，默认 `~/.local/state/n2n-nexus`），单个 10 MB 轮转，保留 3 个旧文件。`serve` 输出到标准错误。
+日志：服务，以及在进程内运行 host 时的托盘，写到日志目录的 `host.log`（`%LOCALAPPDATA%\n2n-nexus\logs`、`~/Library/Logs/n2n-nexus`、`$XDG_STATE_HOME/n2n-nexus`，默认 `~/.local/state/n2n-nexus`），单个 10 MB 轮转，保留 3 个旧文件；只有持有 `host.lock` 的一方写它。托盘自己的日志写到同一目录的 `tray.log`，同样轮转。`serve` 输出到标准错误。
 
 ---
 
@@ -199,11 +199,11 @@ n2n-nexus（npm）               每台有 IDE 的机器都装。
 | 托盘登录后自启（`autostart`、托盘菜单） | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `n2n-nexus-host` 值 | `~/Library/LaunchAgents/io.n2ns.n2n-nexus-host.tray.plist` | `~/.config/autostart/n2n-nexus-host.desktop` |
 | 托盘开启局域网访问 | 经 UAC 确认用 `netsh advfirewall` 添加 TCP / UDP 入站规则 | 提示需要放行的端口 | 提示需要放行的端口 |
 
-所有服务都运行 `n2n-nexus-host serve --supervise --root <数据目录>`：监督进程以子进程运行 `serve`，子进程退出 5 秒后重新启动，日志写到 `host.log`。`service install` 先停掉为该数据目录运行的 host（按 `host.lock` 里记录的 PID，不按命令行字符串匹配），把 `--host` / `--port` 写进 `settings.json`，注册并启动服务，最后报告端口上是谁在应答；用 `sudo` 执行时使用调用者的默认目录。托盘启动时先在配置的端口上探测 `GET /health`：已有 host 应答（例如服务）时只做控制界面——**重启** 会停掉服务的 `serve`，由监督进程用新设置重新启动——否则在进程内运行 host。在托盘里改设置会写 `settings.json` 并重启 host。托盘文本在中文系统上为中文，其他为英文。macOS 托盘依赖 cgo（Cocoa），所以 macOS 发布版本在 macOS 上用 `CGO_ENABLED=1` 构建；Windows 和 Linux 用 `CGO_ENABLED=0` 交叉编译，Windows 版本是 GUI 程序，命令输出时附着到父进程的控制台。
+所有服务都运行 `n2n-nexus-host serve --supervise --root <数据目录> --log-dir <日志目录>`，目录取自安装用户，服务自己的环境变量改不了它们：监督进程以子进程运行 `serve`，子进程退出 5 秒后重新启动，日志写到 `host.log`。托盘正在进程内为该数据目录运行 host 时，`service install` 拒绝执行（先退出托盘，再打开时它控制服务）；否则先停掉为该数据目录运行的 host（按 `host.lock` 里记录的 PID，不按命令行字符串匹配），把 `--host` / `--port` 写进 `settings.json`，注册并启动服务，最后报告端口上是谁在应答；用 `sudo` 执行时使用调用者的默认目录。`service uninstall` 删除服务，只停服务自己的 `serve`，不停托盘或前台 `serve`。托盘启动时先在配置的端口上探测 `GET /health`：已有 host 应答（例如服务）时只做控制界面——**重启** 会停掉服务的 `serve`，由监督进程用新设置重新启动，再最多等 20 秒等它重新应答，自己从不另起 host——否则在进程内运行 host。在托盘里改设置会写 `settings.json` 并重启 host。菜单显示 host 实际绑定的地址和在线会话数（`GET /health` 的 `sessions.online`），每 5 秒刷新。IPv4 地址（含 `0.0.0.0`）只监听 IPv4，IPv6 地址只监听 IPv6。托盘文本在中文系统上为中文，其他为英文（macOS 上没有 `LANG` 时，例如作为登录项启动，读 `AppleLanguages`）。macOS 托盘依赖 cgo（Cocoa），所以 macOS 发布版本在 macOS 上用 `CGO_ENABLED=1` 构建；Windows 和 Linux 用 `CGO_ENABLED=0` 交叉编译，Windows 版本是 GUI 程序，命令输出时附着到父进程的控制台。
 
 ### 单实例
 
-host 在打开数据库之前对 `<数据目录>/host.lock` 加独占锁，并在其中记录自己（以及监督进程）的 PID。同一数据目录的第二个 host 会报“another n2n-nexus-host is running for <dir> (PID n)”并退出。
+host 在打开数据库之前对 `<数据目录>/host.lock` 加独占锁，并在其中记录自己的 PID、监督进程的 PID 和角色（`tray`、`serve` 或 `supervised`）。同一数据目录的第二个 host 会报“another n2n-nexus-host is running for <dir> (PID n)”并退出。
 
 ---
 
@@ -241,7 +241,7 @@ Go 模块是仓库根目录的 `github.com/n2ns/n2n-nexus`，所以 host 直接�
 host 只有四个接口（见 `contract/errors.json`）：
 
 ```
-GET  /health                 { ok, service: "n2n-nexus", version, contractVersion }
+GET  /health                 { ok, service: "n2n-nexus", version, contractVersion, sessions: { online } }
 GET  /api/tools              contract/tools.json 中的工具定义（JSON Schema）
 POST /api/tools/call         { tool, args, instanceId, caller? } → { ok: true, result }
 POST /api/hook               客户端 hook 事件 { client, input } → { output }；BackgroundWait 事件即后台等待

@@ -45,12 +45,12 @@ func TestEncodePowerShellRoundTrips(t *testing.T) {
 func TestWindowsRegisterScript(t *testing.T) {
 	exe := `C:\Users\O'Brien\bin\n2n-nexus-host.exe`
 	dir := `C:\Users\O'Brien\AppData\Local\n2n-nexus`
-	s := WindowsRegisterScript(exe, dir)
+	s := WindowsRegisterScript(exe, dir, dir+`\logs`)
 	mustContain(t, s,
 		"exit 3", // not elevated
 		`$ProgressPreference = "SilentlyContinue"`,
 		`-Execute 'C:\Users\O''Brien\bin\n2n-nexus-host.exe'`,
-		`-Argument 'serve --supervise --root "C:\Users\O''Brien\AppData\Local\n2n-nexus"'`,
+		`-Argument 'serve --supervise --root "C:\Users\O''Brien\AppData\Local\n2n-nexus" --log-dir "C:\Users\O''Brien\AppData\Local\n2n-nexus\logs"'`,
 		`-WorkingDirectory 'C:\Users\O''Brien\AppData\Local\n2n-nexus'`,
 		"New-ScheduledTaskTrigger -AtStartup",
 		"-LogonType S4U",
@@ -63,8 +63,8 @@ func TestWindowsRegisterScript(t *testing.T) {
 	if strings.Index(s, "Register-ScheduledTask") > strings.Index(s, "Start-ScheduledTask") {
 		t.Error("starts before registering")
 	}
-	if WindowsTaskArgs(`D:\`) != `serve --supervise --root "D:\."` {
-		t.Error("a trailing backslash must not escape the closing quote:", WindowsTaskArgs(`D:\`))
+	if WindowsTaskArgs(`D:\`, `E:\`) != `serve --supervise --root "D:\." --log-dir "E:\."` {
+		t.Error("a trailing backslash must not escape the closing quote:", WindowsTaskArgs(`D:\`, `E:\`))
 	}
 	if CheckWindowsPath("--root", `C:\%TEMP%\x`) == nil || CheckWindowsPath("--root", `C:\a"b`) == nil || CheckWindowsPath("--root", dir) != nil {
 		t.Error("CheckWindowsPath")
@@ -140,7 +140,7 @@ func TestLaunchDaemonPlist(t *testing.T) {
 		"<string>io.n2ns.n2n-nexus-host</string>", "&amp; co")
 	got := plistStrings(t, s)
 	want := []string{"io.n2ns.n2n-nexus-host", "ann", "/opt/n2n & co/n2n-nexus-host", "serve", "--supervise", "--root",
-		"/Users/ann/Library/Application Support/n2n-nexus", "/Users/ann", "/Users/ann/Library/Application Support/n2n-nexus",
+		"/Users/ann/Library/Application Support/n2n-nexus", "--log-dir", "/Users/ann/Library/Logs/n2n-nexus", "/Users/ann", "/Users/ann/Library/Application Support/n2n-nexus",
 		"/Users/ann/Library/Logs/n2n-nexus/service.log", "/Users/ann/Library/Logs/n2n-nexus/service.log"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("strings\n got %q\nwant %q", got, want)
@@ -159,10 +159,10 @@ func TestTrayLaunchAgentPlist(t *testing.T) {
 }
 
 func TestSystemdUnit(t *testing.T) {
-	s := SystemdUnitFile("/home/ann/bin/n2n host", "/home/ann/.local/share/n2n-nexus 100%", "ann")
+	s := SystemdUnitFile("/home/ann/bin/n2n host", "/home/ann/.local/share/n2n-nexus 100%", "/home/ann/.local/state/n2n-nexus", "ann")
 	mustContain(t, s,
 		"User=ann\n", "Restart=always\n", "RestartSec=5\n", "WantedBy=multi-user.target\n",
-		`ExecStart="/home/ann/bin/n2n host" "serve" "--supervise" "--root" "/home/ann/.local/share/n2n-nexus 100%%"`+"\n",
+		`ExecStart="/home/ann/bin/n2n host" "serve" "--supervise" "--root" "/home/ann/.local/share/n2n-nexus 100%%" "--log-dir" "/home/ann/.local/state/n2n-nexus"`+"\n",
 		"WorkingDirectory=/home/ann/.local/share/n2n-nexus 100%%\n",
 	)
 	if q := systemdQuote(`a"b\c$d`); q != `"a\"b\\c$$d"` {
@@ -195,7 +195,18 @@ func TestAutostartPaths(t *testing.T) {
 	if p, _, _ := autostartFileIn("windows", "C:/Users/ann", "x"); p != "" {
 		t.Fatal(p)
 	}
-	if strings.Join(ServeArgs("/d"), " ") != "serve --supervise --root /d" {
-		t.Fatal(ServeArgs("/d"))
+	if strings.Join(ServeArgs("/d", "/l"), " ") != "serve --supervise --root /d --log-dir /l" {
+		t.Fatal(ServeArgs("/d", "/l"))
+	}
+}
+
+// The service is told the installer's log directory, not left to derive it from its own environment.
+func TestServicesGetTheLogDir(t *testing.T) {
+	mustContain(t, WindowsRegisterScript(`C:\x\host.exe`, `C:\Users\ann\AppData\Local\n2n-nexus`, `C:\Users\ann\AppData\Local\n2n-nexus\logs`),
+		`--log-dir "C:\Users\ann\AppData\Local\n2n-nexus\logs"`)
+	mustContain(t, LaunchDaemonPlist("/x", "/d", "/Users/ann/Library/Logs/n2n-nexus", "ann", "/Users/ann"), "<string>--log-dir</string>\n\t\t<string>/Users/ann/Library/Logs/n2n-nexus</string>")
+	mustContain(t, SystemdUnitFile("/x", "/d", "/home/ann/.local/state/n2n-nexus", "ann"), `"--log-dir" "/home/ann/.local/state/n2n-nexus"`)
+	if CheckWindowsPath("--log-dir", `C:\%LOCALAPPDATA%\logs`) == nil {
+		t.Error("CheckWindowsPath --log-dir")
 	}
 }

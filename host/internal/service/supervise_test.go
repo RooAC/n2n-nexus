@@ -35,6 +35,14 @@ func TestMain(m *testing.M) {
 		_ = os.WriteFile(strings.TrimPrefix(mode, "sleep:"), []byte(strconv.Itoa(os.Getpid())), 0o600)
 		time.Sleep(time.Minute)
 		os.Exit(0)
+	case strings.HasPrefix(mode, "lock:"):
+		// Hold the data directory's lock in a role: "lock:<role>:<dir>".
+		role, dir, _ := strings.Cut(strings.TrimPrefix(mode, "lock:"), ":")
+		if _, err := host.AcquireLock(dir, os.Getpid(), 0, role); err != nil {
+			os.Exit(3)
+		}
+		time.Sleep(time.Minute)
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }

@@ -6,7 +6,9 @@
 package tray
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"sync"
 	"time"
@@ -18,28 +20,41 @@ import (
 	"github.com/n2ns/n2n-nexus/host/internal/service"
 )
 
+// refreshInterval is how often the menu re-reads the session count and whether the service answers.
+const refreshInterval = 5 * time.Second
+
+// restartWait bounds how long a restart in controller mode waits for the service to answer again.
+var restartWait = 20 * time.Second
+
 type app struct {
 	o      Options
 	t      texts
-	logger *log.Logger
+	logger *log.Logger // tray.log
 
 	mu       sync.Mutex
-	h        *host.Host // the in-process host, nil when not running here
-	external string     // address of a host running elsewhere (controller mode), "" if none
+	h        *host.Host     // the in-process host, nil when not running here
+	hostLogs io.WriteCloser // host.log of the in-process host, nil when none
+	external string         // address of a host running elsewhere (controller mode), "" if none
 	lastErr  error
+	online   int // agent sessions not offline, as last read
 	settings config.Settings
 
-	status, lan, autostart, restart *systray.MenuItem
+	status, sessions, lan, autostart, restart *systray.MenuItem
 }
 
-// Run shows the tray until Quit; it blocks.
+// Run shows the tray until Quit; it blocks. The tray logs to tray.log; only
+// a host it runs in-process (which then holds host.lock) writes host.log.
 func Run(o Options) error {
-	a := &app{o: o, t: textsFor(systemChinese())}
-	logs := host.LogWriter(o.LogDir)
+	a, logs := newApp(o)
 	defer logs.Close()
-	a.logger = host.NewLogger(logs)
 	systray.Run(a.ready, a.exit)
 	return nil
+}
+
+// newApp is the tray's state, logging to tray.log.
+func newApp(o Options) (*app, io.Closer) {
+	logs := host.TrayLogWriter(o.LogDir)
+	return &app{o: o, t: textsFor(systemChinese()), logger: host.NewLogger(logs)}, logs
 }
 
 func (a *app) ready() {
@@ -47,6 +62,8 @@ func (a *app) ready() {
 	systray.SetTooltip(a.t.Tooltip)
 	a.status = systray.AddMenuItem("…", "")
 	a.status.Disable()
+	a.sessions = systray.AddMenuItem("…", "")
+	a.sessions.Disable()
 	systray.AddSeparator()
 	logs := systray.AddMenuItem(a.t.OpenLogs, "")
 	data := systray.AddMenuItem(a.t.OpenData, "")
@@ -59,8 +76,18 @@ func (a *app) ready() {
 
 	a.mu.Lock()
 	a.start()
+	a.poll()
 	a.refresh()
 	a.mu.Unlock()
+
+	go func() {
+		for range time.Tick(refreshInterval) {
+			a.mu.Lock()
+			a.poll()
+			a.refresh()
+			a.mu.Unlock()
+		}
+	}()
 
 	go func() {
 		for {
@@ -86,10 +113,19 @@ func (a *app) ready() {
 func (a *app) exit() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.stopHost()
+}
+
+// stopHost (a.mu held) stops the in-process host, if any, and closes host.log.
+func (a *app) stopHost() {
 	if a.h != nil {
 		a.h.Stop()
 		a.h = nil
 		a.logger.Print("stopped")
+	}
+	if a.hostLogs != nil {
+		_ = a.hostLogs.Close()
+		a.hostLogs = nil
 	}
 }
 
@@ -107,26 +143,58 @@ func (a *app) start() {
 		a.logger.Printf("a host already answers on http://%s; the tray only controls it", addr)
 		return
 	}
-	h, err := host.Start(host.Options{Version: a.o.Version, DataDir: a.o.DataDir, Settings: s, Logger: a.logger})
+	logs := host.LogWriter(a.o.LogDir)
+	hostLogger := host.NewLogger(logs)
+	h, err := host.Start(host.Options{Version: a.o.Version, DataDir: a.o.DataDir, Settings: s, Logger: hostLogger, Role: host.RoleTray})
 	if err != nil {
+		_ = logs.Close()
 		a.lastErr = err
 		a.logger.Print(err)
 		return
 	}
-	a.h = h
-	a.logger.Print(host.ReadyLine(a.o.Version, h))
-	a.logger.Printf("data: %s", a.o.DataDir)
+	a.h, a.hostLogs = h, logs
+	for _, l := range []*log.Logger{hostLogger, a.logger} {
+		l.Print(host.ReadyLine(a.o.Version, h))
+		l.Printf("data: %s", a.o.DataDir)
+	}
+}
+
+// poll (a.mu held) reads the session count, and in controller mode whether the service answers.
+func (a *app) poll() {
+	switch {
+	case a.h != nil:
+		n, err := a.h.OnlineSessions()
+		if err != nil {
+			a.logger.Printf("count sessions: %v", err)
+			return
+		}
+		a.online = n
+	case a.external != "":
+		if info, ok := service.Health(a.external, time.Second); ok {
+			a.online, a.lastErr = info.Online, nil
+		} else {
+			a.lastErr = errors.New(a.t.ServiceDown)
+		}
+	}
 }
 
 // refresh (a.mu held) updates the menu from the state.
 func (a *app) refresh() {
+	running := true
 	switch {
 	case a.h != nil:
 		a.status.SetTitle(fmt.Sprintf(a.t.StatusInProcess, a.h.Addr.String()))
-	case a.external != "":
+	case a.external != "" && a.lastErr == nil:
 		a.status.SetTitle(fmt.Sprintf(a.t.StatusService, a.external))
 	default:
 		a.status.SetTitle(fmt.Sprintf(a.t.StatusStopped, a.lastErr))
+		running = false
+	}
+	if running {
+		a.sessions.SetTitle(fmt.Sprintf(a.t.OnlineSessions, a.online))
+		a.sessions.Show()
+	} else {
+		a.sessions.Hide()
 	}
 	if isLAN(a.settings) {
 		a.lan.Check()
@@ -149,28 +217,53 @@ func (a *app) open(dir string) {
 
 // restartHost (a.mu held) applies settings.json: it restarts the in-process
 // host, or, in controller mode, stops the service's serve by the PID in
-// host.lock so its supervisor starts it again with the new settings.
+// host.lock so its supervisor starts it again with the new settings, and
+// waits up to restartWait for it to answer. A controller stays a controller:
+// it never starts a host in-process, which would take the lock from the service.
 func (a *app) restartHost() {
-	if a.external != "" {
-		info, err := host.ReadLock(a.o.DataDir)
-		if err != nil || !info.Held || info.Supervisor == 0 {
-			go notice(a.t.Tooltip, a.t.RestartNoControl)
-			return
-		}
-		if err := service.StopPID(info.PID); err != nil {
-			go notice(a.t.Tooltip, fmt.Sprintf(a.t.Error, err))
-			return
-		}
-		a.logger.Printf("stopped serve PID %d; its supervisor restarts it", info.PID)
-		a.mu.Unlock()
-		time.Sleep(service.RestartDelay + 3*time.Second)
-		a.mu.Lock()
+	if a.external == "" {
+		a.stopHost()
+		a.start()
+		return
 	}
-	if a.h != nil {
-		a.h.Stop()
-		a.h = nil
+	info, err := host.ReadLock(a.o.DataDir)
+	if err != nil || !info.Held || info.Supervisor == 0 {
+		go notice(a.t.Tooltip, a.t.RestartNoControl)
+		return
 	}
-	a.start()
+	if err := service.StopPID(info.PID); err != nil {
+		go notice(a.t.Tooltip, fmt.Sprintf(a.t.Error, err))
+		return
+	}
+	a.logger.Printf("stopped serve PID %d; its supervisor restarts it", info.PID)
+	s := a.settings
+	a.mu.Unlock()
+	addr := awaitService(a.o.DataDir, s, info.PID, restartWait)
+	a.mu.Lock()
+	if addr == "" {
+		a.lastErr = errors.New(a.t.ServiceDown)
+		a.logger.Printf("the service did not answer within %s of the restart", restartWait)
+		go notice(a.t.Tooltip, fmt.Sprintf(a.t.ServiceNotBack, int(restartWait/time.Second)))
+		return
+	}
+	a.external, a.lastErr = addr, nil
+	a.logger.Printf("the service answers again on http://%s", addr)
+}
+
+// awaitService waits up to wait for a host other than oldPID to answer for
+// dataDir and returns its address, or "". The lock is read only once a host
+// answers, so the read never races the new serve for a free lock.
+func awaitService(dataDir string, s config.Settings, oldPID int, wait time.Duration) string {
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline); time.Sleep(250 * time.Millisecond) {
+		addr := findRunning(s)
+		if addr == "" {
+			continue
+		}
+		if info, err := host.ReadLock(dataDir); err == nil && info.Held && info.PID != oldPID {
+			return addr
+		}
+	}
+	return ""
 }
 
 func (a *app) doRestart() {

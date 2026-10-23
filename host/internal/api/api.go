@@ -83,6 +83,8 @@ type Options struct {
 	RateLimit    float64
 	RateBurst    float64
 	Logger       *log.Logger
+	// Health adds fields to GET /health (the agents' session count), nil for none.
+	Health func() map[string]any
 }
 
 // Server routes requests to the registered tools and hook handler.
@@ -208,7 +210,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.Method == http.MethodGet && path == "/health":
-		writeJSON(w, 200, map[string]any{"ok": true, "service": "n2n-nexus", "version": s.opts.Version, "contractVersion": s.opts.Contract.Version}, nil)
+		body := map[string]any{}
+		if s.opts.Health != nil {
+			for k, v := range s.opts.Health() {
+				body[k] = v
+			}
+		}
+		for k, v := range map[string]any{"ok": true, "service": "n2n-nexus", "version": s.opts.Version, "contractVersion": s.opts.Contract.Version} {
+			body[k] = v
+		}
+		writeJSON(w, 200, body, nil)
 	case r.Method == http.MethodGet && path == "/api/tools":
 		defs := make([]map[string]any, 0, len(s.opts.Contract.Tools))
 		for _, t := range s.opts.Contract.Tools {

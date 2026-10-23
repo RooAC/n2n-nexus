@@ -76,37 +76,68 @@ func settingsFor(t target, o Options) (config.Settings, error) {
 	return s, s.Validate()
 }
 
-// HealthAddr is the address to probe a host bound to bindHost on.
+// HealthAddr is the address to probe a host bound to bindHost on: the
+// loopback of the wildcard's family, since each wildcard binds its family only.
 func HealthAddr(bindHost string, port int) string {
 	switch bindHost {
-	case "0.0.0.0", "::", "":
+	case "0.0.0.0", "":
 		bindHost = "127.0.0.1"
+	case "::":
+		bindHost = "::1"
 	}
 	return net.JoinHostPort(bindHost, strconv.Itoa(port))
 }
 
-// Probe asks http://addr/health whether an n2n-nexus host answers and returns its version.
-func Probe(addr string, timeout time.Duration) (version string, ok bool) {
+// HealthInfo is what GET /health reports about a host.
+type HealthInfo struct {
+	Version string
+	Online  int // agent sessions that are not offline
+}
+
+// Health asks http://addr/health whether an n2n-nexus host answers and what it reports.
+func Health(addr string, timeout time.Duration) (HealthInfo, bool) {
 	c := http.Client{Timeout: timeout}
 	resp, err := c.Get("http://" + addr + "/health")
 	if err != nil {
-		return "", false
+		return HealthInfo{}, false
 	}
 	defer resp.Body.Close()
 	var body struct {
-		Service string `json:"service"`
-		Version string `json:"version"`
+		Service  string `json:"service"`
+		Version  string `json:"version"`
+		Sessions struct {
+			Online int `json:"online"`
+		} `json:"sessions"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&body) != nil || body.Service != "n2n-nexus" {
-		return "", false
+		return HealthInfo{}, false
 	}
-	return body.Version, true
+	return HealthInfo{Version: body.Version, Online: body.Sessions.Online}, true
+}
+
+// Probe asks http://addr/health whether an n2n-nexus host answers and returns its version.
+func Probe(addr string, timeout time.Duration) (version string, ok bool) {
+	h, ok := Health(addr, timeout)
+	return h.Version, ok
+}
+
+// refuseTray fails when a tray runs the host for dataDir in-process: the
+// tray is the lock holder itself, so stopping it would end the whole tray.
+func refuseTray(dataDir string) error {
+	info, err := host.ReadLock(dataDir)
+	if err != nil || !info.Held || info.Role != host.RoleTray {
+		return err
+	}
+	return fmt.Errorf("the n2n-nexus-host tray (PID %d) runs the host for %s: quit the n2n-nexus-host tray first; after the service starts, the tray can be opened again and will control it", info.PID, dataDir)
 }
 
 // StopLockHolder stops the host holding dataDir's lock, by the PIDs it
 // recorded there (its supervisor first, so it is not restarted), and waits
-// until the lock is free.
+// until the lock is free. It never stops a tray (see refuseTray).
 func StopLockHolder(dataDir string, out io.Writer) error {
+	if err := refuseTray(dataDir); err != nil {
+		return err
+	}
 	info, err := host.ReadLock(dataDir)
 	if err != nil || !info.Held {
 		return err
@@ -155,8 +186,9 @@ func describeRunning(out io.Writer, t target, s config.Settings) (ours bool) {
 	return false
 }
 
-// Install stops a host running for the data directory, writes the flags to
-// settings.json, registers and starts the service, and reports who listens.
+// Install refuses while a tray runs the host for the data directory; else it
+// stops a host running for it, writes the flags to settings.json, registers
+// and starts the service, and reports who listens.
 func Install(o Options) error {
 	t, err := resolve(o)
 	if err != nil {
@@ -170,6 +202,9 @@ func Install(o Options) error {
 	}
 	s, err := settingsFor(t, o)
 	if err != nil {
+		return err
+	}
+	if err := refuseTray(t.dataDir); err != nil {
 		return err
 	}
 	if info, _ := host.ReadLock(t.dataDir); info.Held {
@@ -213,7 +248,7 @@ func Install(o Options) error {
 	return nil
 }
 
-// Uninstall removes the service and stops the host running for the data directory.
+// Uninstall removes the service and stops the service's host still running for the data directory.
 func Uninstall(o Options) error {
 	t, err := resolve(o)
 	if err != nil {
@@ -225,7 +260,21 @@ func Uninstall(o Options) error {
 	if err := unregister(t, o.Out); err != nil {
 		return err
 	}
-	return StopLockHolder(t.dataDir, o.Out)
+	return stopServiceHost(t.dataDir, o.Out)
+}
+
+// stopServiceHost stops the host holding dataDir's lock only when it is the
+// service's (a supervised serve); a tray or a foreground serve keeps running.
+func stopServiceHost(dataDir string, out io.Writer) error {
+	info, err := host.ReadLock(dataDir)
+	if err != nil || !info.Held {
+		return err
+	}
+	if info.Role != host.RoleSupervised {
+		fmt.Fprintf(out, "n2n-nexus-host PID %d (%s) keeps running for %s: it is not the service.\n", info.PID, info.Role, dataDir)
+		return nil
+	}
+	return StopLockHolder(dataDir, out)
 }
 
 // Status prints whether the service is installed and running, and who listens on the port.

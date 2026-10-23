@@ -16,6 +16,13 @@ import (
 // supervisor's PID, which the child records in host.lock next to its own.
 const SupervisorEnv = "N2N_NEXUS_HOST_SUPERVISOR"
 
+// Roles of a lock holder, recorded in host.lock.
+const (
+	RoleTray       = "tray"       // a tray running the host in-process
+	RoleServe      = "serve"      // serve in the foreground
+	RoleSupervised = "supervised" // serve started by `serve --supervise` (the service)
+)
+
 // LockFile is the single-instance lock of a data directory.
 func LockFile(dataDir string) string { return filepath.Join(dataDir, "host.lock") }
 
@@ -30,13 +37,14 @@ type Lock struct {
 
 // LockInfo describes a data directory's lock.
 type LockInfo struct {
-	Held       bool // a running host holds it
-	PID        int  // the holder's PID (0 if not recorded)
-	Supervisor int  // the PID of its `serve --supervise`, 0 if none
+	Held       bool   // a running host holds it
+	PID        int    // the holder's PID (0 if not recorded)
+	Supervisor int    // the PID of its `serve --supervise`, 0 if none
+	Role       string // RoleTray, RoleServe or RoleSupervised ("" if not recorded)
 }
 
-// AcquireLock takes host.lock in dataDir and records pid and supervisor in it.
-func AcquireLock(dataDir string, pid, supervisor int) (*Lock, error) {
+// AcquireLock takes host.lock in dataDir and records pid, supervisor and role in it.
+func AcquireLock(dataDir string, pid, supervisor int, role string) (*Lock, error) {
 	fl := flock.New(LockFile(dataDir))
 	ok, err := fl.TryLock()
 	if err != nil {
@@ -49,14 +57,14 @@ func AcquireLock(dataDir string, pid, supervisor int) (*Lock, error) {
 		}
 		return nil, errors.New(msg)
 	}
-	if err := writeRecord(dataDir, pid, supervisor); err != nil {
+	if err := writeRecord(dataDir, pid, supervisor, role); err != nil {
 		_ = fl.Unlock()
 		return nil, err
 	}
 	return &Lock{fl: fl}, nil
 }
 
-func writeRecord(dataDir string, pid, supervisor int) error {
+func writeRecord(dataDir string, pid, supervisor int, role string) error {
 	f, err := os.OpenFile(LockFile(dataDir), os.O_RDWR, 0o600)
 	if err != nil {
 		return err
@@ -65,7 +73,7 @@ func writeRecord(dataDir string, pid, supervisor int) error {
 	if err := f.Truncate(lockRecordOffset); err != nil {
 		return err
 	}
-	_, err = f.WriteAt([]byte(fmt.Sprintf("pid=%d supervisor=%d\n", pid, supervisor)), lockRecordOffset)
+	_, err = f.WriteAt([]byte(fmt.Sprintf("pid=%d supervisor=%d role=%s\n", pid, supervisor, role)), lockRecordOffset)
 	return err
 }
 
@@ -76,7 +84,7 @@ func (l *Lock) Release() {
 	}
 }
 
-// ReadLock tells whether a host holds dataDir's lock and which PIDs it recorded.
+// ReadLock tells whether a host holds dataDir's lock and which PIDs and role it recorded.
 func ReadLock(dataDir string) (LockInfo, error) {
 	var info LockInfo
 	f, err := os.Open(LockFile(dataDir))
@@ -89,7 +97,7 @@ func ReadLock(dataDir string) (LockInfo, error) {
 	buf := make([]byte, 128)
 	n, _ := f.ReadAt(buf, lockRecordOffset)
 	f.Close()
-	info.PID, info.Supervisor = parseRecord(string(buf[:n]))
+	info.PID, info.Supervisor, info.Role = parseRecord(string(buf[:n]))
 
 	fl := flock.New(LockFile(dataDir))
 	ok, err := fl.TryLock()
@@ -103,7 +111,7 @@ func ReadLock(dataDir string) (LockInfo, error) {
 	return info, nil
 }
 
-func parseRecord(s string) (pid, supervisor int) {
+func parseRecord(s string) (pid, supervisor int, role string) {
 	for _, field := range strings.Fields(s) {
 		k, v, _ := strings.Cut(field, "=")
 		n, _ := strconv.Atoi(v)
@@ -112,7 +120,9 @@ func parseRecord(s string) (pid, supervisor int) {
 			pid = n
 		case "supervisor":
 			supervisor = n
+		case "role":
+			role = v
 		}
 	}
-	return pid, supervisor
+	return pid, supervisor, role
 }

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { HOOK, useHost } from "./harness.js";
+import { agentKit, ids } from "./agents.js";
 
 describe("GET /health and routing", () => {
     const host = useHost();
+    const { hook } = agentKit(host);
 
     it("answers health with ok and the host version", async () => {
         const res = await host.request<{ ok: boolean; version: string }>("GET", "/health");
@@ -14,7 +16,17 @@ describe("GET /health and routing", () => {
 
     it("names the service and the contract version in health", async () => {
         const res = await host.request<Record<string, unknown>>("GET", "/health");
-        expect(res.payload).toEqual({ ok: true, service: "n2n-nexus", version: expect.any(String), contractVersion: HOOK.contractVersion });
+        expect(res.payload).toEqual({ ok: true, service: "n2n-nexus", version: expect.any(String), contractVersion: HOOK.contractVersion, sessions: { online: expect.any(Number) } });
+    });
+
+    it("counts the agent sessions that are not offline in health", async () => {
+        const online = async () => (await host.request<{ sessions: { online: number } }>("GET", "/health")).payload.sessions.online;
+        const s = ids();
+        const before = await online();
+        await hook("codex", "SessionStart", s("a"));
+        expect(await online()).toBe(before + 1);
+        await hook("codex", "SessionEnd", s("a"));
+        expect(await online()).toBe(before);
     });
 
     it("answers unknown routes with a 404 error body", async () => {

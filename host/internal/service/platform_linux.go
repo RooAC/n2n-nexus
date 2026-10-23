@@ -27,7 +27,7 @@ func stopService(_ target, out io.Writer) error {
 }
 
 func register(t target, out io.Writer) error {
-	if err := writeRootFile(SystemdUnitPath, SystemdUnitFile(t.exe, t.dataDir, t.user), out); err != nil {
+	if err := writeRootFile(SystemdUnitPath, SystemdUnitFile(t.exe, t.dataDir, t.logDir, t.user), out); err != nil {
 		return err
 	}
 	if _, err := run("systemctl", "daemon-reload"); err != nil {

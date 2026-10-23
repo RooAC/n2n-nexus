@@ -125,7 +125,7 @@ At startup and then every hour the host:
 - expires unread direct messages past their 24-hour lifetime (telling the senders), and deletes read or expired direct messages and delivered notices after 30 days;
 - deletes tool-use bindings once they have expired (5 minutes).
 
-Logs: the tray and the service write `host.log` in the log directory (`%LOCALAPPDATA%\n2n-nexus\logs`, `~/Library/Logs/n2n-nexus`, `$XDG_STATE_HOME/n2n-nexus` with default `~/.local/state/n2n-nexus`), rotated at 10 MB with 3 old files kept. `serve` writes to standard error.
+Logs: the service, and the tray while it runs the host in-process, write `host.log` in the log directory (`%LOCALAPPDATA%\n2n-nexus\logs`, `~/Library/Logs/n2n-nexus`, `$XDG_STATE_HOME/n2n-nexus` with default `~/.local/state/n2n-nexus`), rotated at 10 MB with 3 old files kept; only the holder of `host.lock` writes it. The tray's own lines go to `tray.log` there, rotated the same way. `serve` writes to standard error.
 
 ---
 
@@ -199,11 +199,11 @@ n2n-nexus (npm)                Install on every machine with an IDE.
 | Tray at login (`autostart`, tray menu) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value `n2n-nexus-host` | `~/Library/LaunchAgents/io.n2ns.n2n-nexus-host.tray.plist` | `~/.config/autostart/n2n-nexus-host.desktop` |
 | LAN access from the tray | Adds inbound TCP / UDP firewall rules through a UAC prompt (`netsh advfirewall`) | Tells the user which ports to allow | Tells the user which ports to allow |
 
-Every service runs `n2n-nexus-host serve --supervise --root <data dir>`: the supervisor runs `serve` as a child process and starts it again 5 s after it exits, and logs to `host.log`. `service install` stops the host running for the data directory (found through the PIDs recorded in `host.lock`, never by matching command lines), writes `--host` / `--port` to `settings.json`, registers and starts the service and reports what answers on the port; under `sudo` it uses the invoking user's default directories. The tray first probes `GET /health` on the configured port: when a host answers (for example the service), it only controls that host — **Restart** stops the service's `serve` so its supervisor starts it with the new settings — and otherwise it runs the host in-process. Changing a setting from the tray writes `settings.json` and restarts the host. The tray's texts are Chinese on a Chinese system and English otherwise. The macOS tray needs cgo (Cocoa), so macOS release builds are built on macOS with `CGO_ENABLED=1`; Windows and Linux are cross-compiled with `CGO_ENABLED=0`, and the Windows build is a GUI executable that attaches to the parent console for command output.
+Every service runs `n2n-nexus-host serve --supervise --root <data dir> --log-dir <log dir>` with the installing user's directories, so the service's own environment does not move them: the supervisor runs `serve` as a child process and starts it again 5 s after it exits, and logs to `host.log`. `service install` refuses while a tray runs the host for the data directory in-process (quit the tray first; opened again, it controls the service); otherwise it stops the host running for the data directory (found through the PIDs recorded in `host.lock`, never by matching command lines), writes `--host` / `--port` to `settings.json`, registers and starts the service and reports what answers on the port; under `sudo` it uses the invoking user's default directories. `service uninstall` removes the service and stops only the service's own `serve`, never a tray or a foreground `serve`. The tray first probes `GET /health` on the configured port: when a host answers (for example the service), it only controls that host — **Restart** stops the service's `serve` so its supervisor starts it with the new settings, then waits up to 20 s for it to answer again, never starting a host of its own — and otherwise it runs the host in-process. Changing a setting from the tray writes `settings.json` and restarts the host. The menu shows the address the host is bound to and the number of online sessions (`sessions.online` of `GET /health`), refreshed every 5 s. An IPv4 address (`0.0.0.0` included) listens on IPv4 only, an IPv6 address on IPv6 only. The tray's texts are Chinese on a Chinese system and English otherwise (on macOS without `LANG`, as under the login item, from `AppleLanguages`). The macOS tray needs cgo (Cocoa), so macOS release builds are built on macOS with `CGO_ENABLED=1`; Windows and Linux are cross-compiled with `CGO_ENABLED=0`, and the Windows build is a GUI executable that attaches to the parent console for command output.
 
 ### Single instance
 
-A host takes an exclusive lock on `<data dir>/host.lock` before it opens the database and records its PID (and its supervisor's) there. A second host for the same data directory exits with "another n2n-nexus-host is running for <dir> (PID n)".
+A host takes an exclusive lock on `<data dir>/host.lock` before it opens the database and records its PID, its supervisor's and its role (`tray`, `serve` or `supervised`) there. A second host for the same data directory exits with "another n2n-nexus-host is running for <dir> (PID n)".
 
 ---
 
@@ -241,7 +241,7 @@ The Go module is `github.com/n2ns/n2n-nexus` at the repository root, so the host
 The host has four endpoints (see `contract/errors.json`):
 
 ```
-GET  /health                 { ok, service: "n2n-nexus", version, contractVersion }
+GET  /health                 { ok, service: "n2n-nexus", version, contractVersion, sessions: { online } }
 GET  /api/tools              Tool definitions from contract/tools.json (JSON Schema)
 POST /api/tools/call         { tool, args, instanceId, caller? } → { ok: true, result }
 POST /api/hook               Client hook event { client, input } → { output }; the BackgroundWait event is the background wait

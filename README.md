@@ -79,8 +79,8 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 [Releases](https://github.com/n2ns/n2n-nexus/releases) (tags `host-v<version>`) has the archives for every platform: `n2n-nexus-host_<version>_<os>_<arch>.zip` for Windows and `.tar.gz` for macOS and Linux, amd64 and arm64.
 
 - The binaries are not code-signed yet. On Windows, the first start of `n2n-nexus-host.exe` may show a SmartScreen warning: click **More info → Run anyway**. Homebrew builds the host from source on your Mac, so there is no Gatekeeper prompt.
-- Run `n2n-nexus-host` without arguments to start it as a tray app. The tray menu shows the address it listens on, opens the log and data folders, switches LAN access on and off, restarts the host and turns **Start at login** on or off (`n2n-nexus-host autostart on` does the same). The menu is in Chinese on a Chinese system and in English otherwise.
-- Or run it as a background service that starts at boot, without a tray: `n2n-nexus-host service install` from an elevated terminal (Windows) or with `sudo` (macOS, Linux). The service runs as the user who installed it. While the service runs, a tray started later only controls it.
+- Run `n2n-nexus-host` without arguments to start it as a tray app. The tray menu shows the address it listens on and the number of online sessions, opens the log and data folders, switches LAN access on and off, restarts the host and turns **Start at login** on or off (`n2n-nexus-host autostart on` does the same). The menu is in Chinese on a Chinese system and in English otherwise.
+- Or run it as a background service that starts at boot, without a tray: `n2n-nexus-host service install` from an elevated terminal (Windows) or with `sudo` (macOS, Linux). The service runs as the user who installed it. Quit the tray first: `service install` refuses while the tray runs the host. While the service runs, a tray started later only controls it.
 - On Linux the tray needs a desktop with StatusNotifierItem (AppIndicator) support; on a server, use `service install`.
 
 Verify a download against the release's `SHA256SUMS` and its build provenance:
@@ -193,7 +193,7 @@ Override the data directory with `--root <path>` or `NEXUS_ROOT`.
 └── host.lock         # one host per data directory
 ```
 
-The tray and the background service log to `host.log` in the log directory (10 MB per file, 3 old files kept); `n2n-nexus-host serve` logs to standard error. Every hour the host deletes events, read or expired direct messages and delivered notices older than 30 days, and tasks 7 days after they finished.
+The background service, and the tray while it runs the host itself, log to `host.log` in the log directory (10 MB per file, 3 old files kept); the tray's own lines go to `tray.log` there; `n2n-nexus-host serve` logs to standard error. Every hour the host deletes events, read or expired direct messages and delivered notices older than 30 days, and tasks 7 days after they finished.
 
 Data of n2n-nexus 0.x (`~/.n2n-nexus`) is not imported: the host does not read it and leaves it in place.
 
@@ -203,7 +203,7 @@ Read when the host starts; command-line flags override it. A missing file or fie
 
 | Field | Description | Default |
 | --- | --- | --- |
-| `host` | Address to listen on; `0.0.0.0` makes the host reachable from the LAN | `"127.0.0.1"` |
+| `host` | Address to listen on (an IPv4 address listens on IPv4 only, an IPv6 address on IPv6 only); `0.0.0.0` makes the host reachable from the LAN | `"127.0.0.1"` |
 | `port` | TCP port | `5688` |
 | `discoveryPort` | UDP port of LAN discovery, answered only when `host` is not a loopback address | `5688` |
 | `allowedHosts` | Extra DNS names accepted in the `Host` header (IP literals, `localhost` and `host.docker.internal` are always accepted) | `[]` |
@@ -241,8 +241,10 @@ n2n-nexus-host
 n2n-nexus-host serve [--host 127.0.0.1] [--port 5688] [--root <dir>]
 
 # Background service that starts at boot (elevated terminal on Windows, sudo on macOS / Linux).
-# install writes --host / --port to settings.json, stops a host running for the data directory,
+# install refuses while the tray runs the host (quit it first; reopened, it controls the service),
+# writes --host / --port to settings.json, stops a host running for the data directory,
 # registers and starts the service, and reports what answers on the port.
+# uninstall removes the service and stops its host; a tray or a foreground serve keeps running.
 n2n-nexus-host service install [--host <addr>] [--port <port>] [--root <dir>]
 n2n-nexus-host service uninstall [--root <dir>]
 n2n-nexus-host service status [--host <addr>] [--port <port>] [--root <dir>]

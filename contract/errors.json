@@ -21,7 +21,10 @@
         "ok": true,
         "service": "n2n-nexus",
         "version": "<host version>",
-        "contractVersion": 1
+        "contractVersion": 1,
+        "sessions": {
+          "online": "<number of agent sessions not offline>"
+        }
       }
     },
     "GET /api/tools": {

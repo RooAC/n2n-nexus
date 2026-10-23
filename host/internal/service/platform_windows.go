@@ -71,13 +71,16 @@ func checkTarget(t target) error {
 	if err := CheckWindowsPath("--root", t.dataDir); err != nil {
 		return err
 	}
+	if err := CheckWindowsPath("--log-dir", t.logDir); err != nil {
+		return err
+	}
 	return CheckWindowsPath("executable", t.exe)
 }
 
 func stopService(_ target, out io.Writer) error { return runScript(WindowsStopTaskScript(), out) }
 
 func register(t target, out io.Writer) error {
-	return runScript(WindowsRegisterScript(t.exe, t.dataDir), out)
+	return runScript(WindowsRegisterScript(t.exe, t.dataDir, t.logDir), out)
 }
 
 func unregister(_ target, out io.Writer) error { return runScript(WindowsUninstallScript(), out) }
