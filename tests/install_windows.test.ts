@@ -6,17 +6,8 @@ import path from "node:path";
 
 import { runInstall } from "../src/cli/install.js";
 
-vi.mock("node:child_process", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("node:child_process")>();
-    return {
-        ...actual,
-        spawnSync: vi.fn((...args: Parameters<typeof actual.spawnSync>) =>
-            args[0] === "codex" || args[0] === "claude"
-                ? { status: 0, stdout: "", stderr: "" }
-                : actual.spawnSync(...args)),
-        execFileSync: vi.fn()
-    };
-});
+// install launches claude / codex through cross-spawn; these tests never run the real clients.
+vi.mock("cross-spawn", () => ({ default: { sync: vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) } }));
 
 let dir: string;
 let entry: string;
@@ -53,6 +44,18 @@ describe("Codex Windows hooks", () => {
             expect(hook.commandWindows).toContain("'hook' 'codex' '--endpoint' 'http://127.0.0.1:5688/?label=$nexus&quote='''");
             expect(hook.command.replace(/ --wait$/, "")).toBe(`"${process.execPath}" "${entry}" hook codex --endpoint ${endpoint}`);
         }
+    });
+
+    it("refuses to install from an npx cache given as a Windows path", () => {
+        const npx = String.raw`C:\Users\u\AppData\Local\npm-cache\_npx\0123abcd\node_modules\n2n-nexus\build\index.js`;
+        const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+        try {
+            expect(runInstall({ action: "install", client: "claude", node: process.execPath, entry: npx })).toBe(1);
+            expect(String(stderr.mock.calls[0]?.[0])).toContain("npx cache");
+        } finally {
+            stderr.mockRestore();
+        }
+        expect(fs.existsSync(path.join(dir, "settings.json"))).toBe(false);
     });
 
     it("leaves Claude hook commands unchanged", () => {

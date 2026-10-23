@@ -38,7 +38,8 @@ OPTIONS:
   --endpoint <url>   Daemon URL for hook (default: NEXUS_ENDPOINT, then http://127.0.0.1:5688),
                      or "discover" to find a daemon on the LAN;
                      install writes it into the hook and MCP commands
-  --node <path>      Node executable written into the hook and MCP commands by install
+  --node <path>      Node executable written into the hook and MCP commands by install,
+                     and into the scheduled task by install host
                      (default: the node on PATH when it is the running one, else its real path)
   --version, -v      Show version
   --help, -h         Show this help

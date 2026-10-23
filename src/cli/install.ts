@@ -10,10 +10,12 @@
  * is the running binary, because process.execPath is the resolved, versioned
  * location (nvm, Homebrew Cellar, ...) that disappears when Node is upgraded.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import crossSpawn from "cross-spawn";
 
 import {
     CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
@@ -213,6 +215,19 @@ function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: 
 }
 
 /**
+ * Run `<client> <args>` and throw like execFileSync when it fails. cross-spawn
+ * finds and launches the `.cmd` shims npm installs on Windows, which Node
+ * cannot start without a shell; elsewhere it is a plain spawnSync.
+ */
+function runClient(client: HookClient, args: string[], stdio: ["ignore", "ignore", "pipe" | "inherit"]): void {
+    const result = crossSpawn.sync(client, args, { encoding: "utf8", stdio });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+        throw Object.assign(new Error(`Command failed: ${client} ${args.join(" ")}`), { status: result.status, stderr: result.stderr });
+    }
+}
+
+/**
  * Run `<client> mcp remove`. A failure is ignored only when `<client> mcp get`
  * shows the server is not registered (never installed, or already removed);
  * otherwise the removal really failed and we stop before `mcp add`.
@@ -220,7 +235,7 @@ function mcpAddArgs(client: HookClient, node: string, entry: string, endpoint?: 
 function removeMcpServer(client: HookClient, action: InstallOptions["action"], hooksRemoved: boolean): void {
     const removeArgs = mcpRemoveArgs(client);
     try {
-        execFileSync(client, removeArgs, { encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] });
+        runClient(client, removeArgs, ["ignore", "ignore", "pipe"]);
         if (action === "uninstall") process.stdout.write(`Ran: ${client} ${removeArgs.join(" ")}\n`);
         return;
     } catch (error) {
@@ -248,10 +263,10 @@ export function runInstall(options: InstallOptions): number {
     const { action, client, endpoint } = options;
     const entry = options.entry ?? entryScript();
     try {
-        if (action === "install" && entry.includes("/_npx/")) {
+        if (action === "install" && /[/\\]_npx[/\\]/.test(entry)) {
             throw new InstallError(`n2n-nexus is running from an npx cache (${entry}), which can be cleared at any time. Install it first: npm i -g n2n-nexus`);
         }
-        const probe = spawnSync(client, ["--version"], { stdio: "ignore" });
+        const probe = crossSpawn.sync(client, ["--version"], { stdio: "ignore" });
         if (probe.error || probe.status !== 0) {
             throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
         }
@@ -275,7 +290,7 @@ export function runInstall(options: InstallOptions): number {
         removeMcpServer(client, action, removed);
         if (action === "install" && node) {
             const addArgs = mcpAddArgs(client, node, entry, endpoint);
-            execFileSync(client, addArgs, { stdio: ["ignore", "ignore", "inherit"] });
+            runClient(client, addArgs, ["ignore", "ignore", "inherit"]);
             process.stdout.write(`Ran: ${client} ${addArgs.join(" ")}\n`);
             process.stdout.write(`Node: ${node}\n`);
             if (VERSIONED_NODE_DIR.test(node)) {
