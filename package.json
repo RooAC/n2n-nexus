@@ -9,6 +9,7 @@
   },
   "files": [
     "build",
+    "contract",
     "assets",
     "README.md",
     "llms.txt",

@@ -1,0 +1,49 @@
+{
+  "contractVersion": 1,
+  "errorBody": {
+    "type": "object",
+    "properties": {
+      "ok": {
+        "const": false
+      },
+      "error": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "ok",
+      "error"
+    ]
+  },
+  "endpoints": {
+    "GET /health": {
+      "200": {
+        "ok": true,
+        "service": "n2n-nexus",
+        "version": "<host version>",
+        "contractVersion": 1
+      }
+    },
+    "GET /api/tools": {
+      "200": "{ tools: [{ name, title, description, inputSchema, outputSchema (only when publishOutputSchema), annotations }] } from tools.json"
+    },
+    "POST /api/tools/call": {
+      "200": "{ ok: true, result }",
+      "400": "missing tool, invalid args, or the tool failed",
+      "404": "unknown tool"
+    },
+    "POST /api/hook": {
+      "200": "{ output }",
+      "400": "invalid hook request"
+    }
+  },
+  "guards": {
+    "400": "missing Host header",
+    "403": "Host neither an IP literal nor an allowed name; Origin header present; cross-site Sec-Fetch-Site",
+    "404": "unknown route",
+    "413": "body above 16 MiB",
+    "415": "POST without Content-Type application/json",
+    "429": "rate limited; Retry-After header in seconds"
+  },
+  "maxBodyBytes": 16777216
+}
