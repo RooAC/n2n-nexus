@@ -178,3 +178,43 @@ func compile(compiler *jsonschema.Compiler, id string, schema map[string]any) (*
 	}
 	return s, nil
 }
+
+// StripArgs drops object keys the input schema does not declare, at every
+// level, as zod strips unknown keys. Objects whose schema sets
+// additionalProperties (strict objects, records) are left for validation.
+// Without this, Go's case-insensitive JSON decoding would let an undeclared
+// "Name" or "NewId" fill a declared field.
+func (t *Tool) StripArgs(raw json.RawMessage) (json.RawMessage, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(strip(t.InputSchema, value))
+}
+
+func strip(schema map[string]any, value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		props, hasProps := schema["properties"].(map[string]any)
+		_, hasAdditional := schema["additionalProperties"]
+		for key, item := range v {
+			sub, declared := props[key].(map[string]any)
+			if hasProps && !declared && !hasAdditional {
+				delete(v, key)
+				continue
+			}
+			if declared {
+				v[key] = strip(sub, item)
+			}
+		}
+		return v
+	case []any:
+		if items, ok := schema["items"].(map[string]any); ok {
+			for i, item := range v {
+				v[i] = strip(items, item)
+			}
+		}
+		return v
+	}
+	return value
+}

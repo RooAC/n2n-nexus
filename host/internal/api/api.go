@@ -94,7 +94,9 @@ type Server struct {
 	instances *RateLimiter
 	addresses *RateLimiter
 	hooks     *RateLimiter
-	allowed   map[string]bool
+	// hookAddresses bounds hooks per client address apart from tool calls (many sessions from one address).
+	hookAddresses *RateLimiter
+	allowed       map[string]bool
 }
 
 // DefaultAllowedHosts may address the host besides IP literals.
@@ -108,12 +110,13 @@ func New(opts Options) *Server {
 	}
 	now := opts.Clock.Now
 	return &Server{
-		opts:      opts,
-		tools:     map[string]ToolFunc{},
-		instances: NewRateLimiter(opts.RateLimit, opts.RateBurst, now),
-		addresses: NewRateLimiter(opts.RateLimit*AddressLimitFactor, opts.RateBurst*AddressLimitFactor, now),
-		hooks:     NewRateLimiter(opts.RateLimit, opts.RateBurst, now),
-		allowed:   allowed,
+		opts:          opts,
+		tools:         map[string]ToolFunc{},
+		instances:     NewRateLimiter(opts.RateLimit, opts.RateBurst, now),
+		addresses:     NewRateLimiter(opts.RateLimit*AddressLimitFactor, opts.RateBurst*AddressLimitFactor, now),
+		hooks:         NewRateLimiter(opts.RateLimit, opts.RateBurst, now),
+		hookAddresses: NewRateLimiter(opts.RateLimit*AddressLimitFactor, opts.RateBurst*AddressLimitFactor, now),
+		allowed:       allowed,
 	}
 }
 
@@ -189,8 +192,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		testhooks.Handler(s.opts.Clock).ServeHTTP(w, r)
 		return
 	}
-	// Health and the tool list stay reachable so adapters can tell "busy" from "down".
-	exempt := r.Method == http.MethodGet && (path == "/health" || path == "/api/tools")
+	// Health and the tool list stay reachable so adapters can tell "busy" from "down";
+	// hooks have their own per-session budget (serveHook).
+	exempt := (r.Method == http.MethodGet && (path == "/health" || path == "/api/tools")) ||
+		(r.Method == http.MethodPost && path == "/api/hook")
 	if !exempt {
 		if wait := s.addresses.Take("address:" + remoteIP(r)); wait > 0 {
 			writeError(w, rateLimited(wait, "this client address"))
@@ -254,6 +259,11 @@ func (s *Server) serveToolCall(w http.ResponseWriter, r *http.Request) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
 	}
+	args, err := tool.StripArgs(args)
+	if err != nil {
+		writeError(w, &httpError{status: 400, message: fmt.Sprintf("Invalid arguments for %s: %s", req.Tool, err)})
+		return
+	}
 	if err := tool.ValidateArgs(args); err != nil {
 		writeError(w, &httpError{status: 400, message: fmt.Sprintf("Invalid arguments for %s: %s", req.Tool, err)})
 		return
@@ -315,7 +325,11 @@ func (s *Server) serveHook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &httpError{status: 400, message: "Invalid hook request: expected {client: \"claude\" | \"codex\", input: object}"})
 		return
 	}
-	// Hooks are limited per conversation, apart from tool calls: a busy session cannot starve the others.
+	// Hooks are limited per conversation and per address, apart from tool calls: a busy session cannot starve the others.
+	if wait := s.hookAddresses.Take("address:" + remoteIP(r)); wait > 0 {
+		writeError(w, rateLimited(wait, "this client address's hooks"))
+		return
+	}
 	if session, _ := req.Input["session_id"].(string); session != "" {
 		if wait := s.hooks.Take("session:" + req.Client + ":" + session); wait > 0 {
 			writeError(w, rateLimited(wait, "this session's hooks"))

@@ -10,6 +10,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -32,7 +33,8 @@ type Store struct {
 
 // Open opens (creating if needed) <dataDir>/nexus.db and migrates it to the latest version.
 func Open(dataDir string) (*Store, error) {
-	dsn := "file:" + filepath.ToSlash(filepath.Join(dataDir, FileName)) +
+	// A URI: escape the path so '#', '%', '?' in a directory name stay part of it.
+	dsn := "file:" + (&url.URL{Path: filepath.ToSlash(filepath.Join(dataDir, FileName))}).EscapedPath() +
 		"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
