@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
-import { restoreFile, snapshotFile, toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { readTextIfExists, restoreFile, snapshotFile, toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { ProjectManifest } from "../types.js";
 
 export type RegistryData = {
@@ -13,11 +13,12 @@ export type RegistryData = {
 
 const emptyRegistry = (): RegistryData => ({ projects: toDict() });
 
+/** Missing or unparseable reads as empty (self-healing); a failed read throws. */
 async function readRegistry(): Promise<RegistryData> {
+    const raw = await readTextIfExists(NexusPaths.registryFile);
+    if (raw === null) return emptyRegistry();
     try {
-        const raw = await fs.readFile(NexusPaths.registryFile, "utf-8");
-        const parsed = JSON.parse(raw);
-        return sanitizeRegistry(parsed);
+        return sanitizeRegistry(JSON.parse(raw));
     } catch {
         return emptyRegistry();
     }

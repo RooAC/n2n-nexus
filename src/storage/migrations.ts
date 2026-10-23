@@ -85,7 +85,7 @@ export async function importLegacyStrategy(): Promise<boolean> {
             console.error("[n2n-nexus] Moved legacy global doc 'strategy' into global/blueprint.md");
         }
     }
-    // OR IGNORE: two daemons starting together on a fresh root (hook autostart) both get here.
+    // OR IGNORE: two daemons starting together on a fresh root (e.g. `n2n-nexus daemon` run by hand while the host service starts) both get here.
     db.prepare("INSERT OR IGNORE INTO meeting_state (key, value) VALUES (?, ?)").run(LEGACY_STRATEGY_MIGRATION, "complete");
     return moved;
 }

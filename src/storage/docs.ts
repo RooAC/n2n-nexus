@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { NexusPaths } from "./paths.js";
 import { FILE_ENCODING } from "../constants.js";
-import { toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
+import { readTextIfExists, toDict, writeFileAtomic, writeJsonAtomic } from "./fs-utils.js";
 import { GlobalDocIndex } from "../types.js";
 
 export class DocStorage {
@@ -9,15 +9,18 @@ export class DocStorage {
         await fs.mkdir(NexusPaths.docsDir(), { recursive: true });
         try {
             await fs.access(NexusPaths.docsIndexFile);
-        } catch {
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
             await writeJsonAtomic(NexusPaths.docsIndexFile, {});
         }
     }
 
+    /** Missing or unparseable reads as empty (self-healing); a failed read throws. */
     private static async readIndex(): Promise<GlobalDocIndex> {
         await this.ensureDirectory();
+        const raw = await readTextIfExists(NexusPaths.docsIndexFile);
+        if (raw === null) return toDict();
         try {
-            const raw = await fs.readFile(NexusPaths.docsIndexFile, FILE_ENCODING);
             const parsed = JSON.parse(raw);
             if (parsed && typeof parsed === "object") return toDict(Object.entries(parsed as GlobalDocIndex));
         } catch {
