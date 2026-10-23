@@ -14,8 +14,6 @@ All notable changes to this project will be documented in this file.
 - No limit on automatic turns by default: `maxAutoTurns` in the host's `settings.json` now defaults to `0`, so sessions keep waking each other and carrying out each other's requests without anyone typing. Set a number to cap it again; a `settings.json` that sets `maxAutoTurns` keeps its value.
 - Any MCP adapter instance can end, archive or reopen a meeting, not only the one that started it.
 
-- The tray switches where the host listens with two items, **Local only** (`127.0.0.1`) and **LAN** (`0.0.0.0`), the one in use checked, instead of the **Allow LAN access** checkbox; switching restarts the host as before.
-
 ### Fixed
 
 - The Codex background wait loads what a wake needs before it starts waiting, so an upgrade of the package (or a cleared npx cache) during the wait no longer makes the wake fail silently.

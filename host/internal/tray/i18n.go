@@ -17,8 +17,7 @@ type texts struct {
 	ServiceNotBack   string // %d: seconds waited
 	OpenLogs         string
 	OpenData         string
-	Local            string // listen on 127.0.0.1 only
-	LAN              string // listen on 0.0.0.0
+	LAN              string
 	Autostart        string
 	Restart          string
 	Quit             string
@@ -39,8 +38,7 @@ var english = texts{
 	ServiceNotBack:   "The background service did not answer within %d s of the restart; see the log folder.",
 	OpenLogs:         "Open log folder",
 	OpenData:         "Open data folder",
-	Local:            "Local only",
-	LAN:              "LAN",
+	LAN:              "Allow LAN access",
 	Autostart:        "Start at login",
 	Restart:          "Restart",
 	Quit:             "Quit",
@@ -61,8 +59,7 @@ var chinese = texts{
 	ServiceNotBack:   "重启后后台服务在 %d 秒内没有响应，请查看日志目录。",
 	OpenLogs:         "打开日志目录",
 	OpenData:         "打开数据目录",
-	Local:            "仅本机",
-	LAN:              "局域网",
+	LAN:              "允许局域网访问",
 	Autostart:        "登录后自启",
 	Restart:          "重启",
 	Quit:             "退出",
