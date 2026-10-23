@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 
 import { CONTRACT_VERSION, HOOK_CLIENTS, MCP_SERVER_NAME, isHookClient, noDaemonHint, type HookClient } from "../contract.js";
-import { NexusClient } from "../client/nexus-client.js";
+import { NexusClient, NexusToolError } from "../client/nexus-client.js";
 import { LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
 import { pkg } from "../config/index.js";
 import { VERSIONED_NODE_DIR, configFile, isOurs, parseVersion, readConfig, satisfiesEngines, type HookGroup } from "./install.js";
@@ -55,6 +55,8 @@ export async function checkHost(endpoint: string): Promise<Check> {
     try {
         health = await new NexusClient({ endpoint, timeoutMs: 3000 }).health();
     } catch (error) {
+        // It answered but refused (e.g. 403 for a Host name not in its allowedHosts): running, not missing.
+        if (error instanceof NexusToolError) return bad(`answers with HTTP ${error.status}: ${error.message}`);
         return bad(`not reachable (${(error as Error).message}). ${noDaemonHint(endpoint)}`);
     }
     if (health.service !== "n2n-nexus") return bad("answers, but is not an n2n-nexus host");

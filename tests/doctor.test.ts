@@ -276,3 +276,23 @@ describe("doctor", () => {
         expect(() => readMcpCommand("claude", json)).toThrow("not valid JSON");
     });
 });
+
+describe("checkHost", () => {
+    it("reports a host that answers with an HTTP error as answering, without the start-it hint", async () => {
+        const { checkHost } = await import("../src/cli/doctor.js");
+        const server = http.createServer((req, res) => {
+            req.resume();
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: "Host 'mybox.lan' is not allowed" }));
+        });
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        try {
+            const check = await checkHost(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+            expect(check.ok).toBe(false);
+            expect(check.text).toContain("answers with HTTP 403: Host 'mybox.lan' is not allowed");
+            expect(check.text).not.toContain("n2n-nexus-host serve");
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+});
