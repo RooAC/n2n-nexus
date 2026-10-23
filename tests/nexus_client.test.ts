@@ -95,6 +95,8 @@ describe("NexusClient HTTP transport", () => {
             { path: "/api/tools/call", body: { tool: "peers", args: {}, instanceId: "instance" } },
             { path: "/api/hook", body: hook }
         ]);
+        // No instanceId is sent rather than a made-up one the host would count as an instance.
+        expect(received[3]).toEqual({ path: "/api/tools/call", body: { tool: "missing", args: {} } });
     });
 
     it("lets a hook request outlast the client timeout and reports connection errors with their code", async () => {

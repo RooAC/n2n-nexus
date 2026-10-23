@@ -110,7 +110,7 @@ export class NexusServer {
             this.identifyClient(ctx.mcpReq.envelope, server);
             if (!this.connected) {
                 return {
-                    content: [{ type: "text", text: `Daemon is not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Then retry.` }],
+                    content: [{ type: "text", text: `n2n-nexus-host is not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Then retry.` }],
                     isError: true
                 };
             }
@@ -169,7 +169,7 @@ export class NexusServer {
                 await this.daemonUnavailable();
                 const hint = e.code === "ECONNREFUSED" ? ` ${noDaemonHint(this.endpoint)}` : "";
                 return {
-                    content: [{ type: "text", text: `Daemon unavailable: ${message}.${hint} Reconnecting...` }],
+                    content: [{ type: "text", text: `n2n-nexus-host unavailable: ${message}.${hint} Reconnecting...` }],
                     isError: true
                 };
             }
@@ -341,7 +341,7 @@ export class NexusServer {
         this.initialFetch = this.connect();
         const ok = await this.initialFetch;
         if (!ok && !this.stopped) {
-            console.error(`[n2n-nexus] Daemon not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Retrying every ${this.retryIntervalMs / 1000}s...`);
+            console.error(`[n2n-nexus] n2n-nexus-host not available at ${this.endpoint}. ${noDaemonHint(this.endpoint)} Retrying every ${this.retryIntervalMs / 1000}s...`);
             this.scheduleRetry();
         }
     }

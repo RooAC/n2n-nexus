@@ -1647,7 +1647,7 @@
     {
       "name": "get_global_strategy",
       "title": "Read Strategy",
-      "description": "Read the master strategy document (global/blueprint.md).",
+      "description": "Read the master strategy document.",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -1674,7 +1674,7 @@
     {
       "name": "update_global_strategy",
       "title": "Update Strategy",
-      "description": "Overwrite the master strategy document (global/blueprint.md).",
+      "description": "Overwrite the master strategy document.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,

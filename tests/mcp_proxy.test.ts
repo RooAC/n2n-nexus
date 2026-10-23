@@ -313,7 +313,7 @@ describe("MCP proxy reconnect race", () => {
         await new Promise<void>((r) => fake.listen(port, "127.0.0.1", () => r()));
         for (let i = 0; i < 100 && !internals.connected; i++) await new Promise((r) => setTimeout(r, 10));
         const during = await client.callTool({ name: "ping", arguments: {} });   // transport error inside the window
-        expect(JSON.stringify(during.content)).toContain("Daemon unavailable");
+        expect(JSON.stringify(during.content)).toContain("n2n-nexus-host unavailable");
 
         drop = false;
         await new Promise((r) => setTimeout(r, 1000));

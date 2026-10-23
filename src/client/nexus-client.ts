@@ -122,7 +122,7 @@ export class NexusClient {
     async callTool(name: string, args: unknown, instanceId?: string, caller?: Caller): Promise<unknown> {
         const res = await this.request<{ ok: boolean; result: unknown; error?: string }>(
             "POST", "/api/tools/call",
-            { tool: name, args: args || {}, instanceId: instanceId || "unknown", ...(caller ? { caller } : {}) }
+            { tool: name, args: args || {}, ...(instanceId ? { instanceId } : {}), ...(caller ? { caller } : {}) }
         );
         if (!res.ok) throw new NexusToolError(res.error || "Tool call failed", 200);
         return res.result;
