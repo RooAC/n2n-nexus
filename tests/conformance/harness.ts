@@ -121,7 +121,12 @@ export class Host {
         this.proc = null;
         if (proc.exitCode !== null || proc.signalCode !== null) return;
         const exited = new Promise<void>((resolve) => proc.once("exit", () => resolve()));
-        try { process.kill(proc.pid!, signal); } catch { /* exited meanwhile */ }
+        if (signal === "SIGTERM" && process.platform === "win32") {
+            // Windows has no SIGTERM to send: the test build stops gracefully on request.
+            await this.request("POST", "/test/shutdown").catch(() => { /* exited meanwhile */ });
+        } else {
+            try { process.kill(proc.pid!, signal); } catch { /* exited meanwhile */ }
+        }
         const timer = setTimeout(() => { try { process.kill(proc.pid!, "SIGKILL"); } catch { /* already gone */ } }, STOP_TIMEOUT_MS);
         await exited;
         clearTimeout(timer);

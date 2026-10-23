@@ -18,5 +18,11 @@ func NewClock() clock.Clock { return clock.System{} }
 // RegisterFlags adds nothing in a release build.
 func RegisterFlags(*flag.FlagSet, *Options) {}
 
+// Shutdown never fires in a release build.
+func Shutdown() <-chan struct{} { return nil }
+
+// ShutdownHandler is never routed in a release build.
+func ShutdownHandler() http.Handler { return http.NotFoundHandler() }
+
 // Handler is never routed in a release build.
 func Handler(clock.Clock) http.Handler { return http.NotFoundHandler() }

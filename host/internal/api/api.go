@@ -192,6 +192,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		testhooks.Handler(s.opts.Clock).ServeHTTP(w, r)
 		return
 	}
+	if testhooks.Enabled && path == "/test/shutdown" {
+		testhooks.ShutdownHandler().ServeHTTP(w, r)
+		return
+	}
 	// Health and the tool list stay reachable so adapters can tell "busy" from "down";
 	// hooks have their own per-session budget (serveHook).
 	exempt := (r.Method == http.MethodGet && (path == "/health" || path == "/api/tools")) ||

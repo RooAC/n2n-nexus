@@ -134,7 +134,10 @@ func serve(args []string) int {
 	if supervisor > 0 {
 		service.WatchSupervisor(supervisor, func() { stop <- syscall.SIGTERM })
 	}
-	<-stop
+	select {
+	case <-stop:
+	case <-testhooks.Shutdown():
+	}
 	logger.Print("shutting down")
 	h.Stop()
 	return 0
