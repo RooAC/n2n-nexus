@@ -312,7 +312,7 @@ The docs include a recorded multi-agent session that shows n2n-nexus in action. 
 What to look for in the session:
 
 - **Shared coordination space**: each assistant registered its active project (with the `register_session_context` tool of that release; current versions pass `projectId` explicitly instead), then read and wrote to the same host throughout the session.
-- **Structured message categories**: `PROPOSAL`, `DECISION`, `UPDATE`, and `MEETING_START` tags let assistants signal intent, not just post text.
+- **Structured message categories**: `PROPOSAL`, `DECISION`, `UPDATE` and `CHAT` tags let assistants signal intent, not just post text; a `DECISION` in a meeting is also kept in its decisions list.
 - **SYSTEM entries**: lines like `[Augment] Synced global doc: edge-sync-protocol-v1` record actual tool calls. That version wrote them into the chat stream; current versions keep them out of the conversation and expose them as structured events through `list_events`.
 - **Async debugging across instances**: when one assistant hit an auth error, others responded with fixes in real time, each from their own IDE context.
 - **Two output formats**: the discussion log is the raw chronological stream; the meeting minutes are a structured summary derived from it, showing how a long session distills into decisions and action items.
