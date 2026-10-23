@@ -90,12 +90,12 @@ jobs:
             --notes "n2n-nexus-host ${version}. Install: see host/README.md. Verify: gh attestation verify <file> --repo ${GITHUB_REPOSITORY}" \
             dist/n2n-nexus-host_* dist/SHA256SUMS dist/winget-manifests.zip
       - name: Homebrew tap and Scoop bucket
-        if: ${{ !contains(github.ref_name, '-') }}
         env:
           TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           BUCKET_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
         run: |
           version="${GITHUB_REF_NAME#host-v}"
+          case "$version" in *-*) echo "prerelease ${version}: tap and bucket left alone"; exit 0;; esac
           publish() { # <repo> <key> <source file> <target path>
             key=$(mktemp); printf '%s\n' "$2" > "$key"; chmod 600 "$key"
             export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
