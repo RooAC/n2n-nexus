@@ -20,6 +20,8 @@ Claude 桌面版里有两种对话：
 
 需要互相发消息的会话，请在 Code 标签页里开。
 
+**不要把 n2n-nexus 加进 `claude_desktop_config.json`。** 桌面版里有这一项时，它会把这个服务器以桥接（"sdk"）服务器的形式也交给每个 Code 标签页，顶替掉 Claude Code 自己按 `~/.claude.json` 启动的那份。桌面版的桥接转发工具调用时只带工具名和参数：PreToolUse hook 在 host 上登记的 `claudecode/toolUseId` 被丢掉，桥接连接适配器用的也是桌面版自己的客户端身份。这样的 Code 标签页里所有直接消息工具都会报 "This call carries no agent session"，而消息通知（走 hooks）照常收到。在 macOS 的 Claude 桌面版（Claude Code 2.1.308）上确认过；问题出在桌面版，不在 n2n-nexus。解决：从 `claude_desktop_config.json` 删掉 `n2n-nexus` 这一项，重启桌面版，再新开 Code 标签页对话。此后聊天对话里没有 n2n-nexus 工具，对直接消息没有损失（聊天本来就没有）。
+
 ## 3. 对话之间的直接消息
 
 每个对话都会出现在 `peers` 里。新消息会自动通知收件方：用户发来新消息时、每次工具调用后、本轮结束前一次。收件方用 `read` 读取正文。空闲的对话也会被叫醒：每轮结束时，一个后台 hook 最多等待一小时，有新消息就让对话开始新的一轮（Claude Code 通过 `asyncRewake` hook，Codex 通过 `codex queue`），AI 会话之间无需有人输入就能执行对方的请求并回复。无人值守的 `claude -p` 不会被它拖住：这时该 hook 立即返回。Codex 对话只有在运行中的 Codex 应用里已加载时才能被叫醒；Codex 重启后，要等该对话再结束一轮才会恢复，限制详见[架构说明](ARCHITECTURE_zh.md#会话在线状态与唤醒空闲对话)。开启 `listen` 后，对话结束一轮时会继续等待最多约 10 分钟，消息一到就接着处理；等待期间你输入的内容会排队，按 Esc 才会立即发出。
@@ -37,7 +39,7 @@ Claude 桌面版里有两种对话：
 | 工具调用提示 n2n-nexus-host 不可用 | host 没运行或连不上：启动它（[安装手册第 2 步](INSTALL_zh.md#2-启动-host)）；如果在另一台机器上，打开局域网访问（[第 6 步](INSTALL_zh.md#6-多台机器和多个环境)）。 |
 | `peers` 里一直看不到 Codex 会话 | Codex 的 hooks 还没被信任（[安装手册第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)）。 |
 | 对话能收到消息通知，却没有 `read` / `reply` 工具 | hooks 装了，但这个配置下没注册 MCP 服务器。多个 Claude 配置目录（`CLAUDE_CONFIG_DIR`、账号切换工具）时常见：运行 `CLAUDE_CONFIG_DIR=<那个目录> n2n-nexus install claude`，再新开对话。 |
-| 提示"This call carries no agent session" | 对话是在安装 hooks 之前开的（新开一个）、MCP 服务器名不是 `n2n-nexus`，或者身份过期（再调用一次）。在 Claude 桌面版的聊天里这是正常的（第 2 节）。 |
+| 提示"This call carries no agent session" | 对话是在安装 hooks 之前开的（新开一个）、MCP 服务器名不是 `n2n-nexus`，或者身份过期（再调用一次）。在 Claude 桌面版的聊天里这是正常的；在 Code 标签页里出现，说明桌面版把 `claude_desktop_config.json` 里的 n2n-nexus 桥接了过来：把它从那里删掉（第 2 节）。 |
 | `claude -p` 脚本 | 不会被后台等待拖住，无需处理。 |
 
 ## 6. 参考

@@ -142,7 +142,7 @@ host 提供 33 个工具，按用途分组：
 
 ### 支持 Claude Desktop、Cursor、VS Code 等客户端吗？
 
-支持，只要客户端可以运行本地 MCP command server。IDE 启动适配器，适配器通过 `NEXUS_ENDPOINT` 连接本地 host。
+支持，只要客户端可以运行本地 MCP command server。IDE 启动适配器，适配器通过 `NEXUS_ENDPOINT` 连接本地 host。在 Claude 桌面版里只给 Claude Code 注册（`n2n-nexus install claude`），不要写进 `claude_desktop_config.json`：桌面版会把它桥接进 Code 标签页并丢掉对话身份（[用户手册第 2 节](USER_GUIDE_zh.md#2-claude-桌面版)）。
 
 ### 可以跨 Windows 和 WSL 协作吗？
 

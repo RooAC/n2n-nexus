@@ -142,7 +142,7 @@ No. `n2n-memory` is a local memory tool for a single repository. `n2n-nexus` is 
 
 ### Does it support Claude Desktop, Cursor, VS Code and other clients?
 
-Yes, as long as the client can run a local MCP command server. The IDE starts the adapter, and the adapter reaches the local host through `NEXUS_ENDPOINT`.
+Yes, as long as the client can run a local MCP command server. The IDE starts the adapter, and the adapter reaches the local host through `NEXUS_ENDPOINT`. In the Claude desktop app, register it for Claude Code (`n2n-nexus install claude`) only, not in `claude_desktop_config.json`: the app would bridge it into the Code tab and drop the conversation identity ([User guide, section 2](docs/USER_GUIDE.md#2-claude-desktop-app)).
 
 ### Can Windows and WSL work together?
 
