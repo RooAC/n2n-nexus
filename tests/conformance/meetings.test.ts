@@ -156,4 +156,30 @@ describe("meetings per conversation", () => {
         expect(await kit.hook("claude", "Stop", a, { stop_hook_active: false })).toBeNull(); // who ended it is not told
         expect(context(await kit.hook("claude", "UserPromptSubmit", b))).toContain(`Meeting "Wake test" (${meetingId}) has ended: settled. No reply needed.`);
     });
+
+    it("closes a meeting by consensus when every required approver endorses the draft", async () => {
+        const s = ids();
+        const [a, b] = [s("a"), s("b")];
+        for (const id of [a, b]) await kit.hook("claude", "SessionStart", id);
+        const meetingId = (await kit.claudeTool<{ meetingId: string }>(a, "start_meeting", { topic: "Consensus" })).payload.result!.meetingId;
+        await kit.claudeTool(b, "join_meeting", { meetingId });
+
+        const draft = await kit.claudeTool<{ currentProposalId: number }>(a, "send_message", { meetingId, message: "ship it", draft: true });
+        expect(draft.status, draft.body).toBe(200);
+        const messageId = draft.payload.result!.currentProposalId;
+        expect(messageId).toBe(1);
+
+        type Stance = { counted: boolean; decided: boolean; approvals: { required: string[]; waiting: string[] } };
+        const first = await kit.claudeTool<Stance>(a, "stance", { meetingId, messageId, stance: "endorse" });
+        expect(first.payload.result).toMatchObject({ counted: true, decided: false, approvals: { required: [`claude:${a}`, `claude:${b}`], waiting: [`claude:${b}`] } });
+        const last = await kit.claudeTool<Stance>(b, "stance", { meetingId, messageId, stance: "endorse" });
+        expect(last.payload.result).toMatchObject({ counted: true, decided: true });
+
+        type Meeting = { id: string; status: string; endReason: string | null; decisionCount: number; proposal: { messageId: number; endorsed: string[] } };
+        const meeting = (await listed()).meetings.find((m) => m.id === meetingId) as unknown as Meeting;
+        expect(meeting).toMatchObject({ status: "closed", endReason: "consensus", decisionCount: 1, proposal: { messageId: 1 } });
+        expect([...meeting.proposal.endorsed].sort()).toEqual([`claude:${a}`, `claude:${b}`].sort());
+        const read = await host.callTool<{ messages: { from: string; category: string; text: string }[] }>("read_messages", { meetingId, latest: true, count: 1 });
+        expect(read.payload.result!.messages[0]).toMatchObject({ from: "n2n-nexus", category: "DECISION", text: expect.stringContaining("ship it") });
+    });
 });
