@@ -127,6 +127,7 @@ type Hook struct {
 		DefaultMaxAutoTurns int    `json:"defaultMaxAutoTurns"`
 		MaxMessageChars     int    `json:"maxMessageChars"`
 		MaxNoteChars        int    `json:"maxNoteChars"`
+		MaxTitleChars       int    `json:"maxTitleChars"`
 		SessionNamePattern  string `json:"sessionNamePattern"`
 		PreviewChars        int    `json:"previewChars"`
 		NotifyListLimit     int    `json:"notifyListLimit"`

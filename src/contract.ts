@@ -87,6 +87,12 @@ export const SESSION_END_REQUEST_TIMEOUT_MS: number = contract.timing.sessionEnd
 export const WAKE_RETRY_FIRST_DELAY_MS: number = contract.timing.wakeRetryFirstDelayMs;
 export const WAKE_RETRY_MAX_DELAY_MS: number = contract.timing.wakeRetryMaxDelayMs;
 
+/**
+ * The hook command adds the conversation's title, as its client shows it, to
+ * the input it forwards as `title` (at most this many characters).
+ */
+export const MAX_TITLE_CHARS: number = contract.limits.maxTitleChars;
+
 /** Name the MCP server is installed under; Claude's PreToolUse matcher depends on it. */
 export const MCP_SERVER_NAME: string = contract.mcpServerName;
 export const CLAUDE_PRE_TOOL_MATCHER = `mcp__${MCP_SERVER_NAME}__.*`;

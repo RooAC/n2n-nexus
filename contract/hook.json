@@ -53,6 +53,7 @@
     "defaultMaxAutoTurns": 0,
     "maxMessageChars": 32000,
     "maxNoteChars": 200,
+    "maxTitleChars": 80,
     "sessionNamePattern": "^[A-Za-z0-9._@#-]{1,48}$",
     "previewChars": 100,
     "notifyListLimit": 5
