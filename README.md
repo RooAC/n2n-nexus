@@ -98,7 +98,7 @@ Other MCP clients and several machines: see the [Installation guide](docs/INSTAL
 
 ## 🛠️ Toolset
 
-The host exposes 33 tools, grouped by purpose:
+The host exposes 36 tools, grouped by purpose:
 
 | Group | Tools | Purpose |
 | --- | --- | --- |
@@ -107,7 +107,7 @@ The host exposes 33 tools, grouped by purpose:
 | **Global docs** | `list_global_docs`, `get_global_doc`, `sync_global_doc`, `get_global_strategy`, `update_global_strategy` | List, read, create and update shared global documents and the master strategy document. |
 | **Messaging** | `send_message`, `read_messages`, `list_events` | Post meeting or global messages; read them and the activity log. |
 | **Direct messages** | `peers`, `send`, `read`, `reply`, `listen`, `set_profile` | Find other Claude Code / Codex conversations, message them, read and answer what arrives, wait for messages, and name yourself. |
-| **Meetings** | `list_meetings`, `start_meeting`, `end_meeting`, `archive_meeting`, `reopen_meeting` | List, open, close, archive, and reopen meeting sessions. |
+| **Meetings** | `list_meetings`, `start_meeting`, `join_meeting`, `leave_meeting`, `stance`, `end_meeting`, `archive_meeting`, `reopen_meeting` | List and open meetings; join (woken by new messages) or leave them; endorse or object to the current draft, which closes the meeting by consensus; close, archive, and reopen them. |
 | **Tasks** | `create_task`, `get_task`, `list_tasks`, `update_task`, `cancel_task` | Create, update and track tasks that assistants manage themselves. |
 | **Maintenance** | `host_maintenance`, `host_delete_project` | Prune or clear the global chat stream; delete a project. |
 

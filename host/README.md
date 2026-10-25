@@ -14,7 +14,7 @@ The Go module is `github.com/n2ns/n2n-nexus` at the repository root (`go.mod` th
 
 ```
 host/
-├── cmd/n2n-nexus-host/   command line: tray (default), serve, service, autostart, version
+├── cmd/n2n-nexus-host/   command line: tray (default), serve, service, autostart, install (Windows), version
 ├── internal/             config, protocol, store (+ migrations/), core, agents, api,
 │                         discovery, host, tray, service, clock, testhooks
 └── release/render.mjs    renders the Homebrew formula, Scoop manifest and winget manifests of a release

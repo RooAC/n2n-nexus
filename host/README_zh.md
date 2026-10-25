@@ -14,7 +14,7 @@ Go 模块是仓库根目录的 `github.com/n2ns/n2n-nexus`（`go.mod` 在根目�
 
 ```
 host/
-├── cmd/n2n-nexus-host/   命令行：托盘（默认）、serve、service、autostart、version
+├── cmd/n2n-nexus-host/   命令行：托盘（默认）、serve、service、autostart、install（Windows）、version
 ├── internal/             config、protocol、store（+ migrations/）、core、agents、api、
 │                         discovery、host、tray、service、clock、testhooks
 └── release/render.mjs    生成一次发布的 Homebrew formula、Scoop manifest 和 winget manifest
