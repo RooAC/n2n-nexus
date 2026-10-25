@@ -2,7 +2,8 @@
  * `n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]`: forward one client
  * hook event to the daemon and print its output, or with `--wait` run the
  * background wait that wakes an idle conversation. Runs on every tool call, so
- * it loads only node built-ins (no MCP SDK, zod or SQLite), and every failure
+ * it loads only node built-ins (no MCP SDK or zod; node:sqlite only to read a
+ * Codex conversation's title, see title.ts), and every failure
  * is silent: exit 0 with nothing on stdout, so the client carries on unaffected.
  */
 import { spawn } from "node:child_process";
@@ -13,9 +14,12 @@ import {
 } from "../contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
 import { DISCOVER_ENDPOINT, LOCAL_ENDPOINT, resolveEndpoint } from "../client/discovery.js";
+import { readTitle } from "./title.js";
 
 /** Errors after which a discovered daemon is looked up again: it was never reached, so resending is safe. */
 const UNREACHABLE_CODES = new Set(["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT", "EADDRNOTAVAIL"]);
+/** Events whose forwarded input carries the conversation's title. */
+const TITLE_EVENTS = new Set(["SessionStart", "UserPromptSubmit", "Stop"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -43,6 +47,11 @@ async function forward(argv: string[]): Promise<string> {
     const input: Record<string, unknown> = {};
     for (const field of HOOK_INPUT_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(stdin, field)) input[field] = stdin[field];
+    }
+    // The title is read only where the host updates it, not on the frequent tool events.
+    if (typeof stdin.hook_event_name === "string" && TITLE_EVENTS.has(stdin.hook_event_name)) {
+        const title = await readTitle(client, stdin);
+        if (title !== undefined) input.title = title;
     }
     // SessionEnd must finish within Codex's 3 s hook limit (discovery included): a short budget and a single attempt.
     const sessionEnd = stdin.hook_event_name === "SessionEnd";

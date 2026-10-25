@@ -6,6 +6,8 @@ import net, { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+import { MAX_TITLE_CHARS } from "../src/contract.js";
+
 // Tests the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
 const ENTRY = path.join(REPO, "build", "index.js");
@@ -186,6 +188,102 @@ describe("n2n-nexus hook, forwarding", () => {
             expect(result.stderr.trim().split("\n")).toHaveLength(1);
         }
     }, 20_000);
+});
+
+describe("n2n-nexus hook, conversation title", () => {
+    let fake: FakeDaemon;
+    beforeEach(async () => { fake = await startFakeDaemon(); });
+    afterEach(async () => { await fake.close(); });
+
+    /** A Claude transcript: `head` records, then filler lines up to `fillerBytes`, then `tail` records. */
+    function transcript(name: string, head: object[], tail: object[], fillerBytes = 0): string {
+        fs.mkdirSync(TMP, { recursive: true });
+        const file = path.join(TMP, `${name}.jsonl`);
+        const line = JSON.stringify({ type: "assistant", message: { content: "x".repeat(1000) } }) + "\n";
+        const lines = [
+            ...head.map((r) => JSON.stringify(r) + "\n"),
+            line.repeat(Math.ceil(fillerBytes / line.length)),
+            ...tail.map((r) => JSON.stringify(r) + "\n")
+        ];
+        fs.writeFileSync(file, lines.join(""));
+        return file;
+    }
+
+    /** Run the hook and return the input it forwarded. */
+    async function forwarded(client: string, stdin: Record<string, unknown>, env: NodeJS.ProcessEnv = {}): Promise<Record<string, unknown>> {
+        fake.requests.length = 0;
+        const result = await runHook([client, "--endpoint", fake.endpoint], JSON.stringify(stdin), env);
+        expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });
+        expect(fake.requests).toHaveLength(1);
+        return (fake.requests[0].body as { input: Record<string, unknown> }).input;
+    }
+
+    it("forwards the last custom title of a Claude transcript before its automatic title", async () => {
+        const file = transcript("claude-titles", [], [
+            { type: "custom-title", customTitle: "Old name", sessionId: "s" },
+            { type: "ai-title", aiTitle: "Auto title", sessionId: "s" },
+            { type: "custom-title", customTitle: "  Renamed  ", sessionId: "s" },
+            { type: "ai-title", aiTitle: "Later auto title", sessionId: "s" }
+        ], 300 * 1024);
+        const input = await forwarded("claude", { hook_event_name: "UserPromptSubmit", session_id: "s", transcript_path: file, prompt: "hi" });
+        expect(input).toEqual({ hook_event_name: "UserPromptSubmit", session_id: "s", title: "Renamed" });
+    });
+
+    it("forwards the automatic title when the transcript has no custom one", async () => {
+        const file = transcript("claude-ai-title", [], [{ type: "ai-title", aiTitle: "First", sessionId: "s" }, { type: "ai-title", aiTitle: "Second", sessionId: "s" }]);
+        expect((await forwarded("claude", { hook_event_name: "Stop", session_id: "s", transcript_path: file })).title).toBe("Second");
+    });
+
+    it("finds a title that is only at the start of a long transcript", async () => {
+        const file = transcript("claude-head-title", [{ type: "ai-title", aiTitle: "From the start", sessionId: "s" }], [], 600 * 1024);
+        expect((await forwarded("claude", { hook_event_name: "SessionStart", session_id: "s", transcript_path: file })).title).toBe("From the start");
+    });
+
+    it("keeps the first line of a title, cut to MAX_TITLE_CHARS characters", async () => {
+        const long = transcript("claude-long-title", [], [{ type: "custom-title", customTitle: "界".repeat(100), sessionId: "s" }]);
+        expect((await forwarded("claude", { hook_event_name: "Stop", session_id: "s", transcript_path: long })).title).toBe("界".repeat(MAX_TITLE_CHARS));
+        const multi = transcript("claude-multiline-title", [], [{ type: "ai-title", aiTitle: "\n  First line \nsecond line", sessionId: "s" }]);
+        expect((await forwarded("claude", { hook_event_name: "Stop", session_id: "s", transcript_path: multi })).title).toBe("First line");
+    });
+
+    it("forwards no title when the transcript is missing", async () => {
+        const input = await forwarded("claude", { hook_event_name: "SessionStart", session_id: "s", transcript_path: path.join(TMP, "no-such.jsonl") });
+        expect(input).toEqual({ hook_event_name: "SessionStart", session_id: "s" });
+    });
+
+    it("reads no title on PostToolUse", async () => {
+        const file = transcript("claude-post-tool", [], [{ type: "custom-title", customTitle: "Named", sessionId: "s" }]);
+        const input = await forwarded("claude", { hook_event_name: "PostToolUse", session_id: "s", transcript_path: file, tool_use_id: "t", tool_name: "Bash" });
+        expect(input).not.toHaveProperty("title");
+    });
+
+    it("forwards a Codex thread's name before its title, from the newest state database", async () => {
+        const home = path.join(TMP, "codex-home");
+        fs.mkdirSync(home, { recursive: true });
+        const { DatabaseSync } = await import("node:sqlite");
+        const databases: Array<[string, Array<[string, string, string]>]> = [
+            ["state_2.sqlite", [["c1", "stale", "stale"]]],
+            ["state_5.sqlite", [["c1", "My thread", "first prompt"], ["c2", "", "What is\nthis?"]]]
+        ];
+        for (const [file, rows] of databases) {
+            const db = new DatabaseSync(path.join(home, file));
+            db.exec("CREATE TABLE threads (id TEXT PRIMARY KEY, name TEXT, title TEXT NOT NULL)");
+            for (const row of rows) db.prepare("INSERT INTO threads VALUES (?, ?, ?)").run(...row);
+            db.close();
+        }
+        const env = { CODEX_HOME: home };
+        expect((await forwarded("codex", { hook_event_name: "Stop", session_id: "c1" }, env)).title).toBe("My thread");
+        expect((await forwarded("codex", { hook_event_name: "UserPromptSubmit", session_id: "c2" }, env)).title).toBe("What is");
+        expect(await forwarded("codex", { hook_event_name: "SessionStart", session_id: "c3" }, env)).not.toHaveProperty("title");
+        expect(await forwarded("codex", { hook_event_name: "PostToolUse", session_id: "c1" }, env)).not.toHaveProperty("title");
+    });
+
+    it("forwards no Codex title without a state database", async () => {
+        const home = path.join(TMP, "codex-empty-home");
+        fs.mkdirSync(home, { recursive: true });
+        expect(await forwarded("codex", { hook_event_name: "SessionStart", session_id: "c1" }, { CODEX_HOME: home })).toEqual({ hook_event_name: "SessionStart", session_id: "c1" });
+        expect(await forwarded("codex", { hook_event_name: "Stop", session_id: "c1" }, { CODEX_HOME: path.join(TMP, "no-such-home") })).not.toHaveProperty("title");
+    });
 });
 
 describe("n2n-nexus hook --wait", () => {
