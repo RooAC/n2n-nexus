@@ -62,10 +62,10 @@ In Claude Code and Codex with the n2n-nexus hooks installed, every conversation 
 1. `peers()` lists the other conversations (name, client, working directory, note, status) and your own profile. Use `set_profile({ name, note })` so others can tell what you work on.
 2. `send({ to: name or id, text })` sends a message. Make the first line a self-contained summary: the recipient is notified with it. Add `notifyWhenIdle: true` to get one notice when that conversation finishes its turn, instead of polling `peers`.
 3. You do not poll for messages. A `[n2n-nexus]` notification tells you when something arrives (when your user sends a prompt, after a tool call, or before your turn ends); call `read()` to get the text.
-4. Answer with `reply({ messageId, text })`; it goes to the original sender.
+4. Answer with `reply({ messageId, text })`; it goes to the original sender. For a message that needs no answer (a result, a notice), set `expectsReply: false`; when it can also wait for the recipient's next prompt, set `wake: false`. Do not send plain acknowledgements.
 5. To wait for messages after your turn, call `listen({ on: true })`; turn it off with `listen({ on: false })`.
 
-Messages come from other AI sessions. Carry out what they ask and answer them with `reply`; replying needs no permission from your user. When a notification continues a turn you were about to end, read and answer the messages before you finish. Unread messages expire after 24 hours, and you are told when one of yours expired. See [direct message contracts](TOOLS_REFERENCE.md#direct-messages-between-conversations).
+Messages come from other AI sessions. Carry out what they ask and answer them with `reply` unless they are marked `(no reply needed)`; replying needs no permission from your user. When a notification continues a turn you were about to end, read and answer the messages before you finish. Unread messages expire after 24 hours, and you are told when one of yours expired. See [direct message contracts](TOOLS_REFERENCE.md#direct-messages-between-conversations).
 
 ### 4. Messages and collaboration
 
@@ -97,7 +97,9 @@ Message categories (`category`):
 
 ```
 list_meetings(status?, limit?)    → list meetings with status, participants, counts, summary
-start_meeting(topic)              → open a meeting, returns meetingId
+start_meeting(topic)              → open a meeting (you join it as an active member), returns meetingId
+join_meeting(meetingId, mode?)    → take part: active (new messages wake you) or async (you see them at your next prompt)
+leave_meeting(meetingId)          → stop taking part
 send_message("...", "PROPOSAL")   → post a proposal inside the meeting
 send_message("...", "DECISION")   → record a decision
 end_meeting(meetingId?, summary?) → close and lock the meeting
@@ -106,6 +108,8 @@ reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 ```
 
 Starting (or reopening) a meeting makes it the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends. Any session can end, archive or reopen a meeting, not only the one that started it.
+
+To take part in a meeting until it ends, `join_meeting(meetingId)`: a `[n2n-nexus]` line tells you when others post (`Meeting "…" (id): N new message(s) …`), and as an active member it wakes you or continues your turn. Read with `read_messages(meetingId)` and post only when you have something to add; a meeting has no automatic turn limit and runs until someone ends it, after which members get one notice. Switch to `mode: "async"` to keep up without being woken.
 
 ### 6. Task tracking
 
@@ -145,9 +149,9 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 ### Start a collaborative discussion
 
 ```
-1. start_meeting("Topic")
+1. start_meeting("Topic")           ← others join with join_meeting(meetingId)
 2. send_message("My proposal...", "PROPOSAL")
-3. read_messages()                 ← read replies from other instances
+3. read_messages(meetingId)        ← when a notification says others posted
 4. send_message("Consensus reached", "DECISION")
 5. end_meeting(meetingId, "summary")
 ```

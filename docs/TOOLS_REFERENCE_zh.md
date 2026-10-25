@@ -11,7 +11,7 @@
 - 每个成功的结果都返回两份：一份是 `structuredContent`（JSON 对象），另一份是放在文本块里的同一段 JSON，供只读取文本的客户端使用。返回数据的工具（`search_projects`、`get_global_topology`、`get_project`、`read_messages`、`list_events`、`get_global_strategy`、`list_global_docs`、`get_global_doc`、`list_meetings`、`get_task`、`list_tasks`、`peers`、`read`、`set_profile`）还会提供 `outputSchema`；只返回确认的工具不提供，以保持 `tools/list` 精简。结果的结构就是 `contract/tools.json` 里的 `outputSchema` 条目；host 用它们校验每一个结果。
 - 调用按实例限流（默认每秒 20 次，突发 60 次；对应 host `settings.json` 中的 `rateLimit` 和 `rateBurst`）。超出限制的调用会失败并返回 "Rate limit exceeded ... retry after Ns"；等待该时长后重试。
 - 每个工具都有供客户端界面显示的 `title`（例如 "Delete Project"）。
-- 每个工具都带有 MCP annotations：`readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint: false`（所有工具都只作用于 host）。按照 MCP 的定义，只有更新完全是追加时，工具才算非破坏性。读取类工具标为只读。`start_meeting`、`create_task`、`send_message`、`send` 和 `reply` 只追加数据，是非破坏性的；`update_task` 也标为非破坏性且幂等。`listen`、`set_profile`、`sync_project_assets`、`update_project`、`upload_project_asset`、`rename_project`、`sync_global_doc`、`update_global_strategy`、`end_meeting`、`archive_meeting`、`reopen_meeting`、`cancel_task`、`host_maintenance` 和 `host_delete_project` 会改写或删除已有状态，标为破坏性，以便客户端请求确认。`read_messages` 和 `read` 不是只读的，因为它们会推进调用方自己的未读状态；但它们是非破坏性的，因为不改变任何共享数据。
+- 每个工具都带有 MCP annotations：`readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint: false`（所有工具都只作用于 host）。按照 MCP 的定义，只有更新完全是追加时，工具才算非破坏性。读取类工具标为只读。`start_meeting`、`join_meeting`、`create_task`、`send_message`、`send` 和 `reply` 只追加数据，是非破坏性的（`join_meeting` 也是幂等的）；`update_task` 也标为非破坏性且幂等。`listen`、`set_profile`、`sync_project_assets`、`update_project`、`upload_project_asset`、`rename_project`、`sync_global_doc`、`update_global_strategy`、`end_meeting`、`archive_meeting`、`reopen_meeting`、`leave_meeting`、`cancel_task`、`host_maintenance` 和 `host_delete_project` 会改写或删除已有状态，标为破坏性，以便客户端请求确认。`read_messages` 和 `read` 不是只读的，因为它们会推进调用方自己的未读状态；但它们是非破坏性的，因为不改变任何共享数据。
 - 每个适配器都有一个实例 ID（`NEXUS_INSTANCE_ID`、`--id`，默认是 `mcp-<hostname>-<工作目录的哈希>-<IDE 名>`，其中 IDE 名是 MCP 客户端名，取自请求的 `io.modelcontextprotocol/clientInfo`，2025 代的客户端则取自 `initialize`）。同一个 IDE 在同一个工作区里重启后它保持不变，而同一个工作区里的两个 IDE 仍然互相区分。适配器在每次调用中都以 `instanceId` 带上它。同一个 IDE 在同一个工作区里的多个对话共用它，所以装了 n2n-nexus hooks 时，聊天和会议工具改为识别对话本身（见下一条）；没装 hooks 的客户端按实例识别，这时没有 `instanceId` 的 `read_messages` 会失败。
 - 结果里会出现两种 ID：对话的会话 ID（`claude:<id>` 或 `codex:<id>`）和适配器实例 ID（`mcp-…`）。直接消息工具（`peers`、`send`、`read`、`reply`）使用会话 ID。聊天和会议在装了 hooks 时使用调用方对话的会话 ID，否则使用实例 ID：`send_message` / `read_messages` 的发送方和 `from`、未读游标、会议的 `initiator` 和 `participants`、`meeting.*` 事件的 `actor`；结果里的 `identity`（`session` 或 `instance`）说明是哪一种。这里的会话 ID 可以用于 `send`，实例 ID 不能。某个实例在最近 30 分钟内识别出过对话、而这次调用识别不出时，调用会失败并提示重试，而不会改用该实例共用的游标。其他事件和全局文档的 `updatedBy` 仍是实例 ID。
 - 项目 ID 采用 `[prefix]_[name]` 格式；前缀列在[助手指南](ASSISTANT_GUIDE_zh.md#2-项目-id)中。
@@ -150,25 +150,25 @@
 | 工具 | 参数 | 结果与行为 |
 | --- | --- | --- |
 | `peers` | `includeOffline?: boolean = false` | `{ self: Profile, peers: Profile[] }`；其他未离线的会话，最近活跃的在前。带 `includeOffline` 时，还包括过去 24 小时内活跃过的离线会话。 |
-| `send` | `to: string`、`text: string`（1–32000 个字符）、`notifyWhenIdle?: boolean = false` | `{ messageId, to: { id, name, status } }`。`to` 是会话 ID（任何状态）或某个未离线会话的名称；不能给自己发消息。离线的收件方在恢复时收到消息。带 `notifyWhenIdle` 时，收件方下一次结束一轮、开始待命或离线时，你会收到一次通知（订阅 24 小时后失效）。 |
-| `read` | `count?: integer = 10`（1–50） | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt }], remaining }`；未读消息，最早的在前，读取后标为已读。 |
-| `reply` | `messageId: string`、`text: string`（1–32000 个字符） | 结果与 `send` 相同。该消息必须是发给你的；回复发给它的发送方，`replyTo` 设为该消息。 |
+| `send` | `to: string`、`text: string`（1–32000 个字符）、`notifyWhenIdle?: boolean = false`、`expectsReply?: boolean = true`、`wake?: boolean = true` | `{ messageId, to: { id, name, status } }`。`to` 是会话 ID（任何状态）或某个未离线会话的名称；不能给自己发消息。离线的收件方在恢复时收到消息。带 `notifyWhenIdle` 时，收件方下一次结束一轮、开始待命或离线时，你会收到一次通知（订阅 24 小时后失效）。`expectsReply: false` 告诉收件方无需回复；`wake: false` 不叫醒收件方、也不拦住它结束这一轮，它在下次输入或调用工具时看到这条消息。单纯的确认收到要两个都设为 false，或者干脆不发。 |
+| `read` | `count?: integer = 10`（1–50） | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt, expectsReply }], remaining }`；未读消息，最早的在前，读取后标为已读。 |
+| `reply` | `messageId: string`、`text: string`（1–32000 个字符）、`expectsReply?: boolean = true`、`wake?: boolean = true` | 结果与 `send` 相同。该消息必须是发给你的；回复发给它的发送方，`replyTo` 设为该消息。 |
 | `listen` | `on: boolean` | `{ listening }`。开启期间，对话每结束一轮，其 Stop hook 会等待最多 590 秒，有消息或通知到达时让对话继续。在 Claude Code 中按 Esc 会结束一次等待。 |
 | `set_profile` | `name?: string`（1–48 个 `A–Z a–z 0–9 . _ @ # -` 中的字符）、`note?: string`（≤ 200 个字符）；至少提供一个 | `{ profile }`。名称在未离线的会话中唯一。 |
 
 `Profile` 包含 `id`、`name`、`client`（`claude` 或 `codex`）、`cwd`、`note`、`status` 和 `lastActiveAt`。会话的初始名称为 `<client>@<工作目录名>`，该名称已被某个未离线会话占用时加上 `#2`、`#3`、…。`status` 为 `working`（用户发送了提示词或有工具在运行）、`idle`（本轮已结束；有后台等待消息的会话改为显示 `listening`）、`listening`（在 listen 模式下等待）或 `offline`（对话已结束）。客户端不一定会报告对话结束，所以 `idle` 或 `working` 的会话 30 分钟没有任何活动也会变为 `offline`；它的下一个事件会让它恢复。只有 `listening` 的会话会立即回应；`idle` 和 `working` 的会话要等它的用户下次发送提示词或它下次调用工具时才会看到消息。
 
-送达。收件方的 hooks 会提醒新消息；通知只带发送方、时间和第一行（最多 100 个字符），正文通过 `read` 以工具输出的形式送达：
+送达。收件方的 hooks 会提醒新消息；通知只带发送方、时间和第一行（最多 100 个字符），正文通过 `read` 以工具输出的形式送达。每条消息只列出一次；它一直未读时，之后的通知只计数。`expectsReply: false` 的消息会标上 `(no reply needed)`，消息全都无需回复的通知不会要求回复。已加入的会议的新消息也这样送达，每个会议一行（见 [`join_meeting`](#join_meeting)）：
 
 | 客户端事件 | 收件方看到的内容 |
 | --- | --- |
 | 对话开始 | 自己的名称和 ID、未离线的其他会话（最多列出五个）、其中哪些能立即回应，以及 `peers`、`send` 和 `read` 的用法。 |
-| 提交提示词 | 未读消息数、最多列出五条，以及待处理的通知。 |
-| 每次工具调用后 | 只有尚未提醒过的消息和通知。 |
-| 本轮即将结束 | 有未读内容时，本轮带着提醒再继续一次。 |
-| 待命中 | 一有新内容到达就结束等待，对话带着它继续。 |
+| 提交提示词 | 新消息（最多列出五条）、之前提醒过的未读消息数、待处理的通知和会议新消息。 |
+| 每次工具调用后 | 只有尚未提醒过的消息、通知和会议新消息。 |
+| 本轮即将结束 | 有可以叫醒会话的未读消息（`wake` 为 true）、待处理的通知，或会话以 active 方式参加的会议有新消息时，本轮带着提醒再继续一次。 |
+| 待命中 | 一有可以叫醒会话的内容到达就结束等待，对话带着它继续。 |
 | 空闲（本轮已结束） | Stop hook 启动的后台等待（`n2n-nexus hook <client> --wait`，最长一小时）带着提醒开启新的一轮：Claude Code 通过 `asyncRewake` hook（退出码 2），Codex 通过 `codex queue --thread <会话 ID>`（`NEXUS_CODEX_COMMAND` 可替换 `codex` 命令）。在无人值守的 Claude 会话（`claude -p`、`CLAUDE_CODE_SESSION_ATTENDED=0`）中，该 hook 立即返回，因为 `claude -p` 会等它结束才退出。等待期间会话显示为 `listening`；对话中的任何新活动都会结束等待。Codex 只会为运行中的 Codex 应用里已加载的对话启动排队的一轮，且 Codex 退出时等待结束；`codex queue` 失败时这次唤醒会被撤销，等待隔一段时间（1 秒起，每次加倍，最长 5 分钟）后再次送达同样的消息。 |
-| 自动轮次上限 | 被叫醒、待命中的 Stop，以及因消息而不结束的 Stop，各算一次自动轮次；提醒中会写 `Automatic turn n of N`。设置了 `maxAutoTurns` 时（host `settings.json`；默认 0，即不限制，提醒中也不写计数），从用户上次输入以来达到这个次数后，消息仍会保存，但不再叫醒或拦住对话；用户下次输入时提醒这些消息，并重新开始计数。叫醒后一分钟内的提示词视为被叫醒的那一轮开始，不清零计数。 |
+| 自动轮次上限 | 被叫醒、待命中的 Stop，以及因私信或其通知而不结束的 Stop，各算一次自动轮次；会议新消息和会议通知不计数，也不受限制；提醒中会写 `Automatic turn n of N`。设置了 `maxAutoTurns` 时（host `settings.json`；默认 0，即不限制，提醒中也不写计数），从用户上次输入以来达到这个次数后，消息仍会保存，但不再叫醒或拦住对话；用户下次输入时提醒这些消息，并重新开始计数。叫醒后一分钟内的提示词视为被叫醒的那一轮开始，不清零计数。 |
 
 未读消息 24 小时后过期，发送方随后会收到通知。通知也会报告 `notifyWhenIdle` 的结果。
 
@@ -223,8 +223,8 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 行为：
 
-- 通过 host 工具产生的每一次状态变更都会被记录：`project.sync`、`project.update`、`project.rename`、`project.delete`、`project.asset`、`doc.sync`、`strategy.update`、`meeting.start`、`meeting.end`、`meeting.archive`、`meeting.reopen`、`maintenance.prune`、`maintenance.clear`。
-- 每个事件带有 `timestamp`、`actor`（适配器实例 ID，不是会话 ID）、`action`，以及可选的 `target` 和 `detail`。
+- 通过 host 工具产生的每一次状态变更都会被记录：`project.sync`、`project.update`、`project.rename`、`project.delete`、`project.asset`、`doc.sync`、`strategy.update`、`meeting.start`、`meeting.end`、`meeting.archive`、`meeting.reopen`、`meeting.join`、`meeting.leave`、`maintenance.prune`、`maintenance.clear`。
+- 每个事件带有 `timestamp`、`actor`、`action`，以及可选的 `target` 和 `detail`。`meeting.*` 事件的 `actor` 是调用方对话的会话 ID（没装 hooks 时是适配器实例 ID）；其他事件记录适配器实例 ID。
 
 ### `update_global_strategy`
 
@@ -290,7 +290,8 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 行为：
 
-- 返回 `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, messageCount, decisionCount, summary? }] }`。
+- 返回 `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary? }] }`。
+- `participants` 是所有发过言的人；`members` 是加入了且没有离开的成员：`[{ id, name, mode, approver, status, joinedAt, wakes, lastWokenAt }]`，`name` 和 `status` 取自会话（适配器实例为 null）。`wakes` 统计这个会议引起的叫醒和拦住结束的次数，按成员和按会议各一个；它只用于展示，不会因此结束会议。
 - 用 `read_messages(meetingId)` 读取会议的消息。
 
 ### `start_meeting`
@@ -303,7 +304,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 行为：
 
-- 调用方对话（没装 hooks 时是它的适配器实例）成为会议的 `initiator`。
+- 调用方对话（没装 hooks 时是它的适配器实例）成为会议的 `initiator`，并以 `active`、`required` 成员身份加入。
 - 新会议成为所有人的默认会议：不传 `meetingId` 的 `send_message` 和 `end_meeting` 都作用于它，直到它结束（之后是仍处于活跃状态、最近被激活的会议，如果有的话）。`reopen_meeting` 以同样的方式让重新开启的会议成为默认会议。
 
 ### `end_meeting`
@@ -334,6 +335,37 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 行为：
 
 - 任何适配器实例都能结束、存档或重新开启会议，不只是它的 `initiator`。
+- 结束会议时，每个成员收到一条会议已结束的通知（附总结），无需回复；active 成员会被它叫醒。重新开启不会恢复已离开的成员。
+
+### `join_meeting`
+
+加入一个活跃会议，或者修改参加方式。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `meetingId` | string | 是 |  | 要加入的会议，必须处于活跃状态。 |
+| `mode` | string | 否 | `active` | `active`：他人的新消息会叫醒你（或拦住本轮结束）；`async`：你在下次输入或调用工具时看到。 |
+| `approver` | string | 否 | active 为 `required`，async 为 `optional` | 形成决议时是否必须得到你的认可。 |
+| `since` | `beginning`、`latest` 或整数 | 否 | 首次加入为 `latest` | 这个会议的 `read_messages` 从哪里开始读：从第一条、从最新一条之后，或从该编号之后。之后再次加入时不给 `since` 会保留你的游标。 |
+
+行为：
+
+- 结果：`{ ok, meetingId, mode, approver, identity, delivery }`。`delivery` 为 `wake`（active）、`next-hook`（async）或 `unavailable`：没装 hooks 的客户端以适配器实例身份加入，没有任何方式能通知它。
+- 新消息通过 hooks 提醒，每个会议一行：`Meeting "<主题>" (<id>): N new message(s) (#a–#b) from <发送方>.`，后面附读取方法；正文用 `read_messages(meetingId)` 读。自己发的消息不会叫醒自己。会议新消息不算自动轮次，超过 `maxAutoTurns` 后仍会送达；会议一直进行到被结束为止。
+- 加入前的消息不会提醒。已是成员时再次加入只修改 `mode` 和 `approver`；改为 `async` 即可暂停。`leave_meeting` 之后再加入，从最新一条开始。
+- 记录 `meeting.join` 事件。
+
+### `leave_meeting`
+
+离开会议：不再收到它的提醒，你的认可也不再计入。
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `meetingId` | string | 是 | 要离开的会议。你不是成员时会失败。 |
+
+行为：
+
+- 结果：`{ ok, meetingId }`。记录 `meeting.leave` 事件。`join_meeting` 可以重新加入；`reopen_meeting` 不会。
 
 ## 任务管理
 

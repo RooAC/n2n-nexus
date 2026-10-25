@@ -13,6 +13,10 @@
 - `read_messages` 的未读模式不再返回你自己发的消息；对话第一次以未读模式读全局聊天时从最新消息开始。新增历史模式：`latest: true` 或 `afterId` 读取时不移动游标，并包含自己的消息。每条消息带 `senderName`，`category` 总是存在（没有类别时为 null）。
 - 会议消息按会议编号，从 1 开始：`read_messages` 的 `id`、`send_message` 返回的 `messageId`（发到会议时现在也返回）和会议里的 `afterId` 都用这个编号，新会议不再接着之前会议的编号。
 
+- 会议有了成员。新增 `join_meeting(meetingId, mode?, approver?, since?)` 和 `leave_meeting(meetingId)`；发起者自动加入自己的会议。会议新消息通过 hooks 送达成员，每个会议一行：active 成员会被叫醒（或本轮继续），async 成员在下次输入或调用工具时看到，自己发的消息不会提醒自己。会议新消息不算自动轮次，超过 `maxAutoTurns` 后仍会送达，所以会议一直进行到被结束为止；结束时每个成员收到一条通知。`list_meetings` 显示成员和会议引起的叫醒次数。
+- 私信说明它要什么：`send` 和 `reply` 新增 `expectsReply`（false：通知注明无需回复，也不要求回复）和 `wake`（false：不叫醒收件方、不拦住它结束这一轮，等它下次输入或调用工具时再看）。`read` 返回 `expectsReply`。
+- 一条私信只完整列出一次；它一直未读时，之后的通知只计数。
+
 ### 修复
 
 - `codex queue` 失败时不再丢失唤醒：Codex 的后台等待回报投递结果，host 撤销没送达的唤醒，等待隔一段时间（1 秒起，每次加倍，最长 5 分钟）后重试，同样的消息和通知会再次唤醒对话；失败的那次唤醒不计入自动轮次。会话不再一直停在 `working` 直到过期。

@@ -11,7 +11,7 @@ Parameter tables below are derived from `contract/tools.json`, the JSON Schema t
 - Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`, `peers`, `read`, `set_profile`) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are the `outputSchema` entries in `contract/tools.json`; the host validates every result against them.
 - Calls are rate limited per instance (default 20 per second, burst 60; `rateLimit` and `rateBurst` in the host's `settings.json`). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
-- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive; `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
+- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `join_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive (`join_meeting` is also idempotent); `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `leave_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
 - Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). It stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call. Several conversations of one IDE in one workspace share it, so chat and meeting tools identify the conversation instead when the n2n-nexus hooks are installed (see the next item); a client without the hooks is identified by its instance, and `read_messages` then fails without `instanceId`.
 - Two kinds of id appear in results: conversation session ids, `claude:<id>` or `codex:<id>`, and adapter instance ids (`mcp-…`). The direct-message tools (`peers`, `send`, `read`, `reply`) use session ids. Chat and meetings use the calling conversation's session id when the hooks are installed, else its instance id: the sender and `from` of `send_message` / `read_messages`, the unread cursor, a meeting's `initiator` and `participants` and the `actor` of `meeting.*` events; results say which with `identity` (`session` or `instance`). A session id there can be used with `send`; an instance id cannot. If an instance has had a conversation identified within the last 30 minutes and one of its calls cannot be identified, the call fails with a retry message instead of using the instance's shared cursor. Other events and `updatedBy` of global docs keep the instance id.
 - Project IDs follow `[prefix]_[name]`; the prefixes are listed in the [Assistant guide](ASSISTANT_GUIDE.md#2-project-ids).
@@ -150,25 +150,25 @@ These six tools are direct messages between conversations. Global chat and meeti
 | Tool | Parameters | Result and behavior |
 | --- | --- | --- |
 | `peers` | `includeOffline?: boolean = false` | `{ self: Profile, peers: Profile[] }`; the other sessions that are not offline, most recent first. With `includeOffline`, also the offline ones active in the last 24 hours. |
-| `send` | `to: string`, `text: string` (1–32000 chars), `notifyWhenIdle?: boolean = false` | `{ messageId, to: { id, name, status } }`. `to` is a session ID (any status) or the name of a session that is not offline; you cannot message yourself. Offline recipients get the message when they resume. With `notifyWhenIdle`, you get one notice when the recipient next ends its turn, starts listening or goes offline (the subscription lapses after 24 hours). |
-| `read` | `count?: integer = 10` (1–50) | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt }], remaining }`; unread messages oldest first, marked read. |
-| `reply` | `messageId: string`, `text: string` (1–32000 chars) | Same result as `send`. The message must have been sent to you; the reply goes to its sender with `replyTo` set to it. |
+| `send` | `to: string`, `text: string` (1–32000 chars), `notifyWhenIdle?: boolean = false`, `expectsReply?: boolean = true`, `wake?: boolean = true` | `{ messageId, to: { id, name, status } }`. `to` is a session ID (any status) or the name of a session that is not offline; you cannot message yourself. Offline recipients get the message when they resume. With `notifyWhenIdle`, you get one notice when the recipient next ends its turn, starts listening or goes offline (the subscription lapses after 24 hours). `expectsReply: false` tells the recipient no reply is needed; `wake: false` never wakes the recipient or holds its turn: it sees the message at its next prompt or tool call. A plain acknowledgement sets both to false, or is not sent. |
+| `read` | `count?: integer = 10` (1–50) | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt, expectsReply }], remaining }`; unread messages oldest first, marked read. |
+| `reply` | `messageId: string`, `text: string` (1–32000 chars), `expectsReply?: boolean = true`, `wake?: boolean = true` | Same result as `send`. The message must have been sent to you; the reply goes to its sender with `replyTo` set to it. |
 | `listen` | `on: boolean` | `{ listening }`. While on, each time the conversation ends a turn its Stop hook waits up to 590 seconds and continues the conversation when a message or notice arrives. In Claude Code, pressing Esc ends one wait. |
 | `set_profile` | `name?: string` (1–48 of `A–Z a–z 0–9 . _ @ # -`), `note?: string` (≤ 200 chars); at least one | `{ profile }`. Names are unique among sessions that are not offline. |
 
 `Profile` contains `id`, `name`, `client` (`claude` or `codex`), `cwd`, `note`, `status` and `lastActiveAt`. A session is first named `<client>@<working directory name>`, with `#2`, `#3`, … when that name is taken by a session that is not offline. `status` is `working` (the user sent a prompt or a tool ran), `idle` (the turn ended; a session with a background wait for messages shows as `listening` instead), `listening` (waiting in listen mode) or `offline` (the conversation ended). Clients do not always report the end of a conversation, so an `idle` or `working` session without any activity for 30 minutes becomes `offline` too; its next event brings it back. Only a `listening` session answers right away; `idle` and `working` ones see a message when their user next sends a prompt or they next call a tool.
 
-Delivery. The recipient's hooks announce new messages; notifications carry only the sender, the time and the first line (up to 100 characters), and the text arrives through `read`, as tool output:
+Delivery. The recipient's hooks announce new messages; notifications carry only the sender, the time and the first line (up to 100 characters), and the text arrives through `read`, as tool output. Each message is listed once; while it stays unread, later notifications only count it. A message with `expectsReply: false` is marked `(no reply needed)`, and a notification whose messages all need no reply does not ask for one. News of meetings the session has joined arrives the same way, one line per meeting (see [`join_meeting`](#join_meeting)):
 
 | Client event | What the recipient sees |
 | --- | --- |
 | Conversation started | Its own name and ID, the other sessions that are not offline (up to five listed), which of them can answer right away, and how to use `peers`, `send` and `read`. |
-| Prompt submitted | Count of unread messages, up to five listed, and pending notices. |
-| After each tool call | Only messages and notices not announced yet. |
-| Turn about to end | If anything is unread, the turn continues once with the announcement. |
-| Listening | The wait ends as soon as something new arrives, and the conversation continues with it. |
+| Prompt submitted | New messages (up to five listed), the count of unread ones announced before, pending notices and meeting news. |
+| After each tool call | Only messages, notices and meeting news not announced yet. |
+| Turn about to end | If an unread message may wake the session (`wake` true), a notice is pending or a meeting the session takes part in actively has news, the turn continues once with the announcement. |
+| Listening | The wait ends as soon as something arrives that may wake the session, and the conversation continues with it. |
 | Idle (turn ended) | A background wait started by the Stop hook (`n2n-nexus hook <client> --wait`, up to an hour) starts a new turn with the announcement: Claude Code through an `asyncRewake` hook (exit code 2), Codex through `codex queue --thread <session id>` (`NEXUS_CODEX_COMMAND` overrides the `codex` command). In an unattended Claude session (`claude -p`, `CLAUDE_CODE_SESSION_ATTENDED=0`) the hook returns at once, since `claude -p` waits for it before exiting. Meanwhile the session shows as `listening`; any new activity in the conversation ends the wait. Codex starts the queued turn only for a conversation loaded in the running Codex app, and the wait ends when Codex quits; when `codex queue` fails, the wake is undone and the wait delivers the same messages again after a delay (1 s, doubling up to 5 minutes). |
-| Automatic turn limit | Waking, a listening Stop and a Stop held open for messages each count as an automatic turn; the announcement says `Automatic turn n of N`. With `maxAutoTurns` set (host `settings.json`; default 0, no limit, and no count in the announcement), after that many of them since the user's last prompt, messages are still stored but no longer wake or hold the conversation; the user's next prompt announces them and starts counting again. A prompt within a minute of a wake is the woken turn starting and does not reset the count. |
+| Automatic turn limit | Waking, a listening Stop and a Stop held open for direct messages or their notices each count as an automatic turn; meeting news and meeting notices do not count and are not limited; the announcement says `Automatic turn n of N`. With `maxAutoTurns` set (host `settings.json`; default 0, no limit, and no count in the announcement), after that many of them since the user's last prompt, messages are still stored but no longer wake or hold the conversation; the user's next prompt announces them and starts counting again. A prompt within a minute of a wake is the woken turn starting and does not reset the count. |
 
 Unread messages expire after 24 hours; the sender then gets a notice. Notices also report `notifyWhenIdle` results.
 
@@ -223,8 +223,8 @@ Read the structured activity log.
 
 Behavior:
 
-- Every state change made through the host's tools is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `maintenance.prune`, `maintenance.clear`.
-- Each event carries `timestamp`, `actor` (adapter instance ID, not a session ID), `action`, optional `target` and `detail`.
+- Every state change made through the host's tools is recorded: `project.sync`, `project.update`, `project.rename`, `project.delete`, `project.asset`, `doc.sync`, `strategy.update`, `meeting.start`, `meeting.end`, `meeting.archive`, `meeting.reopen`, `meeting.join`, `meeting.leave`, `maintenance.prune`, `maintenance.clear`.
+- Each event carries `timestamp`, `actor`, `action`, optional `target` and `detail`. `actor` of `meeting.*` events is the calling conversation's session ID (its adapter instance ID without hooks); other events record the adapter instance ID.
 
 ### `update_global_strategy`
 
@@ -290,7 +290,8 @@ List meetings, newest first.
 
 Behavior:
 
-- Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, messageCount, decisionCount, summary? }] }`.
+- Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary? }] }`.
+- `participants` is everyone who has posted; `members` is who has joined and not left: `[{ id, name, mode, approver, status, joinedAt, wakes, lastWokenAt }]`, where `name` and `status` are the session's (null for an adapter instance). `wakes` counts the wakes and held Stops the meeting caused, per member and for the meeting; it is only shown, nothing ends a meeting because of it.
 - Read a meeting's messages with `read_messages(meetingId)`.
 
 ### `start_meeting`
@@ -303,7 +304,7 @@ Open a new meeting session.
 
 Behavior:
 
-- The calling conversation (its adapter instance without hooks) becomes the meeting's `initiator`.
+- The calling conversation (its adapter instance without hooks) becomes the meeting's `initiator` and joins it as an `active`, `required` member.
 - The new meeting becomes the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends (then the most recently activated meeting still active, if any). `reopen_meeting` makes the reopened meeting the default the same way.
 
 ### `end_meeting`
@@ -334,6 +335,37 @@ Reactivate a closed or archived meeting.
 Behavior:
 
 - Any adapter instance can end, archive or reopen a meeting, not only its `initiator`.
+- Ending a meeting gives each member one notice that it ended (with the summary), which needs no reply; active members are woken with it. Reopening does not bring back members that left.
+
+### `join_meeting`
+
+Join an active meeting, or change how you take part in it.
+
+| Parameter | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `meetingId` | string | yes |  | Meeting to join. Must be active. |
+| `mode` | string | no | `active` | `active`: new messages of others wake you (or hold your turn's end); `async`: you see them at your next prompt or tool call. |
+| `approver` | string | no | `required` when active, `optional` when async | Whether your approval is required for a decision. |
+| `since` | `beginning`, `latest` or integer | no | `latest` on the first join | Where `read_messages` starts for this meeting: from its first message, after its newest, or after that message number. A later join without `since` keeps your cursor. |
+
+Behavior:
+
+- Result: `{ ok, meetingId, mode, approver, identity, delivery }`. `delivery` is `wake` (active), `next-hook` (async) or `unavailable`: a client without the hooks joins as its adapter instance, which nothing can notify.
+- News is announced through the hooks as one line per meeting, `Meeting "<topic>" (<id>): N new message(s) (#a–#b) from <senders>.`, followed by how to read them; the text is read with `read_messages(meetingId)`. Your own messages never wake you. News of a meeting does not count as an automatic turn and still arrives past `maxAutoTurns`; a meeting runs until it is ended.
+- Messages from before you joined are not announced. Joining again while a member only changes `mode` and `approver`; switch to `async` to pause. After `leave_meeting`, joining again starts from the newest message.
+- Records a `meeting.join` event.
+
+### `leave_meeting`
+
+Leave a meeting: you are no longer notified about it and your approval no longer counts.
+
+| Parameter | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `meetingId` | string | yes | Meeting to leave. Fails when you are not a member. |
+
+Behavior:
+
+- Result: `{ ok, meetingId }`. Records a `meeting.leave` event. `join_meeting` joins again; `reopen_meeting` does not.
 
 ## Task management
 

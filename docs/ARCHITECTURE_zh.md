@@ -103,7 +103,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 - Codex 只会为运行中的 Codex 应用里已加载的对话启动排队的一轮。Codex 重启后，用户点开对话才会加载。
 - Codex 的后台等待会随 Codex 应用退出而结束，要等该对话再结束一轮才会重新启动。这期间发来的消息留在 host 里为未读（不进入 Codex 自己的队列），直到用户下次在该对话里发消息。
 - Claude Code 的对话在最后一轮结束后一小时内可被叫醒（hook 的超时时间）。
-- 每次 AI 回复都会再次叫醒对方，所以会话之间不用有人输入就能一轮轮处理对方的请求。要设上限，就在 `settings.json` 里设置 `maxAutoTurns`（默认 0，不限制）：host 会统计从用户上次输入以来的自动轮次（被叫醒、listen 等待、因消息被拦下不结束），达到这个数后不再自动继续；叫醒后一分钟内的那次用户提交视为被叫醒的那一轮开始，不清零计数。超过上限的消息会等用户下次输入时再提醒。
+- 每次 AI 回复都会再次叫醒对方，所以会话之间不用有人输入就能一轮轮处理对方的请求。要设上限，就在 `settings.json` 里设置 `maxAutoTurns`（默认 0，不限制）：host 会统计从用户上次输入以来的自动轮次（被叫醒、listen 等待、因消息被拦下不结束），达到这个数后不再自动继续；叫醒后一分钟内的那次用户提交视为被叫醒的那一轮开始，不清零计数。超过上限的消息会等用户下次输入时再提醒。会议新消息不计数，也不受上限限制：会议一直进行到被结束为止；`wake: false` 的消息从不叫醒任何人。
 - 自动轮次的计数只按时间区分"被叫醒的那一轮"和"用户输入"。如果一次唤醒没有真正开始新的一轮（例如 Codex 对话没加载），而用户在那一分钟内亲自输入，这次输入不清零计数，用户下一次输入才会清零。如果被叫醒的那一轮晚于一分钟才开始（例如用户之后才点开的 Codex 对话），它的提交会清零计数。两种情况都不会丢消息，也不会让会话在无人参与时无限循环。
 
 ---
@@ -113,7 +113,7 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 全部数据都在 host 数据目录里的一个 SQLite 文件 `nexus.db` 中，同一目录下还有 `settings.json` 和 `host.lock`（各系统的位置见[使用手册](USER_GUIDE_zh.md#数据和日志)）。
 
 - **表结构**：嵌入 host 的编号迁移脚本（`host/internal/store/migrations/0001_core.sql`、`0002_agents.sql`）在启动时按序执行，每个文件一个事务；版本号存在 `PRAGMA user_version`。比 host 新的数据库会被拒绝（“upgrade n2n-nexus-host”）。
-- **表**：`projects`（manifest 的标量字段各占一列，结构化字段存 JSON，内部文档存文本）、`project_relations` 和 `project_assets`（资产内容存 BLOB；两者都随项目改名、删除级联）、`global_strategy`、`global_docs`、`meetings`（带 `status` 和 `is_default`）、`meeting_messages`（用 `seq` 按会议编号）、`decisions`、`global_messages`、`events`、`tasks`、`read_cursors`，以及对话用的 `agent_sessions`、`agent_messages`、`agent_notices`、`agent_idle_subscriptions`、`tool_use_bindings`，以及 `hooked_instances`（调用时解析出过对话的适配器实例，用于聊天和会议的身份识别）。
+- **表**：`projects`（manifest 的标量字段各占一列，结构化字段存 JSON，内部文档存文本）、`project_relations` 和 `project_assets`（资产内容存 BLOB；两者都随项目改名、删除级联）、`global_strategy`、`global_docs`、`meetings`（带 `status` 和 `is_default`）、`meeting_messages`（用 `seq` 按会议编号）、`meeting_members`（谁参加、以什么方式、已提醒到哪里）、`decisions`、`global_messages`、`events`、`tasks`、`read_cursors`，以及对话用的 `agent_sessions`、`agent_messages`、`agent_notices`、`agent_idle_subscriptions`、`tool_use_bindings`，以及 `hooked_instances`（调用时解析出过对话的适配器实例，用于聊天和会议的身份识别）。
 - **事务**：每个写操作一个事务，多行修改（会议消息，开始 / 结束 / 重开会议，项目改名）要么全部生效，要么都不生效。数据库使用 WAL 模式，开启 `foreign_keys`，忙等超时 5 秒，只用一个连接。
 - **只有 host 打开数据库**。MCP 适配器和 hooks 都走 HTTP。
 - **活动日志**：通过工具产生的状态变更（项目同步 / 更新 / 改名 / 删除 / 资产、文档同步、策略更新、会议开始 / 结束 / 归档 / 重开、维护）记录为结构化事件，用 `list_events` 读取，不混入聊天流。
