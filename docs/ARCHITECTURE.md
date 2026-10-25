@@ -205,7 +205,7 @@ The host has no authentication, so it keeps web pages out: it rejects browser-or
 
 Rate limits are token buckets (`rateLimit` per second, `rateBurst` at once; `rateLimit: 0` disables them), answered with 429 and `Retry-After`:
 
-- tool calls per `instanceId`, and, because instance IDs are self-declared, per client address at 5x;
+- tool calls per conversation (the session the hooks identify from the caller's Claude `toolUseId` or Codex `sessionId`), else per `instanceId`, and, because these IDs are self-declared, per client address at 5x;
 - hooks per conversation (`<client>:<session_id>`) and per client address at 5x, in buckets of their own, so a busy conversation's hooks do not use up the tool-call budget of its address;
 - `GET /health` and `GET /api/tools` are not limited.
 

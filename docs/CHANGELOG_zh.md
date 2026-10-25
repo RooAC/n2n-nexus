@@ -22,6 +22,7 @@
 
 - `codex queue` 失败时不再丢失唤醒：Codex 的后台等待回报投递结果，host 撤销没送达的唤醒，等待隔一段时间（1 秒起，每次加倍，最长 5 分钟）后重试，同样的消息和通知会再次唤醒对话；失败的那次唤醒不计入自动轮次。会话不再一直停在 `working` 直到过期。
 - Codex 的 SessionEnd hook 符合 Codex 的 3 秒上限：`n2n-nexus install codex` 写入超时 3（已有安装要重新运行一次，Codex 的 "clamping SessionEnd hook timeout" 告警随之消失），SessionEnd 请求 1.5 秒后放弃，不再重新查找 host。
+- 工具调用在 hooks 识别出对话时按对话限流，共用一个适配器实例的多个对话（同一客户端、同一目录）不再互相耗尽额度；没装 hooks 时仍按实例限流。按客户端地址的限流不变。
 
 ## [0.9.3] - 2026-10-24
 

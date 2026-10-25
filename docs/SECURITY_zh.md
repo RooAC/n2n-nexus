@@ -32,7 +32,7 @@ n2n-nexus 运行一个本地 HTTP host `n2n-nexus-host`，它把协调数据保�
 
 - **Host 的网络暴露**：host 默认绑定 `127.0.0.1`。开启局域网访问（托盘的 **Allow LAN access**、`settings.json` 中的 `"host": "0.0.0.0"` 或 `--host 0.0.0.0`）会把它暴露给本地网络，此时它还会在 UDP `discoveryPort` 上应答局域网发现。开源基础版本没有认证层——只在你能控制的网络上把 host 暴露到 localhost 之外。
 - **浏览器请求**：host 没有身份认证，所以它拒绝带浏览器 `Origin` 头或跨站 `Sec-Fetch-Site` 头的请求（403），要求 POST 使用 `Content-Type: application/json`（415），并把请求体限制在 16 MB（413）。它还拒绝任何不是 IP、`localhost`、`host.docker.internal` 或 `settings.json` 中 `allowedHosts` 所列名称的 `Host` 头，以此封堵 DNS rebinding 攻击（网页在攻击者的域名下以同源请求的形式访问 host）。MCP 适配器和脚本不受影响。
-- **限流**：工具调用按实例 ID 限流（默认每秒 20 次、突发 60 次，在 `settings.json` 中用 `rateLimit` / `rateBurst` 设置），另外因为实例 ID 是自报的，再按客户端地址以 5 倍额度限流。没有指明实例 ID 的工具调用只按地址限流。hooks（`POST /api/hook`）按对话和按客户端地址限流，使用各自独立的桶。超限时 host 返回带 `Retry-After` 的 `429`；`/health` 和 `GET /api/tools` 不限流。
+- **限流**：工具调用按对话限流，识别不出对话时按实例 ID（默认每秒 20 次、突发 60 次，在 `settings.json` 中用 `rateLimit` / `rateBurst` 设置），另外因为实例 ID 和会话 ID 是自报的，再按客户端地址以 5 倍额度限流。既识别不出对话、也没有指明实例 ID 的工具调用只按地址限流。hooks（`POST /api/hook`）按对话和按客户端地址限流，使用各自独立的桶。超限时 host 返回带 `Retry-After` 的 `429`；`/health` 和 `GET /api/tools` 不限流。
 - **格式错误的请求**：无效的请求 URL 或 Host 头返回 400，不会让 host 退出。格式正确的请求仍要经过上面的浏览器和 Host 检查。
 - **协调数据中的敏感内容**：项目 manifest、内部文档、会议消息和全局文档以明文保存在 host 的本地数据库中。不要在这些字段里存放密钥、凭据或客户数据。
 - **破坏性工具**：项目删除这类破坏性工具应通过明确的审核流程使用。

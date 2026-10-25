@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 
 - A failed `codex queue` no longer loses the wake: the Codex background wait reports the result and the host undoes a wake that was not delivered, and the wait tries again after a delay (1 s, doubling up to 5 minutes), so the same messages and notices wake the conversation again; the failed wake is not counted as an automatic turn. The session no longer stays `working` until it goes stale.
 - The Codex SessionEnd hook fits Codex's 3-second limit: `n2n-nexus install codex` writes timeout 3 (run it again to update an existing installation, which removes Codex's "clamping SessionEnd hook timeout" warning), and the SessionEnd request gives up after 1.5 s without a second host lookup.
+- Tool calls are rate limited per conversation when the hooks identify it, so conversations that share an adapter instance (one client in one directory) no longer use up each other's budget; without the hooks calls are still limited per instance. The per-address limit is unchanged.
 
 ## [0.9.3] - 2026-10-24
 

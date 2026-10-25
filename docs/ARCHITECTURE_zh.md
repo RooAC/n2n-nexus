@@ -205,7 +205,7 @@ host 没有身份认证，所以要挡住网页：拒绝浏览器发起的请求
 
 限流使用令牌桶（每秒 `rateLimit`，可突发 `rateBurst`；`rateLimit: 0` 关闭），超限返回 429 和 `Retry-After`：
 
-- 工具调用按 `instanceId` 计，另外因为实例 ID 是自报的，再按客户端地址以 5 倍额度计；
+- 工具调用按对话计（hooks 根据调用方的 Claude `toolUseId` 或 Codex `sessionId` 识别出的会话），识别不出时按 `instanceId` 计，另外因为这些 ID 是自报的，再按客户端地址以 5 倍额度计；
 - hooks 按对话（`<client>:<session_id>`）计，并按客户端地址以 5 倍额度计，都是独立的桶，忙碌对话的 hooks 不会占用该地址的工具调用额度；
 - `GET /health` 和 `GET /api/tools` 不限流。
 

@@ -75,7 +75,7 @@ function toResponse<T>(res: http.IncomingMessage, body: string): HttpResponse<T>
 
 /** Per-file host settings, written to the root's settings.json. */
 export type HostSettings = {
-    /** Tool calls per second per instance; 0 disables rate limiting. */
+    /** Tool calls per second per conversation (per instance without the hooks); 0 disables rate limiting. */
     rateLimit?: number;
     rateBurst?: number;
     maxAutoTurns?: number;
