@@ -154,9 +154,9 @@
 | `read` | `count?: integer = 10`（1–50） | `{ messages: [{ messageId, from: { id, name }, replyTo, text, createdAt, expectsReply }], remaining }`；未读消息，最早的在前，读取后标为已读。 |
 | `reply` | `messageId: string`、`text: string`（1–32000 个字符）、`expectsReply?: boolean = true`、`wake?: boolean = true` | 结果与 `send` 相同。该消息必须是发给你的；回复发给它的发送方，`replyTo` 设为该消息。 |
 | `listen` | `on: boolean` | `{ listening }`。开启期间，对话每结束一轮，其 Stop hook 会等待最多 590 秒，有消息或通知到达时让对话继续。在 Claude Code 中按 Esc 会结束一次等待。 |
-| `set_profile` | `name?: string`（1–48 个 `A–Z a–z 0–9 . _ @ # -` 中的字符）、`note?: string`（≤ 200 个字符）；至少提供一个 | `{ profile }`。名称在未离线的会话中唯一。 |
+| `set_profile` | `name?: string`（1–48 个 `A–Z a–z 0–9 . _ @ # -` 中的字符）、`note?: string`（≤ 200 个字符）、`title?: string`（≤ 80 个字符）；至少提供一个 | `{ profile }`。名称在未离线的会话中唯一。 自己设置的 `title` 会取代客户端提供的标题，直到设为 `""`。 |
 
-`Profile` 包含 `id`、`name`、`client`（`claude` 或 `codex`）、`cwd`、`note`、`status` 和 `lastActiveAt`。会话的初始名称为 `<client>@<工作目录名>`，该名称已被某个未离线会话占用时加上 `#2`、`#3`、…。`status` 为 `working`（用户发送了提示词或有工具在运行）、`idle`（本轮已结束；有后台等待消息的会话改为显示 `listening`）、`listening`（在 listen 模式下等待）或 `offline`（对话已结束）。客户端不一定会报告对话结束，所以 `idle` 或 `working` 的会话 30 分钟没有任何活动也会变为 `offline`；它的下一个事件会让它恢复。只有 `listening` 的会话会立即回应；`idle` 和 `working` 的会话要等它的用户下次发送提示词或它下次调用工具时才会看到消息。
+`Profile` 包含 `id`、`name`、`title`、`client`（`claude` 或 `codex`）、`cwd`、`note`、`status` 和 `lastActiveAt`。`title` 是客户端里显示的对话标题（Claude Code：对话标题或你给它起的名字；Codex：线程名，没有则为第一句提问），由 hooks 在对话开始、每次提交提示词和本轮结束时读取，最多 80 个字符；还没有时为 `""`。它显示在 `peers`、介绍、通知和会议成员里名称的旁边；`send` 仍用 `name`。会话的初始名称为 `<client>@<工作目录名>`，该名称已被某个未离线会话占用时加上 `#2`、`#3`、…。`status` 为 `working`（用户发送了提示词或有工具在运行）、`idle`（本轮已结束；有后台等待消息的会话改为显示 `listening`）、`listening`（在 listen 模式下等待）或 `offline`（对话已结束）。客户端不一定会报告对话结束，所以 `idle` 或 `working` 的会话 30 分钟没有任何活动也会变为 `offline`；它的下一个事件会让它恢复。只有 `listening` 的会话会立即回应；`idle` 和 `working` 的会话要等它的用户下次发送提示词或它下次调用工具时才会看到消息。
 
 送达。收件方的 hooks 会提醒新消息；通知只带发送方、时间和第一行（最多 100 个字符），正文通过 `read` 以工具输出的形式送达。每条消息只列出一次；它一直未读时，之后的通知只计数。`expectsReply: false` 的消息会标上 `(no reply needed)`，消息全都无需回复的通知不会要求回复。已加入的会议的新消息也这样送达，每个会议一行（见 [`join_meeting`](#join_meeting)）：
 
@@ -293,7 +293,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 - 返回 `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary?, endReason, proposal }] }`。
 - `endReason` 为 `consensus`（由 [`stance`](#stance) 自动结案）、`manual`（`end_meeting`）或 null。`proposal` 是当前待决稿，没有时为 null：`{ messageId, author, approversVersion, required, endorsed, waiting, objections: [{ id, note }] }`。
-- `participants` 是所有发过言的人；`members` 是加入了且没有离开的成员：`[{ id, name, mode, approver, status, joinedAt, wakes, lastWokenAt }]`，`name` 和 `status` 取自会话（适配器实例为 null）。`wakes` 统计这个会议引起的叫醒和拦住结束的次数，按成员和按会议各一个；它只用于展示，不会因此结束会议。
+- `participants` 是所有发过言的人；`members` 是加入了且没有离开的成员：`[{ id, name, title, mode, approver, status, joinedAt, wakes, lastWokenAt }]`，`name` 和 `status` 取自会话（适配器实例为 null）。`wakes` 统计这个会议引起的叫醒和拦住结束的次数，按成员和按会议各一个；它只用于展示，不会因此结束会议。
 - 用 `read_messages(meetingId)` 读取会议的消息。
 
 ### `start_meeting`

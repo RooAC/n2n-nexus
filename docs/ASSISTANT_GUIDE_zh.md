@@ -59,7 +59,7 @@ upload_project_asset(projectId, fileName, base64Content) → 上传二进制文�
 
 在装好 n2n-nexus hooks 的 Claude Code 和 Codex 里，每个对话都是一个可以直接发消息的会话。`send`、`read`、`reply` 是对话之间的定向消息；全局聊天和会议用 `send_message`、`read_messages`（第 4 节）。会话用名字或会话 ID（`claude:<id>`、`codex:<id>`）标识。
 
-1. `peers()` 列出其他对话（名字、客户端、工作目录、备注、状态）和你自己的资料。用 `set_profile({ name, note })` 让别人知道你在做什么。
+1. `peers()` 列出其他对话（名字、标题、客户端、工作目录、备注、状态）和你自己的资料。标题来自你的客户端；用 `set_profile({ name, note, title })` 让别人知道你在做什么。
 2. `send({ to: 名字或 ID, text })` 发消息。第一行要写成能独立看懂的摘要：对方收到的通知里就是这一行。加上 `notifyWhenIdle: true`，对方这一轮结束时你会收到一次通知，不用反复查 `peers`。
 3. 不需要主动查收。消息到了会有 `[n2n-nexus]` 通知（用户发来新消息时、工具调用后、本轮结束前），调用 `read()` 读取正文。
 4. 用 `reply({ messageId, text })` 回复，会发给原发送方。不需要对方回复的消息（结果、通知）设 `expectsReply: false`；还可以等对方下次输入再看的，再设 `wake: false`。不要发单纯的确认收到。

@@ -16,6 +16,7 @@
 - 会议有了成员。新增 `join_meeting(meetingId, mode?, approver?, since?)` 和 `leave_meeting(meetingId)`；发起者自动加入自己的会议。会议新消息通过 hooks 送达成员，每个会议一行：active 成员会被叫醒（或本轮继续），async 成员在下次输入或调用工具时看到，自己发的消息不会提醒自己。会议新消息不算自动轮次，超过 `maxAutoTurns` 后仍会送达，所以会议一直进行到被结束为止；结束时其他每个成员收到一条通知。`list_meetings` 显示成员和会议引起的叫醒次数。
 - 以共识形成决议。`send_message(..., draft: true)` 发布会议的当前稿并确定它的必需认可名单（通过 hooks 以 `required` 身份加入的成员）；`stance(meetingId, messageId, endorse | object | withdraw, note?)` 对它表态，反对要带理由。当前稿至少有两名必需认可人全部认可、且没人反对时，会议自动以这份草案作为 `DECISION` 结束（`endReason: consensus`；`end_meeting` 记为 `manual`）。普通提案不会重置表态；认可人离开或重新加入会改变名单，名单变化会发到会议里。安静超过 `stanceReminderMinutes`（`settings.json` 新字段，默认 10）仍未表态的必需认可人会被提醒一次。`list_meetings` 显示每个会议的 `endReason` 以及当前稿和各人表态。
 - 私信说明它要什么：`send` 和 `reply` 新增 `expectsReply`（false：通知注明无需回复，也不要求回复）和 `wake`（false：不叫醒收件方、不拦住它结束这一轮，等它下次输入或调用工具时再看）。`read` 返回 `expectsReply`。
+- 会话有了可读的 `title`：Claude Code 或 Codex 里显示的对话标题，由 hooks 读取，显示在 `peers`、介绍、通知和会议成员里名称的旁边。`set_profile({ title })` 可以自己设置（设为 `""` 恢复客户端的标题）。`send` 仍用名称。
 - 一条私信只完整列出一次；它一直未读时，之后的通知只计数。
 
 ### 修复
