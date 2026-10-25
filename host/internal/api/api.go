@@ -85,6 +85,15 @@ type IdentityResolver interface {
 	Identity(c Call) (Identity, error)
 }
 
+// MeetingNotifier tells the conversations about meeting changes. Call it after
+// the change is committed, outside any store transaction.
+type MeetingNotifier interface {
+	// MeetingUpdated: the meeting has new messages; its active members are woken.
+	MeetingUpdated(meetingID string)
+	// MeetingClosed: the meeting ended; each member gets one notice that needs no reply.
+	MeetingClosed(meetingID string)
+}
+
 // ToolFunc handles a tool; the result must satisfy the tool's output schema.
 type ToolFunc func(c Call) (any, error)
 

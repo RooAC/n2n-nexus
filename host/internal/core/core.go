@@ -32,6 +32,8 @@ type Deps struct {
 	Logger   *log.Logger
 	// Identities resolves who a chat or meeting call acts as; nil = always the instance.
 	Identities api.IdentityResolver
+	// Meetings is told about meeting changes after they are committed; nil = nobody.
+	Meetings api.MeetingNotifier
 }
 
 // Core holds the core tools.
