@@ -713,6 +713,22 @@ func TestIdleSubscriptions(t *testing.T) {
 	contains(t, h.hook("codex", "UserPromptSubmit", "w").context(), "claude@proj (claude:t) went offline.")
 }
 
+func TestIdleSubscriptionOnAStaleSession(t *testing.T) {
+	h := start(t)
+	h.hook("codex", "SessionStart", "w")
+	h.hook("claude", "SessionStart", "t")
+	h.hook("claude", "UserPromptSubmit", "t") // working, then nothing more: it goes stale
+	h.send("w", "claude:t", "task", true)
+	stale := ms(timing.StaleSessionMs)
+	h.at(stale / 2)
+	h.hook("codex", "UserPromptSubmit", "w")
+	h.at(stale + time.Second)
+	// Any later event finds t stale and sets it offline: the subscriber is told.
+	ctx := h.hook("codex", "UserPromptSubmit", "w").context()
+	eq(t, h.status("claude:t"), "offline")
+	contains(t, ctx, "claude@proj (claude:t) went offline.")
+}
+
 func TestIdleSubscriptionTTL(t *testing.T) {
 	h := start(t)
 	h.hook("codex", "SessionStart", "w")

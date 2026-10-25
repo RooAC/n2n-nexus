@@ -281,10 +281,31 @@ func (a *Agents) findRecipient(to string) (*session, error) {
 	return list[0], nil
 }
 
-// expireStale sets idle and working sessions without activity since before offline.
-func (a *Agents) expireStale(before time.Time) error {
-	_, err := a.db().ExecContext(bg, "UPDATE agent_sessions SET status = 'offline' WHERE status IN ('idle', 'working') AND last_active_at < ?", a.iso(before))
-	return err
+// expireStale sets idle and working sessions without activity since before
+// offline; it returns them.
+func (a *Agents) expireStale(before time.Time) ([]string, error) {
+	var ids []string
+	err := a.tx(func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(bg, "SELECT id FROM agent_sessions WHERE status IN ('idle', 'working') AND last_active_at < ?", a.iso(before))
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(bg, "UPDATE agent_sessions SET status = 'offline' WHERE status IN ('idle', 'working') AND last_active_at < ?", a.iso(before))
+		return err
+	})
+	return ids, err
 }
 
 // listPeers: other sessions that are not offline or were active within the peer window, most recent first.

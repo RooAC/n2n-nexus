@@ -8,14 +8,26 @@ import (
 func sessionKey(client, clientSessionID string) string { return client + ":" + clientSessionID }
 
 // expireAll expires overdue messages (waking the senders that got a
-// notice) and sets stale sessions offline (mu held).
+// notice) and sets stale sessions offline, telling their idle subscribers as
+// SessionEnd would (mu held).
 func (a *Agents) expireAll(now time.Time) error {
 	senders, _, err := a.expireMessages(now)
 	if err != nil {
 		return err
 	}
 	a.wake(senders...)
-	return a.expireStale(now.Add(-ms(a.o.Contract.Hook.Timing.StaleSessionMs)))
+	stale, err := a.expireStale(now.Add(-ms(a.o.Contract.Hook.Timing.StaleSessionMs)))
+	if err != nil {
+		return err
+	}
+	for _, id := range stale {
+		subscribers, err := a.fireIdle(id, "offline", now)
+		if err != nil {
+			return err
+		}
+		a.wake(subscribers...)
+	}
+	return nil
 }
 
 // revive: a stale session that acts again (a tool call) is working; one that
