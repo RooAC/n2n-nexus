@@ -257,7 +257,7 @@ describe("install claude", () => {
         expect(result.stderr).toBe("");
         expect(readJson(claudeSettings())).toEqual(userSettings);
         expect(result.stdout).toContain(`Removed hooks from ${claudeSettings()}`);
-        expect(result.stdout).toContain(`Skipped "claude mcp remove --scope user n2n-nexus": the "claude" command was not found on PATH.`);
+        expect(result.stdout).toContain(`Skipped "claude mcp remove --scope user n2n-nexus": the "claude" command could not be run (not on PATH, or not runnable without a shell).`);
         expect(result.stdout).toContain(`still registered in ${path.join(claudeDir, ".claude.json")}`);
         expect(calls()).toEqual([]);
     });
@@ -361,7 +361,7 @@ describe("install codex", () => {
         expect(result.code).toBe(0);
         expect(result.stderr).toBe("");
         expect(readJson(codexHooks())).toEqual({ hooks: {} });
-        expect(result.stdout).toContain(`Skipped "codex mcp remove n2n-nexus": the "codex" command was not found on PATH.`);
+        expect(result.stdout).toContain(`Skipped "codex mcp remove n2n-nexus": the "codex" command could not be run (not on PATH, or not runnable without a shell).`);
         expect(result.stdout).toContain(`still registered in ${path.join(codexHome, "config.toml")}`);
         expect(calls()).toEqual([]);
     });

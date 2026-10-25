@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - A failed `codex queue` no longer loses the wake: the Codex background wait reports the result and the host undoes a wake that was not delivered, and the wait tries again after a delay (1 s, doubling up to 5 minutes), so the same messages and notices wake the conversation again; the failed wake is not counted as an automatic turn. The session no longer stays `working` until it goes stale.
-- A session that goes offline after 30 minutes without activity now tells its `notifyWhenIdle` subscribers, as a session that ends does.
+- A session that goes offline after 30 minutes without activity now tells its `notifyWhenIdle` subscribers, as a session that ends does, also when they only wait in the background.
 - The prompt that starts a woken turn no longer announces again what the wake announced.
 - The Codex SessionEnd hook fits Codex's 3-second limit: `n2n-nexus install codex` writes timeout 3 (run it again to update an existing installation, which removes Codex's "clamping SessionEnd hook timeout" warning), and the SessionEnd request gives up after 1.5 s without a second host lookup.
 - `n2n-nexus uninstall <client>` no longer needs the client on PATH: it removes the hooks from the client's config file anyway. Without the client it skips `<client> mcp remove` and, when the MCP server is still registered, says so and how to remove it (run that command later, or delete the `n2n-nexus` entry from `~/.claude.json` / `config.toml`). `install` still requires the client.

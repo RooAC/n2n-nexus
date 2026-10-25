@@ -327,8 +327,8 @@ function removeMcpServer(client: HookClient, action: InstallOptions["action"], h
         if (action === "uninstall" && (error as NodeJS.ErrnoException).code === "ENOENT") {
             const file = mcpConfigFile(client);
             const what = client === "claude" ? `the "${MCP_SERVER_NAME}" entry under "mcpServers"` : `the [mcp_servers.${MCP_SERVER_NAME}] table`;
-            process.stdout.write(`Skipped "${client} ${removeArgs.join(" ")}": the "${client}" command was not found on PATH. `
-                + `The MCP server is still registered in ${file}; run that command once ${client} is on PATH, or delete ${what} from ${file}.\n`);
+            process.stdout.write(`Skipped "${client} ${removeArgs.join(" ")}": the "${client}" command could not be run (not on PATH, or not runnable without a shell). `
+                + `The MCP server is still registered in ${file}; run that command once ${client} can be run, or delete ${what} from ${file}.\n`);
             return;
         }
         const failure = error as { stderr?: unknown; status?: number | null; message: string };

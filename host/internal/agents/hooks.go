@@ -71,6 +71,10 @@ func (a *Agents) hook(client string, input map[string]any) (map[string]any, *wai
 		if err := a.touch(id, client, "", now); err != nil {
 			return nil, nil, err
 		}
+		// A wait asks again every few minutes: other sessions that went stale meanwhile tell their subscribers.
+		if err := a.expireAll(now); err != nil {
+			return nil, nil, err
+		}
 		return nil, a.backgroundWait(id), nil
 	}
 	if event == a.o.Contract.Hook.WakeResultEvent {

@@ -733,6 +733,22 @@ func TestIdleSubscriptionOnAStaleSession(t *testing.T) {
 	contains(t, ctx, "claude@proj (claude:t) went offline.")
 }
 
+func TestStaleSessionWakesAWaitingSubscriber(t *testing.T) {
+	h := start(t, listenWait(time.Second))
+	h.hook("codex", "SessionStart", "w")
+	h.hook("claude", "SessionStart", "t")
+	h.hook("claude", "UserPromptSubmit", "t") // working, then never heard of again
+	h.send("w", "claude:t", "task", true)
+	h.hook("codex", "Stop", "w", stopActive)
+	// w only waits in the background; nothing else happens until t is stale.
+	if out := h.openHook("codex", texts0BackgroundWait(), "w").wait(t); out["timeout"] != true {
+		t.Fatal(out)
+	}
+	h.at(ms(timing.StaleSessionMs) + time.Second)
+	out := h.openHook("codex", texts0BackgroundWait(), "w").wait(t)
+	contains(t, out.str("wake"), "claude@proj (claude:t) went offline.")
+}
+
 func TestIdleSubscriptionTTL(t *testing.T) {
 	h := start(t)
 	h.hook("codex", "SessionStart", "w")
