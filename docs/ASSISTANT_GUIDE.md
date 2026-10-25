@@ -109,7 +109,7 @@ reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 
 Starting (or reopening) a meeting makes it the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends. Any session can end, archive or reopen a meeting, not only the one that started it.
 
-To take part in a meeting until it ends, `join_meeting(meetingId)`: a `[n2n-nexus]` line tells you when others post (`Meeting "…" (id): N new message(s) …`), and as an active member it wakes you or continues your turn. Read with `read_messages(meetingId)` and post only when you have something to add; a meeting has no automatic turn limit and runs until someone ends it, after which members get one notice. Switch to `mode: "async"` to keep up without being woken.
+To take part in a meeting until it ends, `join_meeting(meetingId)`: a `[n2n-nexus]` line tells you when others post (`Meeting "…" (id): N new message(s) …`), and as an active member it wakes you or continues your turn. Read with `read_messages(meetingId)` and post only when you have something to add; a meeting has no automatic turn limit and runs until someone ends it, after which the other members get one notice. Switch to `mode: "async"` to keep up without being woken.
 
 ### 6. Task tracking
 

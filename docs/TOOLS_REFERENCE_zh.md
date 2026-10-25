@@ -335,7 +335,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 行为：
 
 - 任何适配器实例都能结束、存档或重新开启会议，不只是它的 `initiator`。
-- 结束会议时，每个成员收到一条会议已结束的通知（附总结），无需回复；active 成员会被它叫醒。重新开启不会恢复已离开的成员。
+- 结束会议时，除结束者以外的每个成员收到一条会议已结束的通知（附总结），无需回复；active 成员会被它叫醒，async 成员在下次输入或调用工具时看到。重新开启不会恢复已离开的成员。
 
 ### `join_meeting`
 
@@ -346,7 +346,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 | `meetingId` | string | 是 |  | 要加入的会议，必须处于活跃状态。 |
 | `mode` | string | 否 | `active` | `active`：他人的新消息会叫醒你（或拦住本轮结束）；`async`：你在下次输入或调用工具时看到。 |
 | `approver` | string | 否 | active 为 `required`，async 为 `optional` | 形成决议时是否必须得到你的认可。 |
-| `since` | `beginning`、`latest` 或整数 | 否 | 首次加入为 `latest` | 这个会议的 `read_messages` 从哪里开始读：从第一条、从最新一条之后，或从该编号之后。之后再次加入时不给 `since` 会保留你的游标。 |
+| `since` | `beginning`、`latest` 或整数 | 否 | 首次加入为 `latest` | 这个会议的 `read_messages` 从哪里开始读：从第一条、从最新一条之后，或从该编号之后（`0` 即从头）。之后再次加入时不给 `since` 会保留你的游标。 |
 
 行为：
 

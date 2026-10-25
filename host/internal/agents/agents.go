@@ -537,7 +537,8 @@ func (b batch) empty() bool {
 }
 
 // wakes: the batch may wake the session or hold its Stop: a direct message
-// that wakes, a notice, or news of a meeting the session takes part in actively.
+// that wakes, a notice that is not from a meeting the session takes part in
+// asynchronously, or news of a meeting it takes part in actively.
 func (b batch) wakes() bool {
 	for _, m := range append(append([]*message(nil), b.messages...), b.earlier...) {
 		if m.Wake {
@@ -549,7 +550,12 @@ func (b batch) wakes() bool {
 			return true
 		}
 	}
-	return len(b.notices) > 0
+	for _, n := range b.notices {
+		if n.Wakes {
+			return true
+		}
+	}
+	return false
 }
 
 // counts: delivering the batch is an automatic turn (maxAutoTurns): it has

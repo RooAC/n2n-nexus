@@ -180,7 +180,7 @@ func (c *Core) endMeeting(call api.Call, a endMeetingArgs) (any, error) {
 		return nil, err
 	}
 	if c.d.Meetings != nil {
-		c.d.Meetings.MeetingClosed(id)
+		c.d.Meetings.MeetingClosed(id, who.ID)
 	}
 	result := map[string]any{"ok": true, "meetingId": id, "status": "closed"}
 	if summary != "" {
@@ -447,6 +447,9 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 // newest for "latest", the table id of message number N for N.
 func sinceCursor(tx *sql.Tx, meetingID string, since json.RawMessage, newest int64) (int64, error) {
 	var word string
+	if string(since) == "0" {
+		return 0, nil // after message 0: from the beginning
+	}
 	if json.Unmarshal(since, &word) == nil {
 		if word == "beginning" {
 			return 0, nil

@@ -335,7 +335,7 @@ Reactivate a closed or archived meeting.
 Behavior:
 
 - Any adapter instance can end, archive or reopen a meeting, not only its `initiator`.
-- Ending a meeting gives each member one notice that it ended (with the summary), which needs no reply; active members are woken with it. Reopening does not bring back members that left.
+- Ending a meeting gives each member but the one who ended it one notice that it ended (with the summary), which needs no reply; active members are woken with it, async members see it at their next prompt or tool call. Reopening does not bring back members that left.
 
 ### `join_meeting`
 
@@ -346,7 +346,7 @@ Join an active meeting, or change how you take part in it.
 | `meetingId` | string | yes |  | Meeting to join. Must be active. |
 | `mode` | string | no | `active` | `active`: new messages of others wake you (or hold your turn's end); `async`: you see them at your next prompt or tool call. |
 | `approver` | string | no | `required` when active, `optional` when async | Whether your approval is required for a decision. |
-| `since` | `beginning`, `latest` or integer | no | `latest` on the first join | Where `read_messages` starts for this meeting: from its first message, after its newest, or after that message number. A later join without `since` keeps your cursor. |
+| `since` | `beginning`, `latest` or integer | no | `latest` on the first join | Where `read_messages` starts for this meeting: from its first message, after its newest, or after that message number (`0`: from the beginning). A later join without `since` keeps your cursor. |
 
 Behavior:
 

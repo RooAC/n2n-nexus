@@ -90,8 +90,8 @@ type IdentityResolver interface {
 type MeetingNotifier interface {
 	// MeetingUpdated: the meeting has new messages; its active members are woken.
 	MeetingUpdated(meetingID string)
-	// MeetingClosed: the meeting ended; each member gets one notice that needs no reply.
-	MeetingClosed(meetingID string)
+	// MeetingClosed: the meeting ended; each member but byID (who ended it) gets one notice that needs no reply.
+	MeetingClosed(meetingID, byID string)
 }
 
 // ToolFunc handles a tool; the result must satisfy the tool's output schema.

@@ -2380,7 +2380,7 @@
                 "maximum": 9007199254740991
               }
             ],
-            "description": "Where read_messages starts for this meeting: beginning, latest, or after this message number. Default on the first join: latest; on a later join the cursor stays."
+            "description": "Where read_messages starts for this meeting: beginning, latest, or after this message number (0: the beginning). Default on the first join: latest; on a later join the cursor stays."
           }
         },
         "required": [

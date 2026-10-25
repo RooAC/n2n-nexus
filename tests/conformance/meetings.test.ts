@@ -153,6 +153,7 @@ describe("meetings per conversation", () => {
         expect(wake).not.toContain("Automatic turn");
 
         await kit.claudeTool(a, "end_meeting", { meetingId, summary: "settled" });
+        expect(await kit.hook("claude", "Stop", a, { stop_hook_active: false })).toBeNull(); // who ended it is not told
         expect(context(await kit.hook("claude", "UserPromptSubmit", b))).toContain(`Meeting "Wake test" (${meetingId}) has ended: settled. No reply needed.`);
     });
 });

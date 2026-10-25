@@ -3,6 +3,7 @@ package agents
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -175,9 +176,10 @@ func (a *Agents) MeetingUpdated(meetingID string) {
 	a.wake(ids...)
 }
 
-// MeetingClosed (api.MeetingNotifier): every member gets one notice that the
-// meeting ended, which needs no reply; active members are woken with it.
-func (a *Agents) MeetingClosed(meetingID string) {
+// MeetingClosed (api.MeetingNotifier): every member but byID, who ended it,
+// gets one notice that the meeting ended, which needs no reply; active members
+// are woken with it, async ones see it at their next hook.
+func (a *Agents) MeetingClosed(meetingID, byID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	var topic string
@@ -199,6 +201,9 @@ func (a *Agents) MeetingClosed(meetingID string) {
 	now := a.o.Clock.Now()
 	err = a.tx(func(tx *sql.Tx) error {
 		for _, id := range ids {
+			if id == byID {
+				continue
+			}
 			if err := a.addNotice(tx, id, text, meetingID, now); err != nil {
 				return err
 			}
@@ -211,5 +216,5 @@ func (a *Agents) MeetingClosed(meetingID string) {
 	}
 	active, err := a.members(meetingID, true)
 	a.logErr("meeting closed", err)
-	a.wake(active...)
+	a.wake(slices.DeleteFunc(active, func(id string) bool { return id == byID })...)
 }

@@ -272,8 +272,8 @@ type notes struct {
 func (n *notes) record(kind, meetingID string) {
 	n.calls = append(n.calls, fmt.Sprintf("%s %s %d", kind, meetingID, n.h.count(`SELECT COUNT(*) FROM meeting_messages WHERE meeting_id = ?`, meetingID)))
 }
-func (n *notes) MeetingUpdated(meetingID string) { n.record("updated", meetingID) }
-func (n *notes) MeetingClosed(meetingID string)  { n.record("closed", meetingID) }
+func (n *notes) MeetingUpdated(meetingID string)   { n.record("updated", meetingID) }
+func (n *notes) MeetingClosed(meetingID, _ string) { n.record("closed", meetingID) }
 
 func newNotedHarness(t *testing.T) (*harness, *notes) {
 	n := &notes{}
@@ -407,5 +407,15 @@ func TestListMeetingsMembers(t *testing.T) {
 		if m := m.(map[string]any); m["id"] == id && m["wakes"] != 3.0 {
 			t.Fatalf("meeting wakes %v", m["wakes"])
 		}
+	}
+}
+
+func TestJoinSinceZeroIsTheBeginning(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "m1"})
+	h.as("b", "join_meeting", map[string]any{"meetingId": id, "since": 0})
+	if got := messageTexts(h.as("b", "read_messages", map[string]any{"meetingId": id})); !slices.Equal(got, []string{"m1"}) {
+		t.Fatalf("since 0 %v", got)
 	}
 }

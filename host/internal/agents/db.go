@@ -51,6 +51,8 @@ type notice struct {
 	Text      string
 	// MeetingID is the meeting the notice comes from, "" for none.
 	MeetingID string
+	// Wakes: the notice may wake the session (not from a meeting it takes part in asynchronously).
+	Wakes bool
 }
 
 const sessionColumns = "id, client, name, note, cwd, status, listening, created_at, last_active_at"
@@ -340,7 +342,9 @@ func unread(q querier, toID string, freshOnly bool) ([]*message, error) {
 
 // pendingNotices: notices not delivered by a hook yet, oldest first.
 func (a *Agents) pendingNotices(sessionID string) ([]notice, error) {
-	rows, err := a.db().QueryContext(bg, "SELECT id, session_id, text, COALESCE(meeting_id, '') FROM agent_notices WHERE session_id = ? AND notified_at IS NULL ORDER BY id", sessionID)
+	rows, err := a.db().QueryContext(bg, `SELECT n.id, n.session_id, n.text, COALESCE(n.meeting_id, ''), COALESCE(mm.mode, 'active') = 'active'
+		FROM agent_notices n LEFT JOIN meeting_members mm ON mm.meeting_id = n.meeting_id AND mm.member_id = n.session_id
+		WHERE n.session_id = ? AND n.notified_at IS NULL ORDER BY n.id`, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +352,7 @@ func (a *Agents) pendingNotices(sessionID string) ([]notice, error) {
 	var out []notice
 	for rows.Next() {
 		var n notice
-		if err := rows.Scan(&n.ID, &n.SessionID, &n.Text, &n.MeetingID); err != nil {
+		if err := rows.Scan(&n.ID, &n.SessionID, &n.Text, &n.MeetingID, &n.Wakes); err != nil {
 			return nil, err
 		}
 		out = append(out, n)

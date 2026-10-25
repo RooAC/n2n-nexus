@@ -110,7 +110,7 @@ func TestMeetingNewsStopsWithLeaveAndEnd(t *testing.T) {
 	}
 	h.exec(`UPDATE meeting_members SET left_at = NULL WHERE member_id = 'codex:b'`)
 	h.exec(`UPDATE meetings SET status = 'closed', summary = 'agreed' WHERE id = 'm1'`)
-	h.ag.MeetingClosed("m1")
+	h.ag.MeetingClosed("m1", "")
 	blocked := h.hook("codex", "Stop", "b", stopInactive)
 	reason := blocked.str("reason")
 	contains(t, reason, fmt.Sprintf(texts.MeetingEnded, "Topic m1", "m1", ": agreed"))
@@ -191,4 +191,23 @@ func TestDirectMessageKinds(t *testing.T) {
 	notContains(t, ctx, texts.MessageTrustNote)
 	read := h.codex("r", "read", nil)
 	eq(t, read.result["messages"].([]any)[0].(map[string]any)["expectsReply"], any(false))
+}
+
+func TestMeetingEndNoticeSparesTheCloserAndAsyncMembers(t *testing.T) {
+	h := start(t)
+	for _, s := range []string{"a", "b", "c"} {
+		h.hook("codex", "SessionStart", s)
+	}
+	h.meeting("m1", map[string]string{"codex:a": "active", "codex:b": "active", "codex:c": "async"})
+	h.exec(`UPDATE meetings SET status = 'closed' WHERE id = 'm1'`)
+	h.ag.MeetingClosed("m1", "codex:a")
+	// The member that ended it is not told; an async member is told at its next prompt, not by holding its Stop.
+	if out := h.hook("codex", "Stop", "a", stopInactive); out != nil {
+		t.Fatalf("closer held: %v", out)
+	}
+	if out := h.hook("codex", "Stop", "c", stopInactive); out != nil {
+		t.Fatalf("async member held: %v", out)
+	}
+	contains(t, h.hook("codex", "UserPromptSubmit", "c").context(), "has ended")
+	eq(t, h.hook("codex", "Stop", "b", stopInactive).str("decision"), "block")
 }

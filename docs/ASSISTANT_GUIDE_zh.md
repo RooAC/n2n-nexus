@@ -108,7 +108,7 @@ reopen_meeting(meetingId)         → 重新开启
 
 开启（或重新开启）会议后，它成为所有人的默认会议：不传 `meetingId` 的 `send_message` 和 `end_meeting` 都作用于它，直到它结束。任何会话都能结束、存档或重新开启会议，不只是开启它的那个。
 
-要一直参加某个会议直到它结束，调用 `join_meeting(meetingId)`：别人发言时会有一行 `[n2n-nexus]` 提醒（`Meeting "…" (id): N new message(s) …`），作为 active 成员它会叫醒你或让本轮继续。用 `read_messages(meetingId)` 读取，有内容要补充时才发言；会议没有自动轮次上限，一直进行到有人结束它，结束后每个成员收到一条通知。改为 `mode: "async"` 可以跟进而不被叫醒。
+要一直参加某个会议直到它结束，调用 `join_meeting(meetingId)`：别人发言时会有一行 `[n2n-nexus]` 提醒（`Meeting "…" (id): N new message(s) …`），作为 active 成员它会叫醒你或让本轮继续。用 `read_messages(meetingId)` 读取，有内容要补充时才发言；会议没有自动轮次上限，一直进行到有人结束它，结束后其他成员各收到一条通知。改为 `mode: "async"` 可以跟进而不被叫醒。
 
 ### 6. 任务跟踪
 
