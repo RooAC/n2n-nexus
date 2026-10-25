@@ -72,6 +72,8 @@ func (c *Core) Register(srv *api.Server) {
 	srv.Register("end_meeting", tool(endMeetingArgs{}, c.endMeeting))
 	srv.Register("archive_meeting", tool(meetingIDArgs{}, c.archiveMeeting))
 	srv.Register("reopen_meeting", tool(meetingIDArgs{}, c.reopenMeeting))
+	srv.Register("join_meeting", tool(joinMeetingArgs{Mode: "active"}, c.joinMeeting))
+	srv.Register("leave_meeting", tool(meetingIDArgs{}, c.leaveMeeting))
 	// Tasks
 	srv.Register("create_task", tool(createTaskArgs{}, c.createTask))
 	srv.Register("get_task", tool(taskIDArgs{}, c.getTask))

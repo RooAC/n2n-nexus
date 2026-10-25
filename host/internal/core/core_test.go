@@ -36,7 +36,8 @@ func newHarness(t *testing.T) *harness {
 }
 
 // newHarnessWith runs the core tools with an identity resolver (nil = every call acts as its instance).
-func newHarnessWith(t *testing.T, ids api.IdentityResolver) *harness {
+// newHarnessWith: a harness whose calls are resolved by ids and, when given, whose meeting changes go to meetings.
+func newHarnessWith(t *testing.T, ids api.IdentityResolver, meetings ...api.MeetingNotifier) *harness {
 	t.Helper()
 	contract, err := protocol.Load()
 	if err != nil {
@@ -50,7 +51,11 @@ func newHarnessWith(t *testing.T, ids api.IdentityResolver) *harness {
 	clk.Set(start)
 	logger := log.New(io.Discard, "", 0)
 	srv := api.New(api.Options{Version: "test", Contract: contract, Clock: clk, Logger: logger})
-	c := New(Deps{Store: st, Clock: clk, Contract: contract, Logger: logger, Identities: ids})
+	d := Deps{Store: st, Clock: clk, Contract: contract, Logger: logger, Identities: ids}
+	if len(meetings) > 0 {
+		d.Meetings = meetings[0]
+	}
+	c := New(d)
 	c.Register(srv)
 	h := &harness{t: t, core: c, srv: srv, store: st, clock: clk, http: httptest.NewServer(srv)}
 	t.Cleanup(func() {

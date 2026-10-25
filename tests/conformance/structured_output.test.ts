@@ -56,7 +56,9 @@ describe("tool results", () => {
         await call("send_message", { message: "in meeting", category: "DECISION" });
         await call("read_messages", { meetingId: meeting.meetingId, count: 5 });
         await call("read_messages", { meetingId: meeting.meetingId, afterId: 0 }, "peer");
+        await call("join_meeting", { meetingId: meeting.meetingId, mode: "async", since: "beginning" }, "peer");
         await call("list_meetings", {});
+        await call("leave_meeting", { meetingId: meeting.meetingId }, "peer");
         await call("end_meeting", { meetingId: meeting.meetingId, summary: "done" });
         await call("archive_meeting", { meetingId: meeting.meetingId });
         await call("reopen_meeting", { meetingId: meeting.meetingId });

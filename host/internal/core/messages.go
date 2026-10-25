@@ -70,6 +70,9 @@ func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if meetingID, ok := result["meetingId"].(string); ok && c.d.Meetings != nil {
+		c.d.Meetings.MeetingUpdated(meetingID)
+	}
 	return result, nil
 }
 

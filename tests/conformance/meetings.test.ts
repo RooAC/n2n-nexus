@@ -37,6 +37,20 @@ describe("meeting tools", () => {
         expect(noActive.payload.error).toContain("No active meeting");
     });
 
+    it("join and leave: members are listed with how they take part", async () => {
+        const meetingId = await start("Members", "ide-j");
+        type Joined = { mode: string; approver: string; identity: string; delivery: string };
+        const joined = await host.callTool<Joined>("join_meeting", { meetingId, mode: "async" }, "ide-k");
+        expect(joined.payload.result).toMatchObject({ mode: "async", approver: "optional", identity: "instance", delivery: "unavailable" });
+        type Member = { id: string; mode: string; approver: string };
+        const members = async () => ((await listed()).meetings.find((m) => m.id === meetingId) as unknown as { members: Member[] }).members;
+        expect((await members()).map((m) => [m.id, m.mode, m.approver])).toEqual([["ide-j", "active", "required"], ["ide-k", "async", "optional"]]);
+        expect((await host.callTool("leave_meeting", { meetingId }, "ide-k")).status).toBe(200);
+        expect((await host.callTool("leave_meeting", { meetingId }, "ide-k")).status).toBe(400);
+        expect((await members()).map((m) => m.id)).toEqual(["ide-j"]);
+        await host.callTool("end_meeting", { meetingId }, "ide-j");
+    });
+
     it("numbers each meeting's messages from 1", async () => {
         const first = await start("Numbers one", "ide-n");
         const second = await start("Numbers two", "ide-n");

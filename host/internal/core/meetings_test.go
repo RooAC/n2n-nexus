@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -258,5 +259,153 @@ func TestMeetingsPerSession(t *testing.T) {
 	r := h.callAs("read_messages", map[string]any{"meetingId": id, "afterId": 0}, "mcp-1", codex("lost"))
 	if r.status != 200 || !strings.Contains(string(r.result), `"text":"m3"`) {
 		t.Fatalf("history: %d %s", r.status, r.err)
+	}
+}
+
+// notes records the notifier calls; on each it counts the meeting's messages,
+// which shows the call came after the commit.
+type notes struct {
+	h     *harness
+	calls []string
+}
+
+func (n *notes) record(kind, meetingID string) {
+	n.calls = append(n.calls, fmt.Sprintf("%s %s %d", kind, meetingID, n.h.count(`SELECT COUNT(*) FROM meeting_messages WHERE meeting_id = ?`, meetingID)))
+}
+func (n *notes) MeetingUpdated(meetingID string) { n.record("updated", meetingID) }
+func (n *notes) MeetingClosed(meetingID string)  { n.record("closed", meetingID) }
+
+func newNotedHarness(t *testing.T) (*harness, *notes) {
+	n := &notes{}
+	h := newHarnessWith(t, fakeIdentities{}, n)
+	n.h = h
+	return h, n
+}
+
+func (h *harness) members(meetingID string) []map[string]any {
+	h.t.Helper()
+	for _, m := range h.ok("list_meetings", map[string]any{}, "")["meetings"].([]any) {
+		if m := m.(map[string]any); m["id"] == meetingID {
+			out := []map[string]any{}
+			for _, x := range m["members"].([]any) {
+				out = append(out, x.(map[string]any))
+			}
+			return out
+		}
+	}
+	h.t.Fatalf("meeting %s not listed", meetingID)
+	return nil
+}
+
+func TestJoinAndLeaveMeeting(t *testing.T) {
+	h, n := newNotedHarness(t)
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	if got := h.members(id); len(got) != 1 || got[0]["id"] != "codex:a" || got[0]["mode"] != "active" || got[0]["approver"] != "required" {
+		t.Fatalf("initiator %v", got)
+	}
+	for i := range 3 {
+		h.as("a", "send_message", map[string]any{"meetingId": id, "message": fmt.Sprintf("m%d", i+1)})
+	}
+	// Joining: default active/required, reading from the latest message; delivery by identity and mode.
+	j := h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	if j["mode"] != "active" || j["approver"] != "required" || j["delivery"] != "wake" || j["identity"] != "session" {
+		t.Fatalf("join %v", j)
+	}
+	if got := messageTexts(h.as("b", "read_messages", map[string]any{"meetingId": id})); len(got) != 0 {
+		t.Fatalf("latest start %v", got)
+	}
+	if j := h.as("c", "join_meeting", map[string]any{"meetingId": id, "mode": "async", "since": "beginning"}); j["approver"] != "optional" || j["delivery"] != "next-hook" {
+		t.Fatalf("async join %v", j)
+	}
+	if got := messageTexts(h.as("c", "read_messages", map[string]any{"meetingId": id})); !slices.Equal(got, []string{"m1", "m2", "m3"}) {
+		t.Fatalf("beginning %v", got)
+	}
+	h.as("d", "join_meeting", map[string]any{"meetingId": id, "since": 2})
+	if got := messageTexts(h.as("d", "read_messages", map[string]any{"meetingId": id})); !slices.Equal(got, []string{"m3"}) {
+		t.Fatalf("since 2 %v", got)
+	}
+	h.fails(400, "has no message 9", "join_meeting", map[string]any{"meetingId": id, "since": 9}, "mcp-1")
+	if j := h.ok("join_meeting", map[string]any{"meetingId": id}, "mcp-plain"); j["delivery"] != "unavailable" || j["identity"] != "instance" {
+		t.Fatalf("instance join %v", j)
+	}
+	// The join watermark: messages from before the join are not announced.
+	if w := h.count(`SELECT notified_id FROM meeting_members WHERE meeting_id = ? AND member_id = 'codex:b'`, id); w != h.count(`SELECT MAX(id) FROM meeting_messages`) {
+		t.Fatalf("watermark %d", w)
+	}
+	// A later join changes how the member takes part and keeps its watermark and cursor.
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "m4"})
+	before := h.count(`SELECT notified_id FROM meeting_members WHERE meeting_id = ? AND member_id = 'codex:b'`, id)
+	h.as("b", "join_meeting", map[string]any{"meetingId": id, "mode": "async"})
+	if w := h.count(`SELECT notified_id FROM meeting_members WHERE meeting_id = ? AND member_id = 'codex:b'`, id); w != before {
+		t.Fatalf("watermark moved %d -> %d", before, w)
+	}
+	if got := messageTexts(h.as("b", "read_messages", map[string]any{"meetingId": id})); !slices.Equal(got, []string{"m4"}) {
+		t.Fatalf("cursor after rejoin %v", got)
+	}
+	// Leaving; leaving twice fails; reopening does not bring the member back; joining again does.
+	h.as("b", "leave_meeting", map[string]any{"meetingId": id})
+	h.fails(400, "is not a member", "leave_meeting", map[string]any{"meetingId": id}, "mcp-9")
+	if r := h.callAs("leave_meeting", map[string]any{"meetingId": id}, "mcp-1", codex("b")); r.status != 400 {
+		t.Fatalf("second leave %d", r.status)
+	}
+	ids := func() []string {
+		out := []string{}
+		for _, m := range h.members(id) {
+			out = append(out, m["id"].(string))
+		}
+		return out
+	}
+	if got := ids(); slices.Contains(got, "codex:b") {
+		t.Fatalf("left member listed %v", got)
+	}
+	h.as("a", "end_meeting", map[string]any{"meetingId": id})
+	h.fails(400, "cannot join", "join_meeting", map[string]any{"meetingId": id}, "mcp-1")
+	h.as("a", "reopen_meeting", map[string]any{"meetingId": id})
+	if got := ids(); slices.Contains(got, "codex:b") {
+		t.Fatalf("reopen restored %v", got)
+	}
+	h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	if got := ids(); !slices.Contains(got, "codex:b") {
+		t.Fatalf("rejoin %v", got)
+	}
+	joins, leaves := 0, 0
+	for _, a := range h.eventActions("meeting") {
+		joins += map[bool]int{true: 1}[a == "meeting.join"]
+		leaves += map[bool]int{true: 1}[a == "meeting.leave"]
+	}
+	if joins != 6 || leaves != 1 {
+		t.Fatalf("events: %d joins, %d leaves", joins, leaves)
+	}
+	// The notifier heard every meeting message and the end, after each was committed.
+	want := []string{}
+	for i := 1; i <= 4; i++ {
+		want = append(want, fmt.Sprintf("updated %s %d", id, i))
+	}
+	want = append(want, fmt.Sprintf("closed %s 4", id))
+	if !slices.Equal(n.calls, want) {
+		t.Fatalf("notifier %v, want %v", n.calls, want)
+	}
+}
+
+func TestListMeetingsMembers(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	h.exec(`INSERT INTO agent_sessions (id, client, name, cwd, status, created_at, last_active_at) VALUES ('codex:a', 'codex', 'alice', '/w', 'listening', 'x', 'x')`)
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.ok("join_meeting", map[string]any{"meetingId": id, "mode": "async"}, "mcp-plain")
+	h.exec(`UPDATE meeting_members SET wakes = 3, last_woken_at = 'w' WHERE member_id = 'codex:a'`)
+	got := h.members(id)
+	if len(got) != 2 {
+		t.Fatalf("members %v", got)
+	}
+	if m := got[0]; m["name"] != "alice" || m["status"] != "listening" || m["wakes"] != 3.0 || m["lastWokenAt"] != "w" {
+		t.Fatalf("session member %v", m)
+	}
+	if m := got[1]; m["id"] != "mcp-plain" || m["name"] != nil || m["status"] != nil || m["mode"] != "async" || m["approver"] != "optional" || m["lastWokenAt"] != nil {
+		t.Fatalf("instance member %v", m)
+	}
+	for _, m := range h.ok("list_meetings", map[string]any{}, "")["meetings"].([]any) {
+		if m := m.(map[string]any); m["id"] == id && m["wakes"] != 3.0 {
+			t.Fatalf("meeting wakes %v", m["wakes"])
+		}
 	}
 }
