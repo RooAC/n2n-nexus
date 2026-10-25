@@ -110,8 +110,8 @@ func (c *Core) startMeeting(call api.Call, a startMeetingArgs) (any, error) {
 			return err
 		}
 		// The initiator takes part as an active member whose approval is required.
-		if _, err := tx.Exec(`INSERT INTO meeting_members (meeting_id, member_id, mode, approver, joined_at) VALUES (?, ?, 'active', 'required', ?)`,
-			id, who.ID, c.now()); err != nil {
+		if _, err := tx.Exec(`INSERT INTO meeting_members (meeting_id, member_id, identity_kind, mode, approver, joined_at) VALUES (?, ?, ?, 'active', 'required', ?)`,
+			id, who.ID, who.Kind, c.now()); err != nil {
 			return err
 		}
 		return c.recordEvent(tx, who.ID, "meeting.start", id, map[string]any{"topic": a.Topic})
@@ -415,10 +415,10 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 		if err != nil {
 			return err
 		}
-		var joinedAt string
+		var eligible bool
 		var leftAt sql.NullString
-		err = tx.QueryRow(`SELECT joined_at, left_at FROM meeting_members WHERE meeting_id = ? AND member_id = ?`,
-			a.MeetingID, who.ID).Scan(&joinedAt, &leftAt)
+		err = tx.QueryRow(`SELECT draft_eligible, left_at FROM meeting_members WHERE meeting_id = ? AND member_id = ?`,
+			a.MeetingID, who.ID).Scan(&eligible, &leftAt)
 		first := err == sql.ErrNoRows
 		if err != nil && !first {
 			return err
@@ -445,11 +445,13 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 		// that only changes how it takes part keeps what it was told and when it
 		// joined, while one that comes back after leaving joins anew.
 		if _, err := tx.Exec(`
-			INSERT INTO meeting_members (meeting_id, member_id, mode, approver, joined_at, notified_id) VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO meeting_members (meeting_id, member_id, identity_kind, mode, approver, joined_at, notified_id) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (meeting_id, member_id) DO UPDATE SET mode = excluded.mode, approver = excluded.approver,
+				identity_kind = excluded.identity_kind,
+				draft_eligible = CASE WHEN left_at IS NULL THEN draft_eligible ELSE 0 END,
 				notified_id = CASE WHEN left_at IS NULL THEN notified_id ELSE excluded.notified_id END,
 				joined_at = CASE WHEN left_at IS NULL THEN joined_at ELSE excluded.joined_at END, left_at = NULL`,
-			a.MeetingID, who.ID, a.Mode, a.Approver, c.now(), newest); err != nil {
+			a.MeetingID, who.ID, who.Kind, a.Mode, a.Approver, c.now(), newest); err != nil {
 			return err
 		}
 		if err := c.recordEvent(tx, who.ID, "meeting.join", a.MeetingID, map[string]any{"mode": a.Mode, "approver": a.Approver}); err != nil {
@@ -467,9 +469,9 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 			return err
 		}
 		switch {
-		case a.Approver == "optional" && listed:
+		case listed && (a.Approver == "optional" || who.Kind != api.IdentitySession):
 			_, err = tx.Exec(`DELETE FROM meeting_approvers WHERE meeting_id = ? AND member_id = ?`, a.MeetingID, who.ID)
-		case a.Approver == "required" && !listed && isSessionID(who.ID) && joinedAt <= d.timestamp:
+		case a.Approver == "required" && !listed && who.Kind == api.IdentitySession && eligible:
 			_, err = tx.Exec(`INSERT INTO meeting_approvers (meeting_id, member_id) VALUES (?, ?)`, a.MeetingID, who.ID)
 		default:
 			return nil
@@ -528,7 +530,7 @@ func (c *Core) leaveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if _, err := loadMeeting(tx, a.MeetingID); err != nil {
 			return err
 		}
-		n, err := exec(tx, `UPDATE meeting_members SET left_at = ? WHERE meeting_id = ? AND member_id = ? AND left_at IS NULL`,
+		n, err := exec(tx, `UPDATE meeting_members SET left_at = ?, draft_eligible = 0 WHERE meeting_id = ? AND member_id = ? AND left_at IS NULL`,
 			c.now(), a.MeetingID, who.ID)
 		if err != nil {
 			return err

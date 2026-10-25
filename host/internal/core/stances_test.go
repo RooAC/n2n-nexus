@@ -408,3 +408,71 @@ func TestRejoinedMemberStaysOffTheList(t *testing.T) {
 		t.Fatal("rejoined member put on the list")
 	}
 }
+
+func TestSessionLikeInstanceIDsDoNotApprove(t *testing.T) {
+	for _, instance := range []string{"codex:buildbot", "claude:buildbot"} {
+		t.Run(instance, func(t *testing.T) {
+			h := newHarnessWith(t, fakeIdentities{})
+			id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+			joined := h.ok("join_meeting", map[string]any{"meetingId": id}, instance)
+			if joined["identity"] != "instance" || joined["delivery"] != "unavailable" {
+				t.Fatalf("instance identity %v", joined)
+			}
+			h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+			h.ok("join_meeting", map[string]any{"meetingId": id, "approver": "optional"}, instance)
+			h.ok("join_meeting", map[string]any{"meetingId": id, "approver": "required"}, instance)
+			if got := h.listing(id).Proposal.Required; !slices.Equal(got, []string{"codex:a"}) {
+				t.Fatalf("instance added to approvers %v", got)
+			}
+			h.stanceAs("a", id, 1, "endorse", "")
+			res := h.ok("stance", map[string]any{"meetingId": id, "messageId": 1, "stance": "endorse"}, instance)
+			if res["counted"] != false || res["decided"] != false || h.listing(id).Status != "active" {
+				t.Fatalf("instance endorsement decided %v", res)
+			}
+		})
+	}
+}
+
+func TestInstanceCannotEndorseAsSameNamedSession(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+	h.stanceAs("a", id, 1, "endorse", "")
+	res := h.ok("stance", map[string]any{"meetingId": id, "messageId": 1, "stance": "endorse"}, "codex:b")
+	if res["counted"] != false || res["decided"] != false {
+		t.Fatalf("same-named instance counted %v", res)
+	}
+	// Only the resolved session's own endorsement can satisfy its required vote.
+	if res := h.stanceAs("b", id, 1, "endorse", ""); res["decided"] != true {
+		t.Fatalf("session endorsement not counted %v", res)
+	}
+}
+
+func TestDraftEligibilityUsesMembershipSnapshot(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("before", "join_meeting", map[string]any{"meetingId": id, "approver": "optional"})
+	h.as("rejoined", "join_meeting", map[string]any{"meetingId": id})
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+	// All calls have the same persisted millisecond. A later join and a rejoin
+	// cannot gain eligibility by repeating join or toggling approver.
+	h.as("late", "join_meeting", map[string]any{"meetingId": id})
+	h.as("rejoined", "leave_meeting", map[string]any{"meetingId": id})
+	h.as("rejoined", "join_meeting", map[string]any{"meetingId": id})
+	for _, session := range []string{"late", "rejoined"} {
+		h.as(session, "join_meeting", map[string]any{"meetingId": id})
+		h.as(session, "join_meeting", map[string]any{"meetingId": id, "approver": "optional"})
+		h.as(session, "join_meeting", map[string]any{"meetingId": id, "approver": "required"})
+	}
+	// A genuinely earlier optional member from that same millisecond may opt in.
+	h.as("before", "join_meeting", map[string]any{"meetingId": id, "approver": "required"})
+	if got := h.listing(id).Proposal.Required; !slices.Equal(got, []string{"codex:a", "codex:before"}) {
+		t.Fatalf("draft eligibility %v", got)
+	}
+	// A new draft takes a new snapshot, including the late and rejoined members.
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "next", "draft": true})
+	if got := h.listing(id).Proposal.Required; !slices.Equal(got, []string{"codex:a", "codex:before", "codex:rejoined", "codex:late"}) {
+		t.Fatalf("next draft eligibility %v", got)
+	}
+}

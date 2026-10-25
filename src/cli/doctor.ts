@@ -85,7 +85,7 @@ async function doctorHosts(endpoints: Set<string>): Promise<boolean> {
 
 /**
  * Check one client; prints the report and returns whether everything passed, or undefined when nothing is installed.
- * Adds the endpoints its hook commands use (`defaultEndpoint` for those without --endpoint) to `endpoints`.
+ * Adds the endpoints its hook and MCP commands use to `endpoints`, falling back to defaultEndpoint.
  */
 function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoint: string): boolean | undefined {
     const hooksFile = configFile(client);
@@ -129,6 +129,7 @@ function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoin
     if (!mcp) {
         report(`MCP server ${MCP_SERVER_NAME} in ${mcpFile}`, bad("not registered"));
     } else {
+        endpoints.add(mcp.endpoint === undefined ? defaultEndpoint : mcp.endpoint || LOCAL_ENDPOINT);
         report(`MCP Node ${mcp.command}`, checkNode(mcp.command));
         const [npx, ...rest] = mcp.args;
         if (npx && rest.join(" ") === `-y ${MCP_PACKAGE} mcp`) report(`MCP npx ${npx}`, checkEntry(npx));

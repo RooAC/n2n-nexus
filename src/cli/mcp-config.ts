@@ -19,7 +19,7 @@ export function mcpConfigFile(client: HookClient): string {
     return path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "config.toml");
 }
 
-export type McpCommand = { command: string; args: string[] };
+export type McpCommand = { command: string; args: string[]; endpoint?: string };
 
 /** The MCP server command the client has for n2n-nexus, or undefined when not registered. */
 export function readMcpCommand(client: HookClient, file: string): McpCommand | undefined {
@@ -38,20 +38,26 @@ export function readMcpCommand(client: HookClient, file: string): McpCommand | u
             throw new Error(`${file} is not valid JSON (${(error as Error).message}).`, { cause: error });
         }
         const servers = (parsed as { mcpServers?: Record<string, unknown> } | null)?.mcpServers;
-        const server = servers?.[MCP_SERVER_NAME] as { command?: unknown; args?: unknown } | undefined;
+        const server = servers?.[MCP_SERVER_NAME] as { command?: unknown; args?: unknown; env?: { NEXUS_ENDPOINT?: unknown } } | undefined;
         if (!server || typeof server.command !== "string") return undefined;
-        return { command: server.command, args: Array.isArray(server.args) ? server.args.map(String) : [] };
+        const endpoint = server.env?.NEXUS_ENDPOINT;
+        return { command: server.command, args: Array.isArray(server.args) ? server.args.map(String) : [],
+            ...(typeof endpoint === "string" ? { endpoint } : {}) };
     }
     // Codex: a TOML table [mcp_servers.n2n-nexus] (the key may be quoted) with command and args.
     const lines = text.split("\n");
-    const start = lines.findIndex((line) => new RegExp(`^\\s*\\[mcp_servers\\.(["']?)${MCP_SERVER_NAME}\\1\\]\\s*(?:#.*)?$`).test(line));
-    if (start === -1) return undefined;
-    const body: string[] = [];
-    for (const line of lines.slice(start + 1)) {
-        if (/^\s*\[/.test(line)) break;
-        body.push(line);
-    }
-    const table = body.join("\n");
+    const readTable = (suffix = ""): string | undefined => {
+        const start = lines.findIndex((line) => new RegExp(`^\\s*\\[mcp_servers\\.(["']?)${MCP_SERVER_NAME}\\1${suffix}\\]\\s*(?:#.*)?$`).test(line));
+        if (start === -1) return undefined;
+        const body: string[] = [];
+        for (const line of lines.slice(start + 1)) {
+            if (/^\s*\[/.test(line)) break;
+            body.push(line);
+        }
+        return body.join("\n");
+    };
+    const table = readTable();
+    if (table === undefined) return undefined;
     const value = String.raw`"(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'`;
     const decode = (s: string): string => s.startsWith("'") ? s.slice(1, -1) : JSON.parse(s) as string;
     const command = new RegExp(`^\\s*command\\s*=\\s*(${value})`, "m").exec(table);
@@ -60,5 +66,18 @@ export function readMcpCommand(client: HookClient, file: string): McpCommand | u
     const array = new RegExp(`^\\s*args\\s*=\\s*\\[((?:${value}|#[^\\n]*|[^\\]"'#])*)\\]`, "m").exec(table);
     const args = array ? [...array[1].matchAll(new RegExp(`(${value})|#[^\\n]*`, "g"))]
         .filter((m) => m[1] !== undefined).map((m) => decode(m[1])) : [];
-    return { command: decode(command[1]), args };
+    const endpointKey = `(?:NEXUS_ENDPOINT|"NEXUS_ENDPOINT"|'NEXUS_ENDPOINT')`;
+    const envTable = readTable(String.raw`\.(?:env|"env"|'env')`);
+    let endpoint = envTable === undefined ? undefined : new RegExp(`^\\s*${endpointKey}\\s*=\\s*(${value})`, "m").exec(envTable)?.[1];
+    endpoint ??= new RegExp(`^\\s*env\\.${endpointKey}\\s*=\\s*(${value})`, "m").exec(table)?.[1];
+    if (endpoint === undefined) {
+        const inline = new RegExp(`^\\s*env\\s*=\\s*\\{((?:${value}|#[^\\n]*|[^}"'#])*)\\}`, "m").exec(table)?.[1];
+        if (inline !== undefined) {
+            // Consume complete key/value pairs: endpoint-looking text inside another value is not a setting.
+            for (const entry of inline.matchAll(new RegExp(`(${value}|[A-Za-z0-9_-]+)\\s*=\\s*(${value})|#[^\\n]*`, "g"))) {
+                if (entry[1] && (entry[1] === "NEXUS_ENDPOINT" || /^["']/.test(entry[1]) && decode(entry[1]) === "NEXUS_ENDPOINT")) endpoint = entry[2];
+            }
+        }
+    }
+    return { command: decode(command[1]), args, ...(endpoint === undefined ? {} : { endpoint: decode(endpoint) }) };
 }

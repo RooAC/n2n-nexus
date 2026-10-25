@@ -2559,7 +2559,7 @@
     {
       "name": "leave_meeting",
       "title": "Leave Meeting",
-      "description": "Leave a meeting: you are no longer notified about it and your approval is no longer counted. join_meeting joins again; reopen_meeting does not.",
+      "description": "Leave a meeting: its new messages no longer notify or wake you and your approval is no longer counted. Notices about stances on your proposals remain available at your next normal hook, but do not wake you after leaving. join_meeting joins again; reopen_meeting does not.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,

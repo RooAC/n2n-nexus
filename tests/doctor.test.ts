@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -10,6 +10,9 @@ import { HOOK, Host } from "./conformance/harness.js";
 
 import { npxFor } from "../src/cli/install.js";
 import { readMcpCommand } from "../src/cli/mcp-config.js";
+import { runDoctor } from "../src/cli/doctor.js";
+import { NexusClient, NexusTransportError } from "../src/client/nexus-client.js";
+import { LOCAL_ENDPOINT } from "../src/client/discovery.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -64,7 +67,7 @@ async function fakeHealth(health: Record<string, unknown>): Promise<{ endpoint: 
 
 const hookCommand = (client: string, node = NODE, entry = ENTRY) => `"${node}" "${entry}" hook ${client}`;
 
-function writeClaude(command: string, mcp?: { command: string; args: string[] }): void {
+function writeClaude(command: string, mcp?: { command: string; args: string[]; env?: Record<string, string> }): void {
     fs.mkdirSync(claudeDir, { recursive: true });
     fs.writeFileSync(path.join(claudeDir, "settings.json"), JSON.stringify({
         hooks: {
@@ -77,7 +80,7 @@ function writeClaude(command: string, mcp?: { command: string; args: string[] })
     }
 }
 
-function writeCodex(command: string, mcp?: { command: string; args: string[] }): void {
+function writeCodex(command: string, mcp?: { command: string; args: string[]; env?: Record<string, string> }): void {
     fs.mkdirSync(codexHome, { recursive: true });
     fs.writeFileSync(path.join(codexHome, "hooks.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command, timeout: 600 }] }] } }));
     if (mcp) {
@@ -90,6 +93,7 @@ function writeCodex(command: string, mcp?: { command: string; args: string[] }):
             '[mcp_servers."n2n-nexus"]',
             `command = ${JSON.stringify(mcp.command)}`,
             `args = [${mcp.args.map((a) => JSON.stringify(a)).join(", ")}]`,
+            ...(mcp.env ? ['[mcp_servers."n2n-nexus".env]', ...Object.entries(mcp.env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`)] : []),
             "",
             "[projects]",
             'command = "not-ours"',
@@ -307,6 +311,42 @@ describe("doctor", () => {
         expect(result.stdout).toContain("n2n-nexus-host serve");
     });
 
+    it.each(["claude", "codex"] as const)("checks %s's MCP endpoint independently of healthy hooks", async (client) => {
+        const probe = http.createServer();
+        await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+        const closed = `http://127.0.0.1:${(probe.address() as AddressInfo).port}`;
+        await new Promise<void>((resolve) => probe.close(() => resolve()));
+        const write = client === "claude" ? writeClaude : writeCodex;
+        write(`${hookCommand(client)} --endpoint ${hostEndpoint}`, {
+            command: NODE, args: MCP_ARGS, env: { NEXUS_ENDPOINT: closed }
+        });
+        const result = await run([client]);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain(hostOk());
+        expect(result.stdout).toContain(`host ${closed}\n  FAIL not reachable`);
+
+        write(hookCommand(client), { command: NODE, args: MCP_ARGS, env: { NEXUS_ENDPOINT: hostEndpoint } });
+        expect((await run([client])).code).toBe(0);
+    });
+
+    it("checks the local endpoint when the MCP registration explicitly clears the inherited endpoint", async () => {
+        writeClaude(hookCommand("claude"), { command: NODE, args: MCP_ARGS, env: { NEXUS_ENDPOINT: "" } });
+        vi.stubEnv("CLAUDE_CONFIG_DIR", claudeDir);
+        vi.stubEnv("NEXUS_ENDPOINT", hostEndpoint);
+        // No request reaches the user's default host; only endpoint selection is under test.
+        vi.spyOn(NexusClient.prototype, "health")
+            .mockResolvedValueOnce({ service: "n2n-nexus", version: hostVersion, contractVersion: HOOK.contractVersion })
+            .mockRejectedValueOnce(new NexusTransportError("offline", "ECONNREFUSED"));
+        const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+        try {
+            expect(await runDoctor(["claude"])).toBe(1);
+            expect(stdout.mock.calls.map(([text]) => text).join("")).toContain(`host ${LOCAL_ENDPOINT}\n  FAIL not reachable`);
+        } finally {
+            vi.restoreAllMocks();
+            vi.unstubAllEnvs();
+        }
+    });
+
     it("fails when the endpoint is not an n2n-nexus host or speaks another contract version", async () => {
         const stranger = await fakeHealth({ ok: true, service: "something-else", version: "1.0.0" });
         const newer = await fakeHealth({ ok: true, service: "n2n-nexus", version: "2.0.0", contractVersion: HOOK.contractVersion + 1 });
@@ -327,7 +367,7 @@ describe("doctor", () => {
     it("readMcpCommand parses the Claude JSON and the Codex TOML forms", async () => {
         const toml = path.join(dir, "config.toml");
         fs.writeFileSync(toml, '[mcp_servers.n2n-nexus]\ncommand = "/a b/node"\nargs = ["/a b/index.js", "mcp"]\nenv = { NEXUS_ENDPOINT = "http://127.0.0.1:5799" }\n');
-        expect(readMcpCommand("codex", toml)).toEqual({ command: "/a b/node", args: ["/a b/index.js", "mcp"] });
+        expect(readMcpCommand("codex", toml)).toEqual({ command: "/a b/node", args: ["/a b/index.js", "mcp"], endpoint: "http://127.0.0.1:5799" });
         fs.writeFileSync(toml, '[mcp_servers.other]\ncommand = "/x"\n');
         expect(readMcpCommand("codex", toml)).toBeUndefined();
         expect(readMcpCommand("codex", path.join(dir, "none.toml"))).toBeUndefined();

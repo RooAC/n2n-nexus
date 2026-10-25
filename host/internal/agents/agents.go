@@ -234,8 +234,12 @@ func (a *Agents) wake(ids ...string) {
 func (a *Agents) startWait(w *waiter) {
 	w.done = make(chan struct{})
 	a.waiters[w.session] = append(a.waiters[w.session], w)
-	if a.closed || (a.request != nil && a.request.Err() != nil) {
+	if a.request != nil && a.request.Err() != nil {
 		w.onAbort()
+		return
+	}
+	if a.closed {
+		w.onTimeout()
 		return
 	}
 	w.check()
@@ -277,7 +281,7 @@ func (a *Agents) await(ctx context.Context, w *waiter) map[string]any {
 	case <-ctx.Done():
 		end = w.onAbort
 	case <-a.closing:
-		end = w.onAbort
+		end = w.onTimeout
 	}
 	if end != nil {
 		a.mu.Lock()

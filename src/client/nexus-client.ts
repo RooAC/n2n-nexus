@@ -74,7 +74,7 @@ export class NexusClient {
                 (res) => {
                     let data = "";
                     res.setEncoding("utf8");
-                    const interrupted = () => reject(new NexusTransportError("Response from n2n-nexus-host ended before completion"));
+                    const interrupted = () => reject(new NexusTransportError("Response from n2n-nexus-host ended before completion", "ECONNRESET"));
                     res.on("aborted", interrupted);
                     res.on("error", (error) => reject(new NexusTransportError(error.message)));
                     res.on("close", () => { if (!res.complete) interrupted(); });

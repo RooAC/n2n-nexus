@@ -12,6 +12,7 @@ import dgram from "node:dgram";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isIPv6 } from "node:net";
 
 /** Endpoint value that turns discovery on (NEXUS_ENDPOINT or --endpoint). */
 export const DISCOVER_ENDPOINT = "discover";
@@ -55,7 +56,13 @@ export function discoverEndpoint(udpPort = discoveryPort(), waitMs = DISCOVERY_W
     // listens on all interfaces, else the one address it is bound to.
     const own = new Set(lanInterfaces().map((a) => a.address));
     const address = (rinfo: dgram.RemoteInfo, reply: Partial<DiscoveryReply>) => {
-        if (!own.has(rinfo.address) && !rinfo.address.startsWith("127.")) return rinfo.address;
+        const local = own.has(rinfo.address) || rinfo.address.startsWith("127.");
+        if (typeof reply.host === "string" && isIPv6(reply.host)) {
+            const host = new URL(`http://[${reply.host}]`).hostname;
+            // The IPv4 discovery source cannot identify an IPv6-only listener on another machine.
+            return host === "[::]" ? (local ? "[::1]" : null) : host;
+        }
+        if (!local) return rinfo.address;
         return typeof reply.host === "string" && !ALL_INTERFACES.has(reply.host) ? reply.host : "127.0.0.1";
     };
     return new Promise((resolve) => {
@@ -74,7 +81,8 @@ export function discoverEndpoint(udpPort = discoveryPort(), waitMs = DISCOVERY_W
             try {
                 const reply = JSON.parse(msg.toString("utf8")) as Partial<DiscoveryReply>;
                 if (reply.service === "n2n-nexus" && Number.isInteger(reply.port) && reply.port! > 0) {
-                    finish(`http://${address(rinfo, reply)}:${reply.port}`);
+                    const host = address(rinfo, reply);
+                    if (host !== null) finish(`http://${host}:${reply.port}`);
                 }
             } catch { /* not a discovery reply */ }
         });

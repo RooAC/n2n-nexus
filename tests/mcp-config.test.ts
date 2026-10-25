@@ -13,6 +13,22 @@ afterAll(() => {
 });
 
 describe("readMcpCommand Codex TOML", () => {
+    it.each([
+        `env = { NEXUS_ENDPOINT = "http://127.0.0.1:5799" }`,
+        `[mcp_servers.'n2n-nexus'.env]\nNEXUS_ENDPOINT = 'http://127.0.0.1:5799'`,
+        `env.NEXUS_ENDPOINT = "http://127.0.0.1:5799"`
+    ])("reads the MCP endpoint from %s", (env) => {
+        fs.writeFileSync(file, `[mcp_servers.n2n-nexus]\ncommand = "/node"\nargs = ["/npx", "mcp"]\n${env}\n[mcp_servers.other.env]\nNEXUS_ENDPOINT = "http://wrong:1"\n`);
+        expect(readMcpCommand("codex", file)).toEqual({
+            command: "/node", args: ["/npx", "mcp"], endpoint: "http://127.0.0.1:5799"
+        });
+    });
+
+    it("ignores endpoint-looking text inside other environment values", () => {
+        fs.writeFileSync(file, `[mcp_servers.n2n-nexus]\ncommand = "/node"\nargs = []\nenv = { NOTE = 'NEXUS_ENDPOINT = "http://wrong:1"', 'NEXUS_ENDPOINT' = "http://[::1]:5799" }\n`);
+        expect(readMcpCommand("codex", file)?.endpoint).toBe("http://[::1]:5799");
+    });
+
     it("reads Windows literal strings without interpreting backslashes", () => {
         fs.writeFileSync(file, String.raw`[mcp_servers.n2n-nexus]
 command = 'C:\Program Files\nodejs\node.exe'

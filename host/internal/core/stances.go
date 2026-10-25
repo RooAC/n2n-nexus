@@ -16,21 +16,20 @@ func isSessionID(id string) bool {
 	return strings.HasPrefix(id, "claude:") || strings.HasPrefix(id, "codex:")
 }
 
-// draftRow is a meeting's current draft: its table id, number, author, text and time.
+// draftRow is a meeting's current draft and its approver-list version.
 type draftRow struct {
-	row, seq  int64
-	author    string
-	text      string
-	timestamp string
-	version   int64
+	row, seq int64
+	author   string
+	text     string
+	version  int64
 }
 
 // currentDraft is the meeting's current draft; ok is false when it has none.
 func currentDraft(tx *sql.Tx, meetingID string) (d draftRow, ok bool, err error) {
 	err = tx.QueryRow(`
-		SELECT m.id, m.seq, m.sender, m.text, m.timestamp, mt.approvers_version
+		SELECT m.id, m.seq, m.sender, m.text, mt.approvers_version
 		FROM meetings mt JOIN meeting_messages m ON m.id = mt.current_proposal_id
-		WHERE mt.id = ?`, meetingID).Scan(&d.row, &d.seq, &d.author, &d.text, &d.timestamp, &d.version)
+		WHERE mt.id = ?`, meetingID).Scan(&d.row, &d.seq, &d.author, &d.text, &d.version)
 	if err == sql.ErrNoRows {
 		return d, false, nil
 	}
@@ -65,19 +64,15 @@ func publishDraft(tx *sql.Tx, meetingID string, row int64) error {
 	if _, err := tx.Exec(`DELETE FROM meeting_approvers WHERE meeting_id = ?`, meetingID); err != nil {
 		return err
 	}
-	members, err := loadMembers(tx, meetingID)
-	if err != nil {
+	// Freeze who was present when this draft was published, including optional
+	// approvers that may opt in later. Wall-clock timestamps cannot order joins.
+	if _, err := tx.Exec(`UPDATE meeting_members SET draft_eligible = (left_at IS NULL AND identity_kind = 'session') WHERE meeting_id = ?`, meetingID); err != nil {
 		return err
 	}
-	for _, m := range members {
-		if m.Approver != "required" || !isSessionID(m.ID) {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT INTO meeting_approvers (meeting_id, member_id) VALUES (?, ?)`, meetingID, m.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := tx.Exec(`INSERT INTO meeting_approvers (meeting_id, member_id)
+		SELECT meeting_id, member_id FROM meeting_members
+		WHERE meeting_id = ? AND draft_eligible = 1 AND approver = 'required' ORDER BY joined_at, rowid`, meetingID)
+	return err
 }
 
 type objection struct {
@@ -167,20 +162,20 @@ func (c *Core) decideByConsensus(tx *sql.Tx, meetingID, byID string) (bool, erro
 	if err != nil || len(required) < 2 {
 		return false, err
 	}
-	rows, err := tx.Query(`SELECT member_id, stance FROM meeting_stances WHERE meeting_id = ? AND message_id = ?`, meetingID, d.row)
+	rows, err := tx.Query(`SELECT member_id, stance, identity_kind FROM meeting_stances WHERE meeting_id = ? AND message_id = ?`, meetingID, d.row)
 	if err != nil {
 		return false, err
 	}
 	endorsed := map[string]bool{}
 	objected := false
 	for rows.Next() {
-		var id, stance string
-		if err := rows.Scan(&id, &stance); err != nil {
+		var id, stance, kind string
+		if err := rows.Scan(&id, &stance, &kind); err != nil {
 			rows.Close()
 			return false, err
 		}
 		// Any objection blocks, an instance's too; only listed sessions' endorsements count.
-		endorsed[id] = stance == "endorse"
+		endorsed[id] = stance == "endorse" && kind == api.IdentitySession
 		objected = objected || stance == "object"
 	}
 	rows.Close()
@@ -304,9 +299,9 @@ func (c *Core) stance(call api.Call, a stanceArgs) (any, error) {
 			}
 		default:
 			if _, err := tx.Exec(`
-				INSERT INTO meeting_stances (meeting_id, message_id, member_id, stance, note, at) VALUES (?, ?, ?, ?, ?, ?)
-				ON CONFLICT (meeting_id, message_id, member_id) DO UPDATE SET stance = excluded.stance, note = excluded.note, at = excluded.at`,
-				a.MeetingID, row, who.ID, a.Stance, nullString(note), c.now()); err != nil {
+				INSERT INTO meeting_stances (meeting_id, message_id, member_id, identity_kind, stance, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT (meeting_id, message_id, member_id) DO UPDATE SET identity_kind = excluded.identity_kind, stance = excluded.stance, note = excluded.note, at = excluded.at`,
+				a.MeetingID, row, who.ID, who.Kind, a.Stance, nullString(note), c.now()); err != nil {
 				return err
 			}
 		}

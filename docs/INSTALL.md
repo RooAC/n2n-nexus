@@ -130,9 +130,11 @@ With `discover`, the adapter and the hooks broadcast a query on UDP `NEXUS_DISCO
 
 On macOS the first connection may trigger a **Local Network** permission prompt for the app that runs the client (Claude, Terminal, VS Code). Allow it; otherwise the client cannot reach the host (**System Settings → Privacy & Security → Local Network**).
 
+IPv6 discovery keeps the HTTP address family: a host bound to `::` on this machine resolves to `[::1]`, and a concrete IPv6 bind address is used as advertised. An IPv4 UDP reply from another machine cannot identify that machine's IPv6 wildcard address (`::`); configure a concrete reachable IPv6 bind address or an explicit `http://[IPv6]:port` endpoint for that case.
+
 ## 7. Check the installation
 
-`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook commands, and the Node path and npx in the MCP command, still exist and run, that Codex trusts the Codex hooks (asking Codex itself), and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails.
+`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook commands, and the Node path and npx in the MCP command, still exist and run, that Codex trusts the Codex hooks (asking Codex itself), and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails. It checks both the hooks' endpoints and the MCP registration's `env.NEXUS_ENDPOINT`; one healthy endpoint cannot hide a failure at the other.
 
 ## 8. Upgrading
 

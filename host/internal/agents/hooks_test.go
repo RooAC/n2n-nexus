@@ -669,7 +669,7 @@ func TestCloseEndsHeldWaits(t *testing.T) {
 	if out := listening.wait(t); out != nil {
 		t.Fatal(out)
 	}
-	if out := background.wait(t); out != nil {
+	if out := background.wait(t); out["timeout"] != true {
 		t.Fatal(out)
 	}
 	if time.Since(started) > time.Second {
@@ -677,7 +677,7 @@ func TestCloseEndsHeldWaits(t *testing.T) {
 	}
 	// A wait asked for after Close ends at once.
 	started = time.Now()
-	if out := h.hook("codex", texts0BackgroundWait(), "bw"); out != nil {
+	if out := h.hook("codex", texts0BackgroundWait(), "bw"); out["timeout"] != true {
 		t.Fatal(out)
 	}
 	if time.Since(started) > time.Second {

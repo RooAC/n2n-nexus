@@ -96,23 +96,22 @@ type memberState struct {
 	wokenAt   sql.NullString
 }
 
-// countMeetingWakes counts a wake (or a held Stop) of the session for each
-// meeting it took part in actively in news; it returns the states before (mu held).
+// countMeetingWakes counts active meeting wakes and saves every announced
+// meeting's state, including async news carried with another wake (mu held).
 func (a *Agents) countMeetingWakes(sessionID string, news []meetingNews) ([]memberState, error) {
 	var before []memberState
 	now := a.iso(a.o.Clock.Now())
 	for _, n := range news {
-		if !n.active {
-			continue
-		}
 		s := memberState{meetingID: n.meetingID}
 		if err := a.db().QueryRowContext(bg, "SELECT notified_id, wakes, last_woken_at FROM meeting_members WHERE meeting_id = ? AND member_id = ?",
 			n.meetingID, sessionID).Scan(&s.notified, &s.wakes, &s.wokenAt); err != nil {
 			return nil, err
 		}
-		if _, err := a.db().ExecContext(bg, "UPDATE meeting_members SET wakes = wakes + 1, last_woken_at = ? WHERE meeting_id = ? AND member_id = ?",
-			now, n.meetingID, sessionID); err != nil {
-			return nil, err
+		if n.active {
+			if _, err := a.db().ExecContext(bg, "UPDATE meeting_members SET wakes = wakes + 1, last_woken_at = ? WHERE meeting_id = ? AND member_id = ?",
+				now, n.meetingID, sessionID); err != nil {
+				return nil, err
+			}
 		}
 		before = append(before, s)
 	}

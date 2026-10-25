@@ -95,8 +95,10 @@ turn ends ──▶ Stop hook (announces unread, or listens)
                                      │     Codex: detached process runs `codex queue --thread <id> --message <notification>`,
                                      │       then reports POST /api/hook {WakeResult, dispatch_id, ok}
                                      ├─ any other event of the session ─▶ null (wait ends)
-                                     └─ time runs out ─▶ { timeout: true } (ask again)
+                                     └─ time runs out or host shuts down ─▶ { timeout: true } (ask again)
 ```
+
+The background wait retries temporary connection failures within its original one-hour deadline; with `discover`, it looks up the host again. A normal cancellation (`output: null`) still ends the wait. Host and client must both include this recovery behavior for graceful host restarts to resume waiting.
 
 The wait never delivers while the session is `working` or while a listening Stop hook is waiting, so a message is announced once. When `codex queue` fails (an error or a non-zero exit), the Codex wait reports `ok: false` and the host undoes that wake: the messages and notices it announced count as not announced again, the session leaves `working` and the automatic turn is not counted; the wait then asks again after 1 s, doubling after each failure up to 5 minutes, and delivers them again. Any other event of the session before the report means the wake was delivered, and the report is ignored. Verified on Windows with the Claude desktop app and the Codex desktop app (2026-10-23): both directions wake an idle conversation within seconds. Known limits:
 
@@ -117,6 +119,8 @@ All data lives in one SQLite file, `nexus.db`, in the host's data directory, nex
 - **Transactions**: every write is one transaction, so a multi-row change (a meeting message, starting / ending / reopening a meeting, renaming a project) is applied completely or not at all. The database runs in WAL mode with `foreign_keys` on and a 5 s busy timeout, through a single connection.
 - **Only the host opens the database**. MCP adapters and hooks go through HTTP.
 - **Activity log**: state changes made through tools (project sync/update/rename/delete/asset, doc sync, strategy update, meeting start/end/archive/reopen, maintenance) are recorded as structured events and read with `list_events`; they are not mixed into chat streams.
+
+Meeting members and stances store their resolved identity kind; draft eligibility is captured in the publishing transaction. Migration `0009` backfills legacy identities by exact matches with registered sessions and corrects active drafts' instance approvers without changing settled meeting lists. For a legacy optional member whose join and draft share a millisecond, the old data cannot establish their order: existing required approvers keep eligibility, but an unlisted member cannot opt into that draft and becomes eligible when a new draft is published.
 
 ### Maintenance and retention
 
@@ -180,7 +184,7 @@ host/
 
 The Go module is `github.com/n2ns/n2n-nexus` at the repository root, so the host embeds `contract/` directly. A tool exists only if it is in `contract/tools.json`; the host registers one handler per tool and logs any tool without a handler at startup.
 
-**Conversation state machine**: `agents.Agents` is the in-process coordinator of one host. It holds all in-memory conversation state — held listening Stops, background waits, automatic-turn counts, wake times — behind one mutex; every hook and direct-message tool call runs under it, and whoever stores a message or notice delivers it to a waiting hook before releasing the lock. At startup it resets sessions a previous host left `listening` to `idle`. Shutting down answers every held hook (`{ "output": null }`) before the server closes. Time comes from a `Clock`: the system clock in release builds, a clock the conformance tests set through `POST /test/clock` in the `testclock` build.
+**Conversation state machine**: `agents.Agents` is the in-process coordinator of one host. It holds all in-memory conversation state — held listening Stops, background waits, automatic-turn counts, wake times — behind one mutex; every hook and direct-message tool call runs under it, and whoever stores a message or notice delivers it to a waiting hook before releasing the lock. At startup it resets sessions a previous host left `listening` to `idle`. Shutting down answers held background waits with `{ "output": { "timeout": true } }` so they reconnect, and held listening Stops with `{ "output": null }`, before the server closes. Time comes from a `Clock`: the system clock in release builds, a clock the conformance tests set through `POST /test/clock` in the `testclock` build.
 
 **Discovery**: a host whose `host` is not a loopback address answers `n2n-nexus/discover` datagrams on UDP `discoveryPort` with `{"service":"n2n-nexus","version","host","port"}`. Clients with `NEXUS_ENDPOINT=discover` broadcast the query on `NEXUS_DISCOVERY_PORT`, use the first answer and cache it in `~/.n2n-nexus/discovered-endpoint`.
 

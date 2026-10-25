@@ -45,6 +45,7 @@ describe("NexusClient HTTP transport", () => {
                 new Promise((resolve) => { deadline = setTimeout(() => resolve("still pending"), 500); })
             ]);
             expect(result).toBeInstanceOf(NexusTransportError);
+            expect(result).toMatchObject({ code: "ECONNRESET" });
             await expect(client.fetchTools()).resolves.toEqual([]);
         } finally {
             clearTimeout(deadline);

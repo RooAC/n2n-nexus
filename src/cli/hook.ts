@@ -93,20 +93,38 @@ async function forward(argv: string[]): Promise<string> {
 const WAIT_DEADLINE_MS = (WAIT_HOOK_TIMEOUT_SEC - 10) * 1000;
 
 /** A wake from the host: the notification text and the id its delivery is reported under. */
-type Wake = { text: string; dispatchId: string };
+type Wake = { text: string; dispatchId: string; endpoint: string };
+
+const WAIT_RETRY_CODES = new Set([...UNREACHABLE_CODES, "ECONNRESET", "EPIPE", "ENOTFOUND", "EAI_AGAIN", REQUEST_TIMEOUT_CODE]);
 
 /**
  * Ask the daemon until something arrives for the session (the wake), the
  * session becomes active again or the deadline passes (null).
  */
-export async function waitForWake(client: HookClient, sessionId: string, endpoint: string, deadlineMs = WAIT_DEADLINE_MS): Promise<Wake | null> {
-    const nexus = new NexusClient({ endpoint });
-    // Start a request only if it can run to its own timeout before the deadline.
-    const deadline = Date.now() + deadlineMs - HOOK_STOP_REQUEST_TIMEOUT_MS;
+export async function waitForWake(client: HookClient, sessionId: string, configured: string, deadlineMs = WAIT_DEADLINE_MS): Promise<Wake | null> {
+    const deadline = Date.now() + deadlineMs;
+    let endpoint = await resolveEndpoint(configured);
+    let delay = WAKE_RETRY_FIRST_DELAY_MS;
+    let fresh = false;
     while (Date.now() < deadline) {
-        const response = await nexus.hook({ client, input: { hook_event_name: BACKGROUND_WAIT_EVENT, session_id: sessionId } }, HOOK_STOP_REQUEST_TIMEOUT_MS);
+        if (fresh) endpoint = await resolveEndpoint(configured, { fresh: true });
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return null;
+        let response: HookResponse;
+        try {
+            response = await new NexusClient({ endpoint }).hook({ client, input: { hook_event_name: BACKGROUND_WAIT_EVENT, session_id: sessionId } }, Math.min(HOOK_STOP_REQUEST_TIMEOUT_MS, remaining));
+        } catch (error) {
+            if (!(error instanceof NexusTransportError) || !WAIT_RETRY_CODES.has(error.code ?? "")) throw error;
+            if (Date.now() + delay >= deadline) return null;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            delay = Math.min(delay * 2, WAKE_RETRY_MAX_DELAY_MS);
+            fresh = true;
+            continue;
+        }
+        fresh = false;
+        delay = WAKE_RETRY_FIRST_DELAY_MS;
         const output = isPlainObject(response) ? response.output : null;
-        if (isPlainObject(output) && typeof output.wake === "string" && typeof output.dispatchId === "string") return { text: output.wake, dispatchId: output.dispatchId };
+        if (isPlainObject(output) && typeof output.wake === "string" && typeof output.dispatchId === "string") return { text: output.wake, dispatchId: output.dispatchId, endpoint };
         if (!(isPlainObject(output) && output.timeout === true)) return null;
     }
     return null;
@@ -144,10 +162,9 @@ async function runWait(argv: string[]): Promise<number> {
     // Load what a wake needs before waiting: the wait lasts up to an hour, and an
     // upgrade or a cleared npx cache may remove the package's files meanwhile.
     const { spawnClientSync } = client === "codex" ? await import("./client-command.js") : { spawnClientSync: undefined };
-    const endpoint = await resolveEndpoint(configured);
     const deadline = Date.now() + WAIT_DEADLINE_MS;
     for (let delay = WAKE_RETRY_FIRST_DELAY_MS; ; delay = Math.min(delay * 2, WAKE_RETRY_MAX_DELAY_MS)) {
-        const wake = await waitForWake(client, sessionId, endpoint, deadline - Date.now());
+        const wake = await waitForWake(client, sessionId, configured, deadline - Date.now());
         if (wake === null) return 0;
         if (!spawnClientSync) {
             await new Promise<void>((resolve) => process.stderr.write(wake.text + "\n", () => resolve()));
@@ -157,7 +174,7 @@ async function runWait(argv: string[]): Promise<number> {
         const queued = spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", wake.text], { stdio: "ignore", windowsHide: true });
         const ok = !queued.error && queued.status === 0;
         const input = { hook_event_name: WAKE_RESULT_EVENT, session_id: sessionId, dispatch_id: wake.dispatchId, ok };
-        const reported = await new NexusClient({ endpoint }).hook({ client, input }, HOOK_REQUEST_TIMEOUT_MS).then(() => true, () => false);
+        const reported = await new NexusClient({ endpoint: wake.endpoint }).hook({ client, input }, HOOK_REQUEST_TIMEOUT_MS).then(() => true, () => false);
         // Unknown result (no report): the host keeps the wake, and waiting again would deliver nothing.
         if (ok || !reported || Date.now() + delay >= deadline) return 0;
         await new Promise((resolve) => setTimeout(resolve, delay));

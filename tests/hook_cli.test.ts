@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -7,6 +7,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { MAX_TITLE_CHARS } from "../src/contract.js";
+import { waitForWake } from "../src/cli/hook.js";
+import { NexusClient, NexusToolError, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../src/client/nexus-client.js";
 
 // Tests the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -37,6 +39,7 @@ function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}, cwd
 type FakeDaemon = {
     endpoint: string;
     requests: Array<{ url: string; body: unknown }>;
+    activeConnections: () => number;
     respond: (body: Record<string, unknown>) => { delayMs?: number; raw: string };
     close: () => Promise<void>;
 };
@@ -59,6 +62,7 @@ async function startFakeDaemon(): Promise<FakeDaemon> {
         });
     });
     server.on("connection", (socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+    fake.activeConnections = () => sockets.size;
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     fake.endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     fake.close = () => new Promise<void>((resolve) => {
@@ -287,6 +291,40 @@ describe("n2n-nexus hook, conversation title", () => {
     });
 });
 
+describe("waitForWake recovery", () => {
+    const endpoint = "http://127.0.0.1:5799";
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+    it.each(["ECONNREFUSED", "ECONNRESET", REQUEST_TIMEOUT_CODE])("resumes the same wait after %s", async (code) => {
+        const hook = vi.spyOn(NexusClient.prototype, "hook")
+            .mockRejectedValueOnce(new NexusTransportError("host restarting", code))
+            .mockResolvedValueOnce({ output: { wake: "hello after restart", dispatchId: "d1" } });
+        const result = expect(waitForWake("codex", "s", endpoint, 600_000)).resolves.toMatchObject({ text: "hello after restart", dispatchId: "d1", endpoint });
+        await Promise.all([result, vi.advanceTimersByTimeAsync(1000)]);
+        expect(hook).toHaveBeenCalledTimes(2);
+    });
+
+    it("ends retries at the original deadline", async () => {
+        const hook = vi.spyOn(NexusClient.prototype, "hook").mockRejectedValue(new NexusTransportError("offline", "ECONNREFUSED"));
+        const result = expect(waitForWake("codex", "s", endpoint, 2500)).resolves.toBeNull();
+        await Promise.all([result, vi.advanceTimersByTimeAsync(2500)]);
+        expect(hook).toHaveBeenCalledTimes(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("keeps session cancellation and invalid replies terminal", async () => {
+        const hook = vi.spyOn(NexusClient.prototype, "hook").mockResolvedValueOnce({ output: null });
+        await expect(waitForWake("codex", "s", endpoint, 600_000)).resolves.toBeNull();
+        for (const error of [new NexusToolError("not allowed", 403), new NexusTransportError("Invalid JSON response")]) {
+            hook.mockRejectedValueOnce(error);
+            await expect(waitForWake("codex", "s", endpoint, 600_000)).rejects.toBe(error);
+        }
+        expect(hook).toHaveBeenCalledTimes(3);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+});
+
 describe("n2n-nexus hook --wait", () => {
     let fake: FakeDaemon;
     beforeEach(async () => { fake = await startFakeDaemon(); });
@@ -323,6 +361,8 @@ describe("n2n-nexus hook --wait", () => {
         expect(await waitFor(() => fake.requests.length === 1, 5000)).toBe(true);
         expect(fake.requests[0]).toEqual(waitRequest("c1"));
         expect(result.ms).toBeLessThan(3000);
+        // Let the detached process receive null and exit before teardown closes its connection.
+        expect(await waitFor(() => fake.activeConnections() === 0, 5000)).toBe(true);
     });
 
     const wakeResult = (ok: boolean) => ({ url: "/api/hook", body: { client: "codex", input: { hook_event_name: "WakeResult", session_id: "c1", dispatch_id: "d7", ok } } });

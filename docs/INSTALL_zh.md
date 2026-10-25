@@ -130,9 +130,11 @@ host 默认只监听 `127.0.0.1`。要让它成为可信网络里其他机器的
 
 macOS 上第一次连接时，系统可能会为运行客户端的应用（Claude、终端、VS Code）弹出**本地网络**权限提示。请允许；否则客户端连不上 host（**系统设置 → 隐私与安全性 → 本地网络**）。
 
+IPv6 发现会保持 HTTP 的地址族：本机监听 `::` 时使用 `[::1]`，具体 IPv6 监听地址则按应答中的地址连接。另一台机器的 IPv4 UDP 应答无法确定它的 IPv6 通配监听地址（`::`）；这种情况请配置具体可达的 IPv6 监听地址，或显式指定 `http://[IPv6]:端口`。
+
 ## 7. 检查安装
 
-`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令里的 Node 路径与入口脚本、MCP 命令里的 Node 路径与 npx 是否仍然存在、能否运行，Codex 是否信任 Codex 的 hooks（直接问 Codex），以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
+`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令里的 Node 路径与入口脚本、MCP 命令里的 Node 路径与 npx 是否仍然存在、能否运行，Codex 是否信任 Codex 的 hooks（直接问 Codex），以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。检查会同时读取 hooks 的地址和 MCP 注册中的 `env.NEXUS_ENDPOINT`，一方连接正常不会掩盖另一方的连接故障。
 
 ## 8. 升级
 

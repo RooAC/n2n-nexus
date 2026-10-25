@@ -198,7 +198,7 @@ func (h *Host) OnlineSessions() (int, error) { return h.agents.OnlineSessions() 
 // Stop ends held waits, lets in-flight requests finish (up to 5 s), closes the
 // database and releases the lock.
 func (h *Host) Stop() {
-	// End held hooks first so they are answered ({"output": null}) before the server closes.
+	// Answer held hooks before closing: background waits retry, listening Stops end.
 	h.agents.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

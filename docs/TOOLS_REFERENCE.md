@@ -360,7 +360,7 @@ Behavior:
 
 ### `leave_meeting`
 
-Leave a meeting: you are no longer notified about it and your approval no longer counts.
+Leave a meeting: its new messages no longer notify or wake you, and your approval no longer counts. Notices about stances on proposals you authored remain available at your next normal hook; they do not wake you after leaving.
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |

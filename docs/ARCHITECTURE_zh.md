@@ -95,8 +95,10 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
                                     │     Codex：独立后台进程执行 `codex queue --thread <id> --message <通知>`，
                                     │       再回报 POST /api/hook {WakeResult, dispatch_id, ok}
                                     ├─ 该会话有其他任何事件 ─▶ null（等待结束）
-                                    └─ 时间到 ─▶ { timeout: true }（再次请求）
+                                    └─ 时间到或 host 关闭 ─▶ { timeout: true }（再次请求）
 ```
+
+后台等待会在原有的一小时时限内重试临时连接故障；使用 `discover` 时重新查找 host。正常取消（`output: null`）仍结束等待。host 与客户端都需要包含这项恢复行为，才能在 host 正常重启后继续等待。
 
 会话处于 `working`，或者 listen 模式的 Stop hook 正在等待时，后台等待不会送达，所以同一条消息只提醒一次。`codex queue` 失败（出错或退出码非 0）时，Codex 的后台等待回报 `ok: false`，host 撤销这次唤醒：它提醒过的消息和通知重新算作未提醒，会话退出 `working`，这一轮不计入自动轮次；随后等待在 1 秒后重新请求（每失败一次间隔加倍，最长 5 分钟），再次送达它们。回报到达前该会话已有其他事件，说明唤醒已送达，回报被忽略。已在 Windows 上用 Claude 桌面应用和 Codex 桌面应用实测（2026-10-23）：两个方向都能在数秒内叫醒空闲的对话。已知限制：
 
@@ -117,6 +119,8 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 - **事务**：每个写操作一个事务，多行修改（会议消息，开始 / 结束 / 重开会议，项目改名）要么全部生效，要么都不生效。数据库使用 WAL 模式，开启 `foreign_keys`，忙等超时 5 秒，只用一个连接。
 - **只有 host 打开数据库**。MCP 适配器和 hooks 都走 HTTP。
 - **活动日志**：通过工具产生的状态变更（项目同步 / 更新 / 改名 / 删除 / 资产、文档同步、策略更新、会议开始 / 结束 / 归档 / 重开、维护）记录为结构化事件，用 `list_events` 读取，不混入聊天流。
+
+会议成员和表态记录实际解析出的身份类型；草案资格在发布事务中保存快照。迁移 `0009` 根据已注册会话的精确 ID 匹配回填旧身份，并纠正活跃草案中的实例审批者，不改变已结束会议的名单。旧可选成员的加入与草案若在同一毫秒，历史数据无法确定先后：已有必需审批者保留资格，未列入名单者不能再加入该草案的名单，发布新草案后按新快照取得资格。
 
 ### 清理与保留期
 
@@ -180,7 +184,7 @@ host/
 
 Go 模块是仓库根目录的 `github.com/n2ns/n2n-nexus`，所以 host 直接嵌入 `contract/`。工具只有出现在 `contract/tools.json` 里才存在；host 为每个工具注册一个处理函数，启动时记录缺少处理函数的工具。
 
-**会话状态机**：`agents.Agents` 是一个 host 的进程内协调者。它把全部内存中的对话状态——挂起的 listening Stop、后台等待、自动轮次计数、唤醒时间——放在一把互斥锁后面；每个 hook 和直接消息工具调用都在锁内执行，存下消息或通知的一方在释放锁之前就把它交给正在等待的 hook。启动时把上一个 host 留下的 `listening` 会话复位为 `idle`。关闭时先答复所有挂起的 hook（`{ "output": null }`），再关闭服务器。时间来自 `Clock`：正式版本用系统时间，`testclock` 构建中由一致性测试通过 `POST /test/clock` 设置。
+**会话状态机**：`agents.Agents` 是一个 host 的进程内协调者。它把全部内存中的对话状态——挂起的 listening Stop、后台等待、自动轮次计数、唤醒时间——放在一把互斥锁后面；每个 hook 和直接消息工具调用都在锁内执行，存下消息或通知的一方在释放锁之前就把它交给正在等待的 hook。启动时把上一个 host 留下的 `listening` 会话复位为 `idle`。关闭时先用 `{ "output": { "timeout": true } }` 答复挂起的后台等待，让客户端重连；挂起的 listening Stop 仍返回 `{ "output": null }`，然后再关闭服务器。时间来自 `Clock`：正式版本用系统时间，`testclock` 构建中由一致性测试通过 `POST /test/clock` 设置。
 
 **发现**：`host` 不是回环地址的 host 在 UDP `discoveryPort` 上应答 `n2n-nexus/discover`，回复 `{"service":"n2n-nexus","version","host","port"}`。`NEXUS_ENDPOINT=discover` 的客户端在 `NEXUS_DISCOVERY_PORT` 上广播查询，使用第一个应答并缓存在 `~/.n2n-nexus/discovered-endpoint`。
 

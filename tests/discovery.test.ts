@@ -10,6 +10,8 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { DISCOVER_ENDPOINT, DISCOVERY_QUERY, LOCAL_ENDPOINT, discoverEndpoint, resolveEndpoint } from "../src/client/discovery.js";
 import { NexusServer } from "../src/server/nexus.js";
 import { Host } from "./conformance/harness.js";
+import { NexusClient } from "../src/client/nexus-client.js";
+import { waitForWake } from "../src/cli/hook.js";
 
 // The hook cases run the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -91,6 +93,53 @@ describe("discoverEndpoint", () => {
         expect(await discoverEndpoint(udpPort)).toBe("http://127.0.0.1:4321");
     });
 
+    it("connects to an IPv6-only host discovered on this machine", async (context) => {
+        const server = http.createServer((_req, res) => res.end(JSON.stringify({ tools: [] })));
+        try {
+            await new Promise<void>((resolve, reject) => {
+                server.once("error", reject);
+                server.listen({ host: "::", port: 0, ipv6Only: true }, resolve);
+            });
+        } catch (error) {
+            if (["EAFNOSUPPORT", "EADDRNOTAVAIL"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+                context.skip("IPv6 is unavailable on this host");
+                return;
+            }
+            throw error;
+        }
+        try {
+            const port = (server.address() as AddressInfo).port;
+            await responder(port, "::");
+            const endpoint = await discoverEndpoint(udpPort);
+            expect(endpoint).toBe(`http://[::1]:${port}`);
+            await expect(new NexusClient({ endpoint: endpoint! }).fetchTools()).resolves.toEqual([]);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+
+    it("keeps a remote host's concrete IPv6 address instead of its IPv4 discovery source", async () => {
+        await responder(4321, "2001:db8::10");
+        const createSocket = dgram.createSocket;
+        vi.spyOn(dgram, "createSocket").mockImplementation((...args: Parameters<typeof dgram.createSocket>) => {
+            const socket = createSocket(...args);
+            socket.on("message", (_msg, source) => { source.address = "192.0.2.20"; });
+            return socket;
+        });
+        expect(await discoverEndpoint(udpPort)).toBe("http://[2001:db8::10]:4321");
+    });
+
+    it("ignores a remote IPv6 wildcard that cannot be mapped to a reachable address", async () => {
+        await responder(4321, "::");
+        const createSocket = dgram.createSocket;
+        vi.spyOn(dgram, "createSocket").mockImplementation((...args: Parameters<typeof dgram.createSocket>) => {
+            const socket = createSocket(...args);
+            socket.on("message", (_msg, source) => { source.address = "192.0.2.20"; });
+            return socket;
+        });
+        expect(await discoverEndpoint(udpPort, 100)).toBeNull();
+    });
+
     it("gives up with null when nothing answers", async () => {
         const before = Date.now();
         expect(await discoverEndpoint(udpPort, 300)).toBeNull();
@@ -99,6 +148,26 @@ describe("discoverEndpoint", () => {
 });
 
 describe("resolveEndpoint", () => {
+    it("rediscovers the endpoint when a background wait loses its cached host", async () => {
+        const server = http.createServer((req, res) => {
+            req.resume();
+            req.on("end", () => res.end(JSON.stringify({ output: { wake: "after restart", dispatchId: "new-host" } })));
+        });
+        await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+        try {
+            const port = (server.address() as AddressInfo).port;
+            await responder(port);
+            fs.mkdirSync(path.dirname(CACHE), { recursive: true });
+            fs.writeFileSync(CACHE, "http://127.0.0.1:1\n");
+            await expect(waitForWake("codex", "s", DISCOVER_ENDPOINT, 5000)).resolves.toEqual({
+                text: "after restart", dispatchId: "new-host", endpoint: `http://127.0.0.1:${port}`
+            });
+            expect(fs.readFileSync(CACHE, "utf8").trim()).toBe(`http://127.0.0.1:${port}`);
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
+    });
+
     it("passes any other endpoint through without a lookup", async () => {
         expect(await resolveEndpoint("http://10.0.0.5:5688")).toBe("http://10.0.0.5:5688");
         expect(fs.existsSync(CACHE)).toBe(false);
