@@ -31,7 +31,6 @@
 - [ ] Readable session names (conversation title instead of `codex@n2n-bridge#3`)
 - [ ] Tell automatic turns apart from user prompts by content instead of the one-minute window (see ARCHITECTURE known limits)
 - [ ] Tool-call rate limits are counted per adapter instance (`host/internal/api/api.go`), so several conversations on one machine in the same directory with the same client share one budget; count per session once meeting tools carry the session identity
-- [ ] `uninstall` runs `<client> --version` first (`src/cli/install.ts`) and fails when the client is not on PATH, leaving our hook entries in its config file; clean the config files even when the client cannot be run
 
 ### Future
 - [ ] Code signing for the Go host binaries — the first releases ship unsigned (Windows SmartScreen / Defender warnings; macOS avoided with a Homebrew formula built from source). Windows: apply for free open-source signing at SignPath.io (n2n-nexus is Apache-2.0), or buy a Certum open-source code signing certificate; macOS notarization needs the Apple Developer Program ($99/year). Signing adds one release step and changes nothing else
