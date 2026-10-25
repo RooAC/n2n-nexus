@@ -256,9 +256,13 @@ func TestInstanceStancesAreNotCounted(t *testing.T) {
 	if res["counted"] != false || res["decided"] != false {
 		t.Fatalf("instance stance %v", res)
 	}
+	// An instance's endorsement does not count, but its objection blocks until it is withdrawn.
 	h.stanceAs("a", id, 1, "endorse", "")
-	if res := h.stanceAs("b", id, 1, "endorse", ""); res["decided"] != true {
-		t.Fatalf("an instance's objection blocked %v", res)
+	if res := h.stanceAs("b", id, 1, "endorse", ""); res["decided"] != false {
+		t.Fatalf("decided over an objection %v", res)
+	}
+	if res := h.ok("stance", map[string]any{"meetingId": id, "messageId": 1, "stance": "withdraw"}, "mcp-plain"); res["decided"] != true {
+		t.Fatalf("withdrawn objection %v", res)
 	}
 }
 

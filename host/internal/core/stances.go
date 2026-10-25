@@ -88,7 +88,7 @@ type objection struct {
 // approvals of one proposal. Required is the approver list when the proposal
 // is the current draft, else empty; Waiting are the required approvers
 // without a stance on it. Endorsed and Objections list every stance, an
-// instance's too (which is not counted).
+// instance's too (its endorsement does not count, its objection blocks).
 type approvals struct {
 	Required   []string    `json:"required"`
 	Endorsed   []string    `json:"endorsed"`
@@ -179,9 +179,7 @@ func (c *Core) decideByConsensus(tx *sql.Tx, meetingID, byID string) (bool, erro
 			rows.Close()
 			return false, err
 		}
-		if !isSessionID(id) {
-			continue // an instance's stance is not counted
-		}
+		// Any objection blocks, an instance's too; only listed sessions' endorsements count.
 		endorsed[id] = stance == "endorse"
 		objected = objected || stance == "object"
 	}
