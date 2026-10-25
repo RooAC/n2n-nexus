@@ -925,7 +925,7 @@
     {
       "name": "peers",
       "title": "List Peers",
-      "description": "List the AI sessions (Claude Code / Codex conversations) you can message, and your own profile; offline ones only with includeOffline. status: listening (waiting for messages, answers right away), working or idle (sees a message when its user next sends a prompt or it next calls a tool), or offline (ended, or no activity for 30 minutes).",
+      "description": "List the AI sessions (Claude Code / Codex conversations) you can message, and your own profile; offline ones only with includeOffline. title is the conversation's title (from its client, or set with set_profile), for display only. status: listening (waiting for messages, answers right away), working or idle (sees a message when its user next sends a prompt or it next calls a tool), or offline (ended, or no activity for 30 minutes).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -950,6 +950,10 @@
                 "type": "string"
               },
               "name": {
+                "type": "string"
+              },
+              "title": {
+                "description": "The conversation's title as its client shows it, or as set with set_profile; for display only (send takes the name or id)",
                 "type": "string"
               },
               "client": {
@@ -981,6 +985,7 @@
             "required": [
               "id",
               "name",
+              "title",
               "client",
               "cwd",
               "note",
@@ -998,6 +1003,10 @@
                   "type": "string"
                 },
                 "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "description": "The conversation's title as its client shows it, or as set with set_profile; for display only (send takes the name or id)",
                   "type": "string"
                 },
                 "client": {
@@ -1029,6 +1038,7 @@
               "required": [
                 "id",
                 "name",
+                "title",
                 "client",
                 "cwd",
                 "note",
@@ -1343,7 +1353,7 @@
     {
       "name": "set_profile",
       "title": "Set My Profile",
-      "description": "Set your display name and/or a short note on what you are working on; others see both in peers.",
+      "description": "Set your display name, a short note on what you are working on and/or your conversation's title; others see them in peers. Pass at least one.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
@@ -1362,6 +1372,11 @@
             "description": "What you are working on, shown in peers",
             "type": "string",
             "maxLength": 200
+          },
+          "title": {
+            "description": "Your conversation's title, shown in peers and notifications; replaces the title your client reports until you set it to \"\", which lets the client's title apply again",
+            "type": "string",
+            "maxLength": 80
           }
         }
       },
@@ -1375,6 +1390,10 @@
                 "type": "string"
               },
               "name": {
+                "type": "string"
+              },
+              "title": {
+                "description": "The conversation's title as its client shows it, or as set with set_profile; for display only (send takes the name or id)",
                 "type": "string"
               },
               "client": {
@@ -1406,6 +1425,7 @@
             "required": [
               "id",
               "name",
+              "title",
               "client",
               "cwd",
               "note",
@@ -1964,7 +1984,7 @@
     {
       "name": "list_meetings",
       "title": "List Meetings",
-      "description": "List meetings, newest first: id, topic, status, initiator, participants (everyone who has posted), members (who has joined and not left: mode, approver, session status, wakes the meeting caused), message/decision counts, summary, endReason (manual: end_meeting; consensus: every required approver endorsed the current draft) and proposal: the current draft (messageId, author), the version of its required approver list and its approvals (required, endorsed, waiting: required approvers without a stance, objections), null when no draft was published. Initiator, participants and members are conversation session ids (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else MCP adapter instance ids. Read messages with read_messages(meetingId).",
+      "description": "List meetings, newest first: id, topic, status, initiator, participants (everyone who has posted), members (who has joined and not left: name and conversation title, mode, approver, session status, wakes the meeting caused), message/decision counts, summary, endReason (manual: end_meeting; consensus: every required approver endorsed the current draft) and proposal: the current draft (messageId, author), the version of its required approver list and its approvals (required, endorsed, waiting: required approvers without a stance, objections), null when no draft was published. Initiator, participants and members are conversation session ids (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else MCP adapter instance ids. Read messages with read_messages(meetingId).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -2068,6 +2088,12 @@
                           "null"
                         ]
                       },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "mode": {
                         "type": "string",
                         "enum": [
@@ -2106,6 +2132,7 @@
                     "required": [
                       "id",
                       "name",
+                      "title",
                       "mode",
                       "approver",
                       "status",

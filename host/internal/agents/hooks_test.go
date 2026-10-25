@@ -823,3 +823,63 @@ func TestSeveralHostsAtOnce(t *testing.T) {
 	h1.send("s", "codex:r", "on host 1", false)
 	contains(t, waiting.wait(t).str("reason"), "on host 1")
 }
+
+func TestSessionTitles(t *testing.T) {
+	h := start(t)
+	same := func(id, wantTitle, wantSource string) {
+		t.Helper()
+		s := h.session(id)
+		eq(t, s.Title, wantTitle)
+		eq(t, s.TitleSource, wantSource)
+	}
+	h.hook("codex", "SessionStart", "a")
+	same("codex:a", "", "")
+	h.hook("codex", "SessionStart", "a", map[string]any{"title": "Plan the release"})
+	same("codex:a", "Plan the release", "client")
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": "Release 2.0"})
+	same("codex:a", "Release 2.0", "client")
+	h.hook("codex", "Stop", "a", map[string]any{"title": "Release 2.1", "stop_hook_active": false})
+	same("codex:a", "Release 2.1", "client")
+	// Other events and empty titles change nothing.
+	h.hook("codex", "PostToolUse", "a", map[string]any{"title": "from a tool call"})
+	h.hook("codex", "PreToolUse", "a", map[string]any{"title": "from a tool call", "tool_use_id": "t1"})
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": ""})
+	h.hook("codex", "UserPromptSubmit", "a")
+	same("codex:a", "Release 2.1", "client")
+
+	// The host cuts a long title to maxTitleChars UTF-16 units, never inside a surrogate pair.
+	limit := testContract.Hook.Limits.MaxTitleChars
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": strings.Repeat("t", limit-1) + "\U0001F600" + "rest"})
+	same("codex:a", strings.Repeat("t", limit-1), "client")
+
+	// A title set with set_profile is the session's own until it clears it.
+	eq(t, h.codex("a", "set_profile", map[string]any{"title": strings.Repeat("x", limit+1)}).status, 400)
+	own := h.codex("a", "set_profile", map[string]any{"title": "Mine"})
+	eq(t, own.status, 200)
+	eq(t, own.result["profile"].(map[string]any)["title"], any("Mine"))
+	same("codex:a", "Mine", "self")
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": "Client title"})
+	h.hook("codex", "SessionStart", "a", map[string]any{"title": "Client title"})
+	same("codex:a", "Mine", "self")
+
+	// Shown in peers, in the introduction's list of other sessions and in notifications.
+	h.hook("claude", "SessionStart", "b", map[string]any{"title": "Review"})
+	peers := h.claude("b", "peers", nil)
+	eq(t, peers.result["self"].(map[string]any)["title"], any("Review"))
+	eq(t, peers.result["peers"].([]any)[0].(map[string]any)["title"], any("Mine"))
+	intro := h.hook("claude", "SessionStart", "c").context()
+	contains(t, intro, "- codex@proj \"Mine\" (codex:a), codex, ")
+	contains(t, intro, "- claude@proj \"Review\" (claude:b), claude, ")
+	h.send("a", "claude:c", "hello", false)
+	contains(t, h.hook("claude", "UserPromptSubmit", "c").context(), "- From codex@proj \"Mine\" (codex:a) at ")
+	// Without a title, only the name.
+	h.claude("c", "send", map[string]any{"to": "codex:a", "text": "hi"})
+	contains(t, h.hook("codex", "UserPromptSubmit", "a").context(), "- From claude@proj#2 (claude:c) at ")
+
+	// An empty title clears it, and the client's title applies again.
+	cleared := h.codex("a", "set_profile", map[string]any{"title": ""})
+	eq(t, cleared.result["profile"].(map[string]any)["title"], any(""))
+	same("codex:a", "", "")
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": "Client title"})
+	same("codex:a", "Client title", "client")
+}

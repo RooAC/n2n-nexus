@@ -94,6 +94,24 @@ describe("direct-message tools: listen, set_profile", () => {
         const noteOnly = await codex<{ profile: Profile }>(s("a"), "set_profile", { note: "" });
         expect(noteOnly.payload.result?.profile).toMatchObject({ name: "codex@proj#3", note: "" });
     });
+
+    it("set_profile title: the session's own title wins over the client's until it sets an empty one", async () => {
+        const s = ids();
+        await kit.hook("codex", "SessionStart", s("a"), { title: "From the client" });
+        expect((await kit.profile(`codex:${s("a")}`))?.title).toBe("From the client");
+        expect((await codex(s("a"), "set_profile", { title: "t".repeat(HOOK.limits.maxTitleChars + 1) })).status).toBe(400);
+
+        const own = await codex<{ profile: Profile }>(s("a"), "set_profile", { title: "My own" });
+        expect(own.payload.result?.profile).toMatchObject({ id: `codex:${s("a")}`, name: "codex@proj", title: "My own" });
+        await kit.hook("codex", "UserPromptSubmit", s("a"), { title: "Renamed in the client" });
+        await kit.hook("codex", "Stop", s("a"), { title: "Renamed in the client", stop_hook_active: false });
+        expect((await kit.profile(`codex:${s("a")}`))?.title).toBe("My own");
+
+        const cleared = await codex<{ profile: Profile }>(s("a"), "set_profile", { title: "" });
+        expect(cleared.payload.result?.profile.title).toBe("");
+        await kit.hook("codex", "UserPromptSubmit", s("a"), { title: "Renamed in the client" });
+        expect((await kit.profile(`codex:${s("a")}`))?.title).toBe("Renamed in the client");
+    });
 });
 
 describe("direct-message tools: send, reply, read", () => {
