@@ -509,13 +509,16 @@ func (a *Agents) autoTurn(sessionID, text string) string {
 		text, a.o.Contract.Hook.Texts.NoticePrefix, n, a.o.MaxAutoTurns, a.o.MaxAutoTurns)
 }
 
-// userPrompted: a prompt resets the count, unless it starts the turn a wake just began.
-func (a *Agents) userPrompted(sessionID string, now time.Time) {
+// userPrompted: a prompt resets the count, unless it starts the turn a wake
+// just began; it reports whether it does.
+func (a *Agents) userPrompted(sessionID string, now time.Time) bool {
 	woken, ok := a.wokenAt[sessionID]
 	delete(a.wokenAt, sessionID)
 	if !ok || now.Sub(woken) > ms(a.o.Contract.Hook.Timing.WakePromptWindowMs) {
 		delete(a.autoTurns, sessionID)
+		return false
 	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

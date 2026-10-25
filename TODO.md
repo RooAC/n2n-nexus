@@ -30,8 +30,6 @@
 - [ ] Hide Codex background sessions (e.g. `codex@memories`) from peers and the SessionStart introduction; they never answer
 - [ ] Readable session names (conversation title instead of `codex@n2n-bridge#3`)
 - [ ] Tell automatic turns apart from user prompts by content instead of the one-minute window (see ARCHITECTURE known limits)
-- [ ] A woken turn announces the same message again on UserPromptSubmit and can count one extra automatic turn
-- [ ] Sessions marked offline after 30 minutes without activity do not notify their notifyWhenIdle subscribers
 - [ ] Tool-call rate limits are counted per adapter instance (`host/internal/api/api.go`), so several conversations on one machine in the same directory with the same client share one budget; count per session once meeting tools carry the session identity
 - [ ] `uninstall` runs `<client> --version` first (`src/cli/install.ts`) and fails when the client is not on PATH, leaving our hook entries in its config file; clean the config files even when the client cannot be run
 

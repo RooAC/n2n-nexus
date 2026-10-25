@@ -286,9 +286,13 @@ func TestBackgroundWaitWakes(t *testing.T) {
 	contains(t, out.str("wake"), prefix+" 1 new direct message:")
 	contains(t, out.str("wake"), "wake up")
 	eq(t, h.status("claude:r"), "working")
-	if h.hook("claude", "UserPromptSubmit", "r") == nil { // still unread until read
-		t.Fatal("expected the unread message on the prompt")
+	// The woken turn's own prompt does not announce again what the wake just announced.
+	if out := h.hook("claude", "UserPromptSubmit", "r"); out != nil {
+		t.Fatalf("woken prompt repeated the wake: %v", out)
 	}
+	// A prompt of the user later still counts the unread message.
+	h.at(ms(timing.WakePromptWindowMs) + time.Second)
+	contains(t, h.hook("claude", "UserPromptSubmit", "r").context(), fmt.Sprintf(texts.EarlierUnread, 1))
 }
 
 func texts0BackgroundWait() string { return testContract.Hook.BackgroundWaitEvent }

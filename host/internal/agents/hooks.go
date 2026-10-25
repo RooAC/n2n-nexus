@@ -100,11 +100,16 @@ func (a *Agents) hook(client string, input map[string]any) (map[string]any, *wai
 		text, err := a.introduce(id)
 		return contextOutput("SessionStart", text), nil, err
 	case "UserPromptSubmit":
-		a.userPrompted(id, now)
+		woken := a.userPrompted(id, now)
 		if err := a.setStatus(id, "working"); err != nil {
 			return nil, nil, err
 		}
-		text, err := a.notifyAll(id, a.o.Contract.Hook.Texts.NotifyClosing)
+		// The turn a wake began got the announcement as its prompt: only what arrived since.
+		notify := a.notifyAll
+		if woken {
+			notify = a.notifyFresh
+		}
+		text, err := notify(id, a.o.Contract.Hook.Texts.NotifyClosing)
 		return contextOutput("UserPromptSubmit", text), nil, err
 	case "PreToolUse":
 		if toolUseID, _ := input["tool_use_id"].(string); toolUseID != "" {

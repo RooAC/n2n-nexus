@@ -163,7 +163,7 @@ Delivery. The recipient's hooks announce new messages; notifications carry only 
 | Client event | What the recipient sees |
 | --- | --- |
 | Conversation started | Its own name and ID, the other sessions that are not offline (up to five listed), which of them can answer right away, and how to use `peers`, `send` and `read`. |
-| Prompt submitted | New messages (up to five listed), the count of unread ones announced before, pending notices and meeting news. |
+| Prompt submitted | New messages (up to five listed), the count of unread ones announced before, pending notices and meeting news. The prompt that starts a woken turn adds only what arrived after the wake. |
 | After each tool call | Only messages, notices and meeting news not announced yet. |
 | Turn about to end | If an unread message may wake the session (`wake` true), a notice is pending or a meeting the session takes part in actively has news, the turn continues once with the announcement. |
 | Listening | The wait ends as soon as something arrives that may wake the session, and the conversation continues with it. |
