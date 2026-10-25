@@ -148,7 +148,7 @@ function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoin
  * all); prints the result. A Codex that cannot be asked is only noted.
  */
 async function doctorCodexTrust(): Promise<boolean> {
-    const { MANUAL_TRUST, codexHookTrust, codexProgram } = await import("./codex-trust.js");
+    const { MANUAL_TRUST, NOT_LISTED, codexHookTrust, codexProgram } = await import("./codex-trust.js");
     const program = codexProgram();
     if (!program) {
         process.stdout.write(`  note: hook trust not checked: the "codex" command could not be run.\n`);
@@ -162,8 +162,7 @@ async function doctorCodexTrust(): Promise<boolean> {
         return true;
     }
     if (state.ours === 0) {
-        process.stdout.write(`  FAIL hook trust (${program.label}): Codex does not list the n2n-nexus hooks\n`
-            + `  fix: run "n2n-nexus install codex" again.\n`);
+        process.stdout.write(`  FAIL hook trust (${program.label}): ${NOT_LISTED}, then run "n2n-nexus install codex" again.\n`);
         return false;
     }
     if (state.untrusted.length === 0) {

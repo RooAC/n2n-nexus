@@ -66,6 +66,8 @@ export async function codexHookTrust(program: CodexProgram, hooksFile: string, t
     const failure = new Promise<never>((_, reject) => { fail = reject; });
     failure.catch(() => { /* surfaced by the race in call */ });
     child.on("error", (error) => fail(error));
+    // A write after the app server closed its input (it crashed) fails here, not as an uncaught error.
+    child.stdin.on("error", (error) => fail(error));
     child.on("exit", (code) => fail(new Error(`codex app-server exited (${code})`)));
     let buffer = "";
     child.stdout.setEncoding("utf8");
@@ -123,6 +125,9 @@ export async function codexHookTrust(program: CodexProgram, hooksFile: string, t
 export function isOurCodexHook(command: string): boolean {
     return command.includes("n2n-nexus") && (command.includes(" hook codex") || command.includes("'hook' 'codex'"));
 }
+
+/** Why Codex may list none of our hooks, for messages. */
+export const NOT_LISTED = "Codex does not list the n2n-nexus hooks: check that hooks are on in Codex's config.toml ([features] hooks)";
 
 /** How to trust the hooks by hand, for messages. */
 export const MANUAL_TRUST = "trust the n2n-nexus hooks by hand: in the Codex app's settings (hooks), or with /hooks in the Codex CLI";

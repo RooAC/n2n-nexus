@@ -138,7 +138,7 @@ process.stdin.on("data", (chunk) => {
         if (message.method === "hooks/list") {
             const hooks = [];
             for (const [event, groups] of Object.entries(JSON.parse(fs.readFileSync(file, "utf8")).hooks)) groups.forEach((group, g) => group.hooks.forEach((hook, h) =>
-                hooks.push({ key: event + ":" + g + ":" + h, command: hook.command, sourcePath: file, currentHash: "sha256:x", trustStatus: ${JSON.stringify(status)} })));
+                ${JSON.stringify(status)} !== "none" && hooks.push({ key: event + ":" + g + ":" + h, command: hook.command, sourcePath: file, currentHash: "sha256:x", trustStatus: ${JSON.stringify(status)} })));
             result = { data: [{ hooks }] };
         }
         process.stdout.write(JSON.stringify({ id: message.id, result }) + "\\n");
@@ -159,6 +159,11 @@ describe("doctor", () => {
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook trust (${codexCommand}): not trusted: Stop:0:0`);
         expect(result.stdout).toContain('fix: run "n2n-nexus install codex" again, or trust the n2n-nexus hooks by hand');
+        // A Codex that lists none of them (its hooks feature turned off) is told what to check.
+        codexCommand = fakeCodex("none");
+        result = await run(["codex"]);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain("Codex does not list the n2n-nexus hooks: check that hooks are on in Codex's config.toml ([features] hooks)");
         // A Codex that cannot be run is only noted.
         codexCommand = path.join(dir, "no-codex");
         result = await run(["codex"]);

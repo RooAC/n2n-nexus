@@ -422,12 +422,12 @@ export async function runInstallCommand(action: "install" | "uninstall", argv: s
  * through Codex itself, or say how to do it by hand. Never fails the install.
  */
 async function trustCodex(): Promise<void> {
-    const { MANUAL_TRUST, codexHookTrust, codexProgram } = await import("./codex-trust.js");
+    const { MANUAL_TRUST, NOT_LISTED, codexHookTrust, codexProgram } = await import("./codex-trust.js");
     const program = codexProgram();
     try {
         if (!program) throw new Error(`the "codex" command could not be run`);
         const state = await codexHookTrust(program, configFile("codex"), true);
-        if (state.ours === 0) throw new Error(`Codex (${program.label}) does not list the n2n-nexus hooks`);
+        if (state.ours === 0) throw new Error(`${program.label}: ${NOT_LISTED}`);
         if (state.untrusted.length > 0) throw new Error(`Codex (${program.label}) still does not trust ${state.untrusted.join(", ")}`);
         process.stdout.write(`Trusted the ${state.ours} n2n-nexus hooks in Codex (${program.label}); start a new Codex conversation to use them.\n`);
     } catch (error) {
