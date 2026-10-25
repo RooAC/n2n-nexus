@@ -114,6 +114,8 @@ type Hook struct {
 		HookTimeoutSec             int64 `json:"hookTimeoutSec"`
 		CodexSessionEndTimeoutSec  int64 `json:"codexSessionEndTimeoutSec"`
 		SessionEndRequestTimeoutMs int64 `json:"sessionEndRequestTimeoutMs"`
+		WakeRetryFirstDelayMs      int64 `json:"wakeRetryFirstDelayMs"`
+		WakeRetryMaxDelayMs        int64 `json:"wakeRetryMaxDelayMs"`
 		WakePromptWindowMs         int64 `json:"wakePromptWindowMs"`
 		ToolUseBindingTtlMs        int64 `json:"toolUseBindingTtlMs"`
 		MessageTtlMs               int64 `json:"messageTtlMs"`

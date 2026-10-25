@@ -227,10 +227,14 @@ describe("n2n-nexus hook --wait", () => {
     });
 
     const wakeResult = (ok: boolean) => ({ url: "/api/hook", body: { client: "codex", input: { hook_event_name: "WakeResult", session_id: "c1", dispatch_id: "d7", ok } } });
-    /** The background wait gets a wake; the WakeResult report gets null. */
-    const wakeOnce = (body: Record<string, unknown>) => ({
-        raw: JSON.stringify({ output: (body.input as { hook_event_name?: string }).hook_event_name === "BackgroundWait" ? { wake: "hello from nexus", dispatchId: "d7" } : null })
-    });
+
+    /** The first background wait gets a wake, later ones null (the session became active); WakeResult gets null. */
+    const wakeFirst = () => {
+        let waits = 0;
+        return (body: Record<string, unknown>) => ({
+            raw: JSON.stringify({ output: (body.input as { hook_event_name?: string }).hook_event_name === "BackgroundWait" && ++waits === 1 ? { wake: "hello from nexus", dispatchId: "d7" } : null })
+        });
+    };
 
     /** Run the Codex wait with ./queue (run by NEXUS_CODEX_COMMAND=node) recording its arguments and exiting with exitCode. */
     async function codexWake(name: string, exitCode: number): Promise<void> {
@@ -241,7 +245,7 @@ describe("n2n-nexus hook --wait", () => {
         // NEXUS_CODEX_COMMAND=node runs ./queue (the first argument) from the working directory
         // (an ES module: the repository's package.json sets "type": "module").
         fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\nprocess.exit(${exitCode});\n`);
-        fake.respond = wakeOnce;
+        fake.respond = wakeFirst();
         const result = await runHook(
             ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
             { NEXUS_CODEX_COMMAND: process.execPath }, dir
@@ -255,19 +259,19 @@ describe("n2n-nexus hook --wait", () => {
         expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(true)]);
     });
 
-    it("codex: reports a failed codex queue, so the host wakes the session again", async () => {
+    it("codex: reports a failed codex queue and waits again, so the host can wake the session again", async () => {
         await codexWake("codex-queue-failed", 1);
-        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false)]);
+        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false), waitRequest("c1")]);
     });
 
-    it("codex: reports a codex command that cannot be started as failed", async () => {
-        fake.respond = wakeOnce;
+    it("codex: reports a codex command that cannot be started as failed and waits again", async () => {
+        fake.respond = wakeFirst();
         const result = await runHook(
             ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
             { NEXUS_CODEX_COMMAND: path.join(TMP, "no-such-codex") }
         );
         expect(result).toMatchObject({ code: 0, stdout: "" });
-        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false)]);
+        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false), waitRequest("c1")]);
     });
 });
 

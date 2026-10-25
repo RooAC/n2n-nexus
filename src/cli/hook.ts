@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 
 import {
-    BACKGROUND_WAIT_EVENT, WAKE_RESULT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, SESSION_END_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
+    BACKGROUND_WAIT_EVENT, WAKE_RESULT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, SESSION_END_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, WAKE_RETRY_FIRST_DELAY_MS, WAKE_RETRY_MAX_DELAY_MS, noDaemonHint,
     isHookClient, type HookClient, type HookResponse
 } from "../contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
@@ -109,8 +109,10 @@ export async function waitForWake(client: HookClient, sessionId: string, endpoin
  * conversation. Codex has no such hook, so its Stop hook starts a detached copy
  * (`--session <id>`) and returns at once; the copy hands the notification to
  * `codex queue` (NEXUS_CODEX_COMMAND, default `codex`), which starts a turn,
- * and reports to the host whether it did (WAKE_RESULT_EVENT): a failed queue
- * leaves the messages to wake the session again.
+ * and reports to the host whether it did (WAKE_RESULT_EVENT): after a failed
+ * queue the host undoes the wake and the copy waits again after a delay that
+ * doubles on each failure, so the same messages wake the session on a later
+ * try without retrying a broken `codex` in a loop.
  */
 async function runWait(argv: string[]): Promise<number> {
     const client = argv[0];
@@ -134,18 +136,23 @@ async function runWait(argv: string[]): Promise<number> {
     // upgrade or a cleared npx cache may remove the package's files meanwhile.
     const { spawnClientSync } = client === "codex" ? await import("./client-command.js") : { spawnClientSync: undefined };
     const endpoint = await resolveEndpoint(configured);
-    const wake = await waitForWake(client, sessionId, endpoint);
-    if (wake === null) return 0;
-    if (spawnClientSync) {
+    const deadline = Date.now() + WAIT_DEADLINE_MS;
+    for (let delay = WAKE_RETRY_FIRST_DELAY_MS; ; delay = Math.min(delay * 2, WAKE_RETRY_MAX_DELAY_MS)) {
+        const wake = await waitForWake(client, sessionId, endpoint, deadline - Date.now());
+        if (wake === null) return 0;
+        if (!spawnClientSync) {
+            await new Promise<void>((resolve) => process.stderr.write(wake.text + "\n", () => resolve()));
+            return 2;
+        }
         // Never through cmd.exe: the text comes from another session and spans several lines.
         const queued = spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", wake.text], { stdio: "ignore", windowsHide: true });
         const ok = !queued.error && queued.status === 0;
         const input = { hook_event_name: WAKE_RESULT_EVENT, session_id: sessionId, dispatch_id: wake.dispatchId, ok };
-        await new NexusClient({ endpoint }).hook({ client, input }, HOOK_REQUEST_TIMEOUT_MS).catch(() => { /* unknown result: the host keeps the wake */ });
-        return 0;
+        const reported = await new NexusClient({ endpoint }).hook({ client, input }, HOOK_REQUEST_TIMEOUT_MS).then(() => true, () => false);
+        // Unknown result (no report): the host keeps the wake, and waiting again would deliver nothing.
+        if (ok || !reported || Date.now() + delay >= deadline) return 0;
+        await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    await new Promise<void>((resolve) => process.stderr.write(wake.text + "\n", () => resolve()));
-    return 2;
 }
 
 /** Run the hook command; resolves to exit code 0, or 2 when a background wait wakes a Claude conversation. */

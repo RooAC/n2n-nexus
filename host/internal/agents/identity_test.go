@@ -91,3 +91,28 @@ func TestIdentityLeavesExpiredBindings(t *testing.T) {
 	// Nor does it refresh the session.
 	eq(t, h.session("claude:c1").LastActiveAt, h.ag.iso(h.t0))
 }
+
+func TestIdentityFallsBackOnceTheInstanceStopsResolving(t *testing.T) {
+	h := start(t)
+	stale := time.Duration(testContract.Hook.Timing.StaleSessionMs) * time.Millisecond
+	h.hook("codex", "SessionStart", "x1")
+	if _, err := h.identity("mcp-1", &api.Caller{Client: "codex", SessionID: "x1"}); err != nil {
+		t.Fatal(err)
+	}
+	// A later resolution keeps the instance hooked.
+	h.at(stale / 2)
+	if _, err := h.identity("mcp-1", &api.Caller{Client: "codex", SessionID: "x1"}); err != nil {
+		t.Fatal(err)
+	}
+	h.at(stale)
+	var te *api.ToolError
+	if _, err := h.identity("mcp-1", &api.Caller{Client: "codex", SessionID: "gone"}); !errors.As(err, &te) {
+		t.Fatalf("within the window: %v", err)
+	}
+	// Hooks removed: once the instance has resolved no session for the stale window, it acts as the instance again.
+	h.at(stale/2 + stale + time.Millisecond)
+	id, err := h.identity("mcp-1", &api.Caller{Client: "codex", SessionID: "gone"})
+	if err != nil || id.Kind != api.IdentityInstance || id.ID != "mcp-1" {
+		t.Fatalf("after the window: %+v %v", id, err)
+	}
+}

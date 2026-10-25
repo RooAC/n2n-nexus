@@ -8,7 +8,8 @@ import (
 )
 
 // identityRetryError: the call's instance has acted as a hooked conversation
-// before, but this call's conversation cannot be resolved right now.
+// within the stale-session window, but this call's conversation cannot be
+// resolved right now.
 const identityRetryError = "The conversation session of this call cannot be resolved right now (the n2n-nexus hooks are installed for this adapter, but the session is not known yet). Retry the call; no unread cursor was moved."
 
 // Identity resolves who a chat or meeting call acts as (api.IdentityResolver):
@@ -30,7 +31,8 @@ func (a *Agents) Identity(c api.Call) (api.Identity, error) {
 		}
 		if s != nil {
 			if c.InstanceID != "" {
-				if _, err := a.db().ExecContext(bg, "INSERT OR IGNORE INTO hooked_instances (instance_id, first_seen_at) VALUES (?, ?)",
+				if _, err := a.db().ExecContext(bg, `INSERT INTO hooked_instances (instance_id, last_seen_at) VALUES (?, ?)
+					ON CONFLICT (instance_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
 					c.InstanceID, a.iso(a.o.Clock.Now())); err != nil {
 					return api.Identity{}, err
 				}
@@ -40,7 +42,8 @@ func (a *Agents) Identity(c api.Call) (api.Identity, error) {
 	}
 	if c.InstanceID != "" {
 		var one int
-		err := a.db().QueryRowContext(bg, "SELECT 1 FROM hooked_instances WHERE instance_id = ?", c.InstanceID).Scan(&one)
+		since := a.iso(a.o.Clock.Now().Add(-ms(a.o.Contract.Hook.Timing.StaleSessionMs)))
+		err := a.db().QueryRowContext(bg, "SELECT 1 FROM hooked_instances WHERE instance_id = ? AND last_seen_at > ?", c.InstanceID, since).Scan(&one)
 		if err == nil {
 			return api.Identity{}, api.Errorf("%s", identityRetryError)
 		}

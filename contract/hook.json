@@ -40,6 +40,8 @@
     "hookTimeoutSec": 10,
     "codexSessionEndTimeoutSec": 3,
     "sessionEndRequestTimeoutMs": 1500,
+    "wakeRetryFirstDelayMs": 1000,
+    "wakeRetryMaxDelayMs": 300000,
     "wakePromptWindowMs": 60000,
     "toolUseBindingTtlMs": 300000,
     "messageTtlMs": 86400000,
