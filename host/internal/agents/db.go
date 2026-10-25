@@ -375,6 +375,23 @@ func (a *Agents) markNotified(messages []*message, notices []notice, now time.Ti
 	})
 }
 
+// unmarkNotified marks messages and notices as not notified again (a wake whose delivery failed).
+func (a *Agents) unmarkNotified(messageIDs []string, noticeIDs []int64) error {
+	return a.tx(func(tx *sql.Tx) error {
+		for _, id := range messageIDs {
+			if _, err := tx.ExecContext(bg, "UPDATE agent_messages SET notified_at = NULL WHERE id = ?", id); err != nil {
+				return err
+			}
+		}
+		for _, id := range noticeIDs {
+			if _, err := tx.ExecContext(bg, "UPDATE agent_notices SET notified_at = NULL WHERE id = ?", id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // readUnread returns the oldest count unread messages, marked read, and the unread count left.
 func (a *Agents) readUnread(toID string, count int, now time.Time) ([]*message, int, error) {
 	var messages []*message

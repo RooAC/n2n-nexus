@@ -159,6 +159,14 @@ describe("n2n-nexus hook, forwarding", () => {
         expect(post.ms).toBeLessThan(6_000);
     }, 20_000);
 
+    it("gives a SessionEnd a short budget, within Codex's 3 s SessionEnd limit", async () => {
+        fake.respond = () => ({ delayMs: 4_000, raw: JSON.stringify({ output: null }) });
+        const result = await runHook(["codex", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "SessionEnd", session_id: "c1" }));
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(result.ms).toBeLessThan(3_000);
+        expect(fake.requests).toHaveLength(1);
+    }, 20_000);
+
     it("stays silent on bad input, a bad client argument and a malformed response", async () => {
         const event = JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s" });
         const cases: RunResult[] = [];
@@ -188,7 +196,7 @@ describe("n2n-nexus hook --wait", () => {
 
     it("claude: asks again after a timeout, then exits 2 with the notification on stderr", async () => {
         let n = 0;
-        fake.respond = () => ({ raw: JSON.stringify({ output: ++n === 1 ? { timeout: true } : { wake: "[n2n-nexus] 1 new direct message" } }) });
+        fake.respond = () => ({ raw: JSON.stringify({ output: ++n === 1 ? { timeout: true } : { wake: "[n2n-nexus] 1 new direct message", dispatchId: "d1" } }) });
         const result = await runHook(["claude", "--wait", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "Stop", session_id: "s1" }));
         expect(result).toMatchObject({ code: 2, stdout: "" });
         expect(result.stderr).toBe("[n2n-nexus] 1 new direct message\n");
@@ -218,21 +226,48 @@ describe("n2n-nexus hook --wait", () => {
         expect(result.ms).toBeLessThan(3000);
     });
 
-    it("codex: hands the notification to codex queue for the session", async () => {
-        const dir = path.join(TMP, "codex-queue");
+    const wakeResult = (ok: boolean) => ({ url: "/api/hook", body: { client: "codex", input: { hook_event_name: "WakeResult", session_id: "c1", dispatch_id: "d7", ok } } });
+    /** The background wait gets a wake; the WakeResult report gets null. */
+    const wakeOnce = (body: Record<string, unknown>) => ({
+        raw: JSON.stringify({ output: (body.input as { hook_event_name?: string }).hook_event_name === "BackgroundWait" ? { wake: "hello from nexus", dispatchId: "d7" } : null })
+    });
+
+    /** Run the Codex wait with ./queue (run by NEXUS_CODEX_COMMAND=node) recording its arguments and exiting with exitCode. */
+    async function codexWake(name: string, exitCode: number): Promise<void> {
+        const dir = path.join(TMP, name);
         fs.mkdirSync(dir, { recursive: true });
         const record = path.join(dir, "queued.json");
         fs.rmSync(record, { force: true });
-        // NEXUS_CODEX_COMMAND=node runs ./queue (the first argument) from the working directory, which records its arguments
+        // NEXUS_CODEX_COMMAND=node runs ./queue (the first argument) from the working directory
         // (an ES module: the repository's package.json sets "type": "module").
-        fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`);
-        fake.respond = () => ({ raw: JSON.stringify({ output: { wake: "hello from nexus" } }) });
+        fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\nprocess.exit(${exitCode});\n`);
+        fake.respond = wakeOnce;
         const result = await runHook(
             ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
             { NEXUS_CODEX_COMMAND: process.execPath }, dir
         );
         expect(result).toMatchObject({ code: 0, stdout: "" });
         expect(JSON.parse(fs.readFileSync(record, "utf8"))).toEqual(["--thread", "c1", "--message", "hello from nexus"]);
+    }
+
+    it("codex: hands the notification to codex queue for the session and reports the delivery", async () => {
+        await codexWake("codex-queue", 0);
+        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(true)]);
+    });
+
+    it("codex: reports a failed codex queue, so the host wakes the session again", async () => {
+        await codexWake("codex-queue-failed", 1);
+        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false)]);
+    });
+
+    it("codex: reports a codex command that cannot be started as failed", async () => {
+        fake.respond = wakeOnce;
+        const result = await runHook(
+            ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",
+            { NEXUS_CODEX_COMMAND: path.join(TMP, "no-such-codex") }
+        );
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(fake.requests).toEqual([waitRequest("c1"), wakeResult(false)]);
     });
 });
 
@@ -253,8 +288,8 @@ describe("n2n-nexus hook --wait, package changed during the wait", () => {
         fs.rmSync(record, { force: true });
         fs.writeFileSync(path.join(dir, "queue"), `import fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\n`);
         fake.respond = () => {
-            fs.rmSync(path.join(pkgDir, "build", "cli", "client-command.js"));   // removed while the wait is held
-            return { delayMs: 200, raw: JSON.stringify({ output: { wake: "hello after the change" } }) };
+            fs.rmSync(path.join(pkgDir, "build", "cli", "client-command.js"), { force: true });   // removed while the wait is held
+            return { delayMs: 200, raw: JSON.stringify({ output: { wake: "hello after the change", dispatchId: "d1" } }) };
         };
         const result = await runHook(
             ["codex", "--wait", "--session", "c1", "--endpoint", fake.endpoint], "",

@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "clients": [
     "claude",
     "codex"
@@ -24,6 +24,7 @@
     "reason"
   ],
   "backgroundWaitEvent": "BackgroundWait",
+  "wakeResultEvent": "WakeResult",
   "agentStatuses": [
     "working",
     "idle",
@@ -37,6 +38,8 @@
     "hookStopTimeoutSec": 600,
     "waitHookTimeoutSec": 3600,
     "hookTimeoutSec": 10,
+    "codexSessionEndTimeoutSec": 3,
+    "sessionEndRequestTimeoutMs": 1500,
     "wakePromptWindowMs": 60000,
     "toolUseBindingTtlMs": 300000,
     "messageTtlMs": 86400000,

@@ -103,20 +103,23 @@ type Hook struct {
 	MCPServerName       string            `json:"mcpServerName"`
 	HookInputFields     []string          `json:"hookInputFields"`
 	BackgroundWaitEvent string            `json:"backgroundWaitEvent"`
+	WakeResultEvent     string            `json:"wakeResultEvent"`
 	AgentStatuses       []string          `json:"agentStatuses"`
 	Timing              struct {
-		ListenWaitMs             int64 `json:"listenWaitMs"`
-		HookStopRequestTimeoutMs int64 `json:"hookStopRequestTimeoutMs"`
-		HookRequestTimeoutMs     int64 `json:"hookRequestTimeoutMs"`
-		HookStopTimeoutSec       int64 `json:"hookStopTimeoutSec"`
-		WaitHookTimeoutSec       int64 `json:"waitHookTimeoutSec"`
-		HookTimeoutSec           int64 `json:"hookTimeoutSec"`
-		WakePromptWindowMs       int64 `json:"wakePromptWindowMs"`
-		ToolUseBindingTtlMs      int64 `json:"toolUseBindingTtlMs"`
-		MessageTtlMs             int64 `json:"messageTtlMs"`
-		IdleSubscriptionTtlMs    int64 `json:"idleSubscriptionTtlMs"`
-		PeerWindowMs             int64 `json:"peerWindowMs"`
-		StaleSessionMs           int64 `json:"staleSessionMs"`
+		ListenWaitMs               int64 `json:"listenWaitMs"`
+		HookStopRequestTimeoutMs   int64 `json:"hookStopRequestTimeoutMs"`
+		HookRequestTimeoutMs       int64 `json:"hookRequestTimeoutMs"`
+		HookStopTimeoutSec         int64 `json:"hookStopTimeoutSec"`
+		WaitHookTimeoutSec         int64 `json:"waitHookTimeoutSec"`
+		HookTimeoutSec             int64 `json:"hookTimeoutSec"`
+		CodexSessionEndTimeoutSec  int64 `json:"codexSessionEndTimeoutSec"`
+		SessionEndRequestTimeoutMs int64 `json:"sessionEndRequestTimeoutMs"`
+		WakePromptWindowMs         int64 `json:"wakePromptWindowMs"`
+		ToolUseBindingTtlMs        int64 `json:"toolUseBindingTtlMs"`
+		MessageTtlMs               int64 `json:"messageTtlMs"`
+		IdleSubscriptionTtlMs      int64 `json:"idleSubscriptionTtlMs"`
+		PeerWindowMs               int64 `json:"peerWindowMs"`
+		StaleSessionMs             int64 `json:"staleSessionMs"`
 	} `json:"timing"`
 	Limits struct {
 		DefaultMaxAutoTurns int    `json:"defaultMaxAutoTurns"`

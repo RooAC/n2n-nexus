@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-    CLAUDE_PRE_TOOL_MATCHER, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
+    CLAUDE_PRE_TOOL_MATCHER, CODEX_SESSION_END_TIMEOUT_SEC, HOOK_STOP_TIMEOUT_SEC, HOOK_TIMEOUT_SEC, MCP_SERVER_NAME, WAIT_HOOK_TIMEOUT_SEC, isHookClient,
     type HookClient
 } from "../contract.js";
 import { pkg } from "../config/index.js";
@@ -221,7 +221,11 @@ function removeOurEntries(config: HooksFile, client: HookClient, file: string): 
 function addOurEntries(config: HooksFile, client: HookClient, command: string, commandWindows?: string): void {
     const hooks = (config.hooks ??= {});
     for (const event of EVENTS[client]) {
-        const entry: HookEntry = { type: "command", command, timeout: event === "Stop" ? HOOK_STOP_TIMEOUT_SEC : HOOK_TIMEOUT_SEC };
+        // Codex clamps a SessionEnd hook timeout above 3 s (and warns in its settings), so ask for 3 s there.
+        const timeout = event === "Stop" ? HOOK_STOP_TIMEOUT_SEC
+            : client === "codex" && event === "SessionEnd" ? CODEX_SESSION_END_TIMEOUT_SEC
+                : HOOK_TIMEOUT_SEC;
+        const entry: HookEntry = { type: "command", command, timeout };
         if (commandWindows) entry.commandWindows = commandWindows;
         const group: HookGroup = client === "claude" && event === "PreToolUse"
             ? { matcher: CLAUDE_PRE_TOOL_MATCHER, hooks: [entry] }

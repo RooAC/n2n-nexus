@@ -2,7 +2,7 @@
 // wait here is the event under test, never the timeout. The last test stops the host.
 import { afterEach, describe, expect, it } from "vitest";
 import { until, useHost } from "./harness.js";
-import { BACKGROUND_WAIT_EVENT, NOTICE_PREFIX, agentKit, ids } from "./agents.js";
+import { BACKGROUND_WAIT_EVENT, NOTICE_PREFIX, WAKE_RESULT_EVENT, agentKit, ids } from "./agents.js";
 
 const host = useHost({ listenWaitMs: 60_000, rateLimit: 0 });
 const { hook, openHook, claudeTool, codexTool, send, status, endSessions } = agentKit(host);
@@ -43,6 +43,37 @@ describe("POST /api/hook: background wait", () => {
         const { payload } = await waiting.response;
         expect(payload.output?.wake).toContain("after");
         expect(payload.output?.wake).not.toContain("before the turn ended");
+    });
+
+    it("wakes again with the same message and notice after the client reports a failed delivery", async () => {
+        const s = ids();
+        const r = `codex:${s("r")}`;
+        await hook("codex", "SessionStart", s("s"));
+        await hook("codex", "SessionStart", s("r"));
+        await hook("codex", "SessionStart", s("x"));
+        await send(s("r"), `codex:${s("x")}`, "tell me when you are done", true);
+        await hook("codex", "Stop", s("r"), { stop_hook_active: true });
+        await hook("codex", "Stop", s("x"), { stop_hook_active: true });           // idle: a notice for r
+        await send(s("s"), r, "please answer");
+
+        const first = (await openHook("codex", BACKGROUND_WAIT_EVENT, s("r")).response).payload.output;
+        expect(first?.wake).toContain("please answer");
+        expect(first?.wake).toContain("Notices:");
+        expect(first?.dispatchId).toBeTruthy();
+        expect(await status(r)).toBe("working");
+
+        // codex queue failed: the wake is undone.
+        expect(await hook("codex", WAKE_RESULT_EVENT, s("r"), { dispatch_id: first?.dispatchId, ok: false })).toBeNull();
+        expect(await status(r)).toBe("idle");
+        const again = (await openHook("codex", BACKGROUND_WAIT_EVENT, s("r")).response).payload.output;
+        expect(again?.wake).toBe(first?.wake);
+        expect(again?.dispatchId).toBeTruthy();
+        expect(again?.dispatchId).not.toBe(first?.dispatchId);
+
+        // Delivered this time: a late failure report changes nothing.
+        expect(await hook("codex", WAKE_RESULT_EVENT, s("r"), { dispatch_id: again?.dispatchId, ok: true })).toBeNull();
+        expect(await hook("codex", WAKE_RESULT_EVENT, s("r"), { dispatch_id: again?.dispatchId, ok: false })).toBeNull();
+        expect(await status(r)).toBe("working");
     });
 });
 

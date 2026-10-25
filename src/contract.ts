@@ -55,13 +55,21 @@ export type HookResponse = { output: Record<string, unknown> | null };
 
 /**
  * Pseudo hook event of the background wait (`n2n-nexus hook <client> --wait`):
- * started when a turn ends, it waits and returns `{ wake: text }` when
+ * started when a turn ends, it waits and returns `{ wake: text, dispatchId }` when
  * something new arrives for the session, `{ timeout: true }` when the time
  * runs out (the client asks again), or null when the session became active
  * again (the client stops). Claude delivers the text through an asyncRewake
  * hook, Codex through `codex queue`.
  */
 export const BACKGROUND_WAIT_EVENT: string = contract.backgroundWaitEvent;
+
+/**
+ * Pseudo hook event with which the Codex background wait reports whether
+ * `codex queue` took a wake: input `{ session_id, dispatch_id, ok }`. On
+ * `ok: false` the host undoes the wake, so its messages and notices wake the
+ * session again.
+ */
+export const WAKE_RESULT_EVENT: string = contract.wakeResultEvent;
 
 /** HTTP timeout of the hook command: a listening Stop may wait long, every other event is quick. */
 export const HOOK_STOP_REQUEST_TIMEOUT_MS: number = contract.timing.hookStopRequestTimeoutMs;
@@ -71,6 +79,10 @@ export const HOOK_STOP_TIMEOUT_SEC: number = contract.timing.hookStopTimeoutSec;
 /** `timeout` (seconds) of the background wait hook; a conversation idle for longer is not woken. */
 export const WAIT_HOOK_TIMEOUT_SEC: number = contract.timing.waitHookTimeoutSec;
 export const HOOK_TIMEOUT_SEC: number = contract.timing.hookTimeoutSec;
+/** `timeout` (seconds) of the Codex SessionEnd hook: Codex clamps a longer one to 3 s and warns about it. */
+export const CODEX_SESSION_END_TIMEOUT_SEC: number = contract.timing.codexSessionEndTimeoutSec;
+/** HTTP timeout of a SessionEnd hook, which is not resent after a timeout so it ends within CODEX_SESSION_END_TIMEOUT_SEC. */
+export const SESSION_END_REQUEST_TIMEOUT_MS: number = contract.timing.sessionEndRequestTimeoutMs;
 
 /** Name the MCP server is installed under; Claude's PreToolUse matcher depends on it. */
 export const MCP_SERVER_NAME: string = contract.mcpServerName;

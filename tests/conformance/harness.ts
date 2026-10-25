@@ -42,6 +42,7 @@ export const HOOK = readContract<{
     contractVersion: number;
     clients: string[];
     backgroundWaitEvent: string;
+    wakeResultEvent: string;
     agentStatuses: string[];
     timing: Record<"listenWaitMs" | "toolUseBindingTtlMs" | "messageTtlMs" | "idleSubscriptionTtlMs" | "peerWindowMs" | "staleSessionMs" | "wakePromptWindowMs", number>;
     limits: { defaultMaxAutoTurns: number; maxMessageChars: number; maxNoteChars: number; previewChars: number; notifyListLimit: number };
