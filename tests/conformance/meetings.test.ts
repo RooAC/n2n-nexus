@@ -178,6 +178,8 @@ describe("meetings per conversation", () => {
         type Meeting = { id: string; status: string; endReason: string | null; decisionCount: number; proposal: { messageId: number; endorsed: string[] } };
         const meeting = (await listed()).meetings.find((m) => m.id === meetingId) as unknown as Meeting;
         expect(meeting).toMatchObject({ status: "closed", endReason: "consensus", decisionCount: 1, proposal: { messageId: 1 } });
+        // The other approver learns how it ended from the closing notice.
+        expect(context(await kit.hook("claude", "UserPromptSubmit", a))).toContain("decided by consensus on draft #1");
         expect([...meeting.proposal.endorsed].sort()).toEqual([`claude:${a}`, `claude:${b}`].sort());
         const read = await host.callTool<{ messages: { from: string; category: string; text: string }[] }>("read_messages", { meetingId, latest: true, count: 1 });
         expect(read.payload.result!.messages[0]).toMatchObject({ from: "n2n-nexus", category: "DECISION", text: expect.stringContaining("ship it") });

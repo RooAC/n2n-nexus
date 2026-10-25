@@ -193,10 +193,13 @@ func (c *Core) decideByConsensus(tx *sql.Tx, meetingID, byID string) (bool, erro
 		}
 	}
 	text := fmt.Sprintf(c.d.Contract.Hook.Texts.ConsensusDecision, d.seq, strings.Join(required, ", "), d.text)
-	if _, err := c.addMeetingMessage(tx, meetingID, consensusSender, text, "DECISION"); err != nil {
+	decision, err := c.addMeetingMessage(tx, meetingID, consensusSender, text, "DECISION")
+	if err != nil {
 		return false, err
 	}
-	if err := c.closeMeeting(tx, meetingID, nil, "consensus"); err != nil {
+	// The summary goes into the members' closing notice: the meeting is closed, so its news is not announced.
+	summary := fmt.Sprintf("decided by consensus on draft #%d (the DECISION is message #%d)", d.seq, decision)
+	if err := c.closeMeeting(tx, meetingID, summary, "consensus"); err != nil {
 		return false, err
 	}
 	return true, c.recordEvent(tx, byID, "meeting.end", meetingID, map[string]any{"topic": m.topic, "reason": "consensus"})

@@ -223,7 +223,8 @@ func (c *Core) reopenMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if m.status == "active" {
 			return api.Errorf("Meeting '%s' is already active.", a.MeetingID)
 		}
-		if _, err := tx.Exec(`UPDATE meetings SET status = 'active', closed_at = NULL, end_reason = NULL,
+		// The draft was settled or abandoned when the meeting ended: a reopened meeting needs a new one.
+		if _, err := tx.Exec(`UPDATE meetings SET status = 'active', closed_at = NULL, end_reason = NULL, current_proposal_id = NULL,
 			active_order = (SELECT MAX(active_order) + 1 FROM meetings) WHERE id = ?`, a.MeetingID); err != nil {
 			return err
 		}
@@ -440,11 +441,13 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 			}
 		}
 		// Messages from before the join are not announced to the member; a member
-		// that only changes how it takes part keeps what it was told.
+		// that only changes how it takes part keeps what it was told and when it
+		// joined, while one that comes back after leaving joins anew.
 		if _, err := tx.Exec(`
 			INSERT INTO meeting_members (meeting_id, member_id, mode, approver, joined_at, notified_id) VALUES (?, ?, ?, ?, ?, ?)
 			ON CONFLICT (meeting_id, member_id) DO UPDATE SET mode = excluded.mode, approver = excluded.approver,
-				notified_id = CASE WHEN left_at IS NULL THEN notified_id ELSE excluded.notified_id END, left_at = NULL`,
+				notified_id = CASE WHEN left_at IS NULL THEN notified_id ELSE excluded.notified_id END,
+				joined_at = CASE WHEN left_at IS NULL THEN joined_at ELSE excluded.joined_at END, left_at = NULL`,
 			a.MeetingID, who.ID, a.Mode, a.Approver, c.now(), newest); err != nil {
 			return err
 		}

@@ -337,7 +337,7 @@ Reactivate a closed or archived meeting.
 Behavior:
 
 - Any adapter instance can end, archive or reopen a meeting, not only its `initiator`.
-- `end_meeting` closes with `endReason: manual`, not a consensus; `reopen_meeting` clears it and keeps the draft, its approvers and their stances.
+- `end_meeting` closes with `endReason: manual`, not a consensus; `reopen_meeting` clears it and the current draft: a reopened meeting decides on a new draft (earlier stances stay as history).
 - Ending a meeting gives each member but the one who ended it one notice that it ended (with the summary), which needs no reply; active members are woken with it, async members see it at their next prompt or tool call. Reopening does not bring back members that left.
 
 ### `join_meeting`
@@ -386,7 +386,7 @@ Behavior:
 
 - The current draft is the message last published with `send_message(..., draft: true)`; an ordinary `PROPOSAL` changes neither the draft nor anyone's stance. Publishing a draft fixes its required approvers: the members joined as `required` through the hooks (adapter instances cannot approve). The list changes only when one of them leaves or changes `approver` with `join_meeting` (a member that joined before the draft can be added back as `required`; members joining later are not added); each change is posted to the meeting with the new `approversVersion`.
 - You have one stance per proposal; a new one replaces it and `withdraw` removes it. An objection is also posted to the meeting with its reason. The proposal's author gets a notice of every stance; nobody else is woken by an endorsement.
-- The meeting closes by consensus when the current draft has at least 2 required approvers, every one of them endorsed it and nobody objects to it (an adapter instance's objection blocks too): a `DECISION` with the draft's text is posted by `n2n-nexus`, the meeting closes with `endReason: consensus` and the other members get the closing notice. With fewer than 2 required approvers it closes only with `end_meeting`.
+- The meeting closes by consensus when the current draft has at least 2 required approvers, every one of them endorsed it and nobody objects to it (an adapter instance's objection blocks too): a `DECISION` with the draft's text is posted by `n2n-nexus`, the meeting closes with `endReason: consensus` and the other members get the closing notice, which names the draft and the decision's message number. With fewer than 2 required approvers it closes only with `end_meeting`.
 - Result: `{ ok, meetingId, messageId, stance, currentProposalId, counted, approvals: { required, endorsed, waiting, objections: [{ id, note }] }, decided }`. `counted` is false for an adapter instance; `waiting` are required approvers without any stance; `decided` is true when this stance closed the meeting.
 - When a meeting with a draft stays quiet for `stanceReminderMinutes` (host `settings.json`, default 10) and required approvers have not taken a stance, each of them is reminded once and the author is told who is missing. Reminders never end a meeting.
 

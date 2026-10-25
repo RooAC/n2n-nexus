@@ -337,7 +337,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 行为：
 
 - 任何适配器实例都能结束、存档或重新开启会议，不只是它的 `initiator`。
-- `end_meeting` 关闭时 `endReason` 为 `manual`，不算共识；`reopen_meeting` 清除它，保留当前稿、名单和表态。
+- `end_meeting` 关闭时 `endReason` 为 `manual`，不算共识；`reopen_meeting` 清除它和当前稿：重新开启的会议要对新草案表态（之前的表态保留为历史）。
 - 结束会议时，除结束者以外的每个成员收到一条会议已结束的通知（附总结），无需回复；active 成员会被它叫醒，async 成员在下次输入或调用工具时看到。重新开启不会恢复已离开的成员。
 
 ### `join_meeting`
@@ -386,7 +386,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 - 当前稿是最近一次用 `send_message(..., draft: true)` 发布的消息；普通的 `PROPOSAL` 既不换稿，也不改变任何人的表态。发布草案时确定它的必需认可名单：通过 hooks 以 `required` 身份加入的成员（适配器实例不能认可）。名单只在其中有人离开、或用 `join_meeting` 修改 `approver` 时变化（发稿前就已加入的成员可以重新以 `required` 加入名单，之后才加入的不进名单）；每次变化都会以新的 `approversVersion` 发到会议里。
 - 每人对每份提案一条表态，新的覆盖旧的，`withdraw` 删除。反对会连同理由发到会议里。提案作者会收到每次表态的通知；认可不会叫醒其他人。
-- 当前稿至少有 2 名必需认可人、他们全部认可、且没有任何人反对（适配器实例的反对同样阻止）时，会议以共识结案：`n2n-nexus` 发一条带草案原文的 `DECISION`，会议以 `endReason: consensus` 关闭，其他成员收到结束通知。必需认可人少于 2 名时，只能用 `end_meeting` 结束。
+- 当前稿至少有 2 名必需认可人、他们全部认可、且没有任何人反对（适配器实例的反对同样阻止）时，会议以共识结案：`n2n-nexus` 发一条带草案原文的 `DECISION`，会议以 `endReason: consensus` 关闭，其他成员收到结束通知，通知里写明草案编号和决议的消息编号。必需认可人少于 2 名时，只能用 `end_meeting` 结束。
 - 结果：`{ ok, meetingId, messageId, stance, currentProposalId, counted, approvals: { required, endorsed, waiting, objections: [{ id, note }] }, decided }`。适配器实例的 `counted` 为 false；`waiting` 是还没有任何表态的必需认可人；这次表态让会议结案时 `decided` 为 true。
 - 有草案的会议安静超过 `stanceReminderMinutes`（host `settings.json`，默认 10）、且有必需认可人还没表态时，每人被提醒一次，作者收到一份缺谁的汇总。提醒从不结束会议。
 

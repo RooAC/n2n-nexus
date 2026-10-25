@@ -221,9 +221,9 @@ func TestStances(t *testing.T) {
 	// A repeated last vote does not decide twice.
 	h.failsAs("a", "is closed, cannot take a stance", "stance", stance(1, "endorse"))
 
-	// Reopening clears the end reason and keeps the draft and its stances.
+	// Reopening clears the end reason and the draft: a reopened meeting decides on a new one.
 	h.as("a", "reopen_meeting", map[string]any{"meetingId": id})
-	if m := h.listing(id); m.EndReason != nil || m.Proposal == nil || m.Proposal.MessageID != 1 || len(m.Proposal.Endorsed) != 2 {
+	if m := h.listing(id); m.EndReason != nil || m.Proposal != nil {
 		t.Fatalf("reopened %+v", m)
 	}
 	h.as("a", "end_meeting", map[string]any{"meetingId": id})
@@ -353,5 +353,58 @@ func TestApproverChangesOfMembers(t *testing.T) {
 	}
 	if m := h.listing(id); m.Status != "active" {
 		t.Fatalf("status %s", m.Status)
+	}
+}
+
+func TestConsensusSummarySaysHowItEnded(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+	h.stanceAs("a", id, 1, "endorse", "")
+	h.stanceAs("b", id, 1, "endorse", "")
+	for _, m := range h.ok("list_meetings", map[string]any{}, "")["meetings"].([]any) {
+		if m := m.(map[string]any); m["id"] == id {
+			if s, _ := m["summary"].(string); !strings.Contains(s, "by consensus on draft #1") {
+				t.Fatalf("summary %q", s)
+			}
+		}
+	}
+}
+
+func TestReopenedMeetingNeedsANewDraft(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	h.as("c", "join_meeting", map[string]any{"meetingId": id})
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+	for _, s := range []string{"a", "b", "c"} {
+		h.stanceAs(s, id, 1, "endorse", "")
+	}
+	h.as("a", "reopen_meeting", map[string]any{"meetingId": id})
+	h.as("c", "leave_meeting", map[string]any{"meetingId": id})
+	if n := h.count(`SELECT COUNT(*) FROM decisions WHERE meeting_id = ?`, id); n != 1 {
+		t.Fatalf("%d decisions after reopening", n)
+	}
+	for _, m := range h.ok("list_meetings", map[string]any{}, "")["meetings"].([]any) {
+		if m := m.(map[string]any); m["id"] == id && (m["status"] != "active" || m["proposal"] != nil) {
+			t.Fatalf("reopened %v %v", m["status"], m["proposal"])
+		}
+	}
+}
+
+func TestRejoinedMemberStaysOffTheList(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
+	h.as("b", "join_meeting", map[string]any{"meetingId": id})
+	h.as("d", "join_meeting", map[string]any{"meetingId": id})
+	h.as("d", "leave_meeting", map[string]any{"meetingId": id})
+	h.clock.Set(start.Add(time.Second))
+	h.as("a", "send_message", map[string]any{"meetingId": id, "message": "p", "draft": true})
+	h.clock.Set(start.Add(2 * time.Second))
+	h.as("d", "join_meeting", map[string]any{"meetingId": id})
+	h.as("d", "join_meeting", map[string]any{"meetingId": id, "mode": "async", "approver": "required"})
+	if n := h.count(`SELECT COUNT(*) FROM meeting_approvers WHERE meeting_id = ? AND member_id = 'codex:d'`, id); n != 0 {
+		t.Fatal("rejoined member put on the list")
 	}
 }
