@@ -71,6 +71,10 @@ export const HOOK_STOP_TIMEOUT_SEC: number = contract.timing.hookStopTimeoutSec;
 /** `timeout` (seconds) of the background wait hook; a conversation idle for longer is not woken. */
 export const WAIT_HOOK_TIMEOUT_SEC: number = contract.timing.waitHookTimeoutSec;
 export const HOOK_TIMEOUT_SEC: number = contract.timing.hookTimeoutSec;
+/** `timeout` (seconds) of the Codex SessionEnd hook: Codex clamps a longer one to 3 s and warns about it. */
+export const CODEX_SESSION_END_TIMEOUT_SEC: number = contract.timing.codexSessionEndTimeoutSec;
+/** HTTP timeout of a SessionEnd hook, which is not resent after a timeout so it ends within CODEX_SESSION_END_TIMEOUT_SEC. */
+export const SESSION_END_REQUEST_TIMEOUT_MS: number = contract.timing.sessionEndRequestTimeoutMs;
 
 /** Name the MCP server is installed under; Claude's PreToolUse matcher depends on it. */
 export const MCP_SERVER_NAME: string = contract.mcpServerName;

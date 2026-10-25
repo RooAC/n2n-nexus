@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 
 import {
-    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
+    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, SESSION_END_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
     isHookClient, type HookClient, type HookResponse
 } from "../contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
@@ -44,7 +44,9 @@ async function forward(argv: string[]): Promise<string> {
     for (const field of HOOK_INPUT_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(stdin, field)) input[field] = stdin[field];
     }
-    const timeoutMs = stdin.hook_event_name === "Stop" ? HOOK_STOP_REQUEST_TIMEOUT_MS : HOOK_REQUEST_TIMEOUT_MS;
+    // SessionEnd must finish within Codex's 3 s hook limit (discovery included): a short budget and a single attempt.
+    const sessionEnd = stdin.hook_event_name === "SessionEnd";
+    const timeoutMs = stdin.hook_event_name === "Stop" ? HOOK_STOP_REQUEST_TIMEOUT_MS : sessionEnd ? SESSION_END_REQUEST_TIMEOUT_MS : HOOK_REQUEST_TIMEOUT_MS;
 
     /** Send to `endpoint`; nothing listening there is reported with what to do about it. */
     const send = async (endpoint: string): Promise<HookResponse> => {
@@ -65,7 +67,7 @@ async function forward(argv: string[]): Promise<string> {
         // A timed-out Stop may have been waiting for messages on purpose, so only other events count a timeout.
         const code = error instanceof NexusTransportError ? error.code ?? "" : "";
         const unreachable = UNREACHABLE_CODES.has(code) || (code === REQUEST_TIMEOUT_CODE && stdin.hook_event_name !== "Stop");
-        if (configured !== DISCOVER_ENDPOINT || !unreachable) throw error;
+        if (configured !== DISCOVER_ENDPOINT || !unreachable || sessionEnd) throw error;
         const found = await resolveEndpoint(configured, { fresh: true });
         if (found === endpoint) throw error;
         response = await send(found);

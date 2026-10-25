@@ -144,7 +144,7 @@ describe("hook with --endpoint discover", () => {
         return fake;
     }
 
-    function runHook(): Promise<string> {
+    function runHook(event = "PostToolUse"): Promise<string> {
         return new Promise((resolve, reject) => {
             const child = spawn(process.execPath, [ENTRY, "hook", "claude", "--endpoint", DISCOVER_ENDPOINT], {
                 env: { ...process.env, NEXUS_ENDPOINT: "" },
@@ -154,7 +154,7 @@ describe("hook with --endpoint discover", () => {
             child.stdout.on("data", (chunk) => { stdout += chunk; });
             child.on("error", reject);
             child.on("close", () => resolve(stdout));
-            child.stdin.end(JSON.stringify({ hook_event_name: "PostToolUse", session_id: "s" }));
+            child.stdin.end(JSON.stringify({ hook_event_name: event, session_id: "s" }));
         });
     }
 
@@ -171,6 +171,32 @@ describe("hook with --endpoint discover", () => {
             expect(fake.hits).toBe(2);
             expect(portOf(fs.readFileSync(CACHE, "utf8").trim())).toBe(fake.port);
         } finally {
+            await fake.close();
+        }
+    }, 20_000);
+
+    it("does not look again after a SessionEnd times out, so it ends within Codex's 3 s limit", async () => {
+        const fake = await fakeDaemon();
+        // A cached daemon that accepts the request and never answers.
+        const hung = http.createServer(() => { /* never answers */ });
+        await new Promise<void>((resolve) => hung.listen(0, "127.0.0.1", () => resolve()));
+        try {
+            await responder(fake.port);
+            fs.mkdirSync(path.dirname(CACHE), { recursive: true });
+            const cached = `http://127.0.0.1:${(hung.address() as AddressInfo).port}\n`;
+
+            fs.writeFileSync(CACHE, cached);
+            const started = Date.now();
+            expect(await runHook("SessionEnd")).toBe("");
+            expect(Date.now() - started).toBeLessThan(3000);
+            expect(fake.hits).toBe(0);
+
+            fs.writeFileSync(CACHE, cached);                                       // other events still look again
+            expect(await runHook()).toContain("hi");
+            expect(fake.hits).toBe(1);
+        } finally {
+            hung.closeAllConnections();
+            await new Promise<void>((resolve) => hung.close(() => resolve()));
             await fake.close();
         }
     }, 20_000);

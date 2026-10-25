@@ -159,6 +159,14 @@ describe("n2n-nexus hook, forwarding", () => {
         expect(post.ms).toBeLessThan(6_000);
     }, 20_000);
 
+    it("gives a SessionEnd a short budget, within Codex's 3 s SessionEnd limit", async () => {
+        fake.respond = () => ({ delayMs: 4_000, raw: JSON.stringify({ output: null }) });
+        const result = await runHook(["codex", "--endpoint", fake.endpoint], JSON.stringify({ hook_event_name: "SessionEnd", session_id: "c1" }));
+        expect(result).toMatchObject({ code: 0, stdout: "" });
+        expect(result.ms).toBeLessThan(3_000);
+        expect(fake.requests).toHaveLength(1);
+    }, 20_000);
+
     it("stays silent on bad input, a bad client argument and a malformed response", async () => {
         const event = JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s" });
         const cases: RunResult[] = [];

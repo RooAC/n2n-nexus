@@ -279,7 +279,7 @@ describe("install codex", () => {
         expect(readJson(codexHooks())).toEqual({
             hooks: {
                 SessionStart: [{ hooks: [entry(10)] }],
-                SessionEnd: [{ hooks: [entry(10)] }],
+                SessionEnd: [{ hooks: [entry(3)] }],
                 UserPromptSubmit: [{ hooks: [entry(10)] }],
                 PostToolUse: [{ hooks: [entry(10)] }],
                 Stop: [{ hooks: [entry(600)] }, { hooks: [{ ...entry(10), command: `${command("codex", "http://127.0.0.1:5799")} --wait`, commandWindows: `${codexWindowsCommand("http://127.0.0.1:5799")} '--wait'` }] }]
