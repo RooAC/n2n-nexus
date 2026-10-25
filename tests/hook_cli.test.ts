@@ -20,7 +20,8 @@ function runHook(args: string[], stdin: string, env: NodeJS.ProcessEnv = {}, cwd
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [entry, "hook", ...args], {
             cwd,
-            env: { ...process.env, NEXUS_ENDPOINT: "", ...env },
+            // CODEX_HOME points at an empty folder unless a test sets it: never read the user's own Codex state.
+            env: { ...process.env, NEXUS_ENDPOINT: "", CODEX_HOME: path.join(TMP, "no-codex-home"), ...env },
             stdio: ["pipe", "pipe", "pipe"]
         });
         let stdout = "";
