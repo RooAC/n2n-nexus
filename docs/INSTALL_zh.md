@@ -31,7 +31,7 @@ gh attestation verify n2n-nexus-host_<版本>_<os>_<arch>.tar.gz --repo n2ns/n2n
 需要知道的：
 
 - 程序暂未做代码签名。Windows 上第一次运行 `n2n-nexus-host.exe` 或 `n2n-nexus-host-tray.exe` 可能弹出 SmartScreen 提示：点 **更多信息 → 仍要运行**。Homebrew 在你的 Mac 上从源码编译 host，所以不会有 Gatekeeper 提示。
-- `n2n-nexus-host.exe install`（Windows）把两个程序复制到 `%LOCALAPPDATA%\Programs\n2n-nexus-host`（`--dir` 指定别的目录），第一次安装时打开 **登录后自启**，启动托盘，并说明做了什么。升级也用它：从新版本的发布包里再运行一次；它会结束自己安装的托盘、替换程序（正在运行的程序先改名为 `.old`，下次安装时删除），后台服务运行的是已安装的程序时，经管理员确认后让服务改用新版本重启。用 Scoop、Homebrew 安装的，用包管理器升级。
+- `n2n-nexus-host.exe install`（Windows）把两个程序复制到 `%LOCALAPPDATA%\Programs\n2n-nexus-host`（`--dir` 指定别的目录），第一次安装时打开 **登录后自启**，启动托盘，并说明做了什么。升级也用它：从新版本的发布包里再运行一次；它会替换程序（正在运行的程序先改名为 `.old`，下次安装时删除），结束旧托盘并启动新托盘；后台服务运行的是已安装的程序时，经管理员确认后让服务改用新版本、按原来的数据目录重启。用 Scoop、Homebrew 安装的，用包管理器升级。
 - Windows 安装包里有两个程序：`n2n-nexus-host.exe` 用于命令，`n2n-nexus-host-tray.exe` 是托盘程序，不会打开控制台窗口。不带参数运行 `n2n-nexus-host` 会启动托盘程序后立即返回。
 
 ## 2. 启动 host

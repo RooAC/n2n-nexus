@@ -75,10 +75,11 @@ var psStopTask = fmt.Sprintf(`if (Get-ScheduledTask -TaskName %[1]s -ErrorAction
 }
 `, psQuote(TaskName), psQuote(`Stopped scheduled task "`+TaskName+`".`))
 
-// WindowsTaskExeScript prints the program the scheduled task runs, nothing when it is not registered.
-func WindowsTaskExeScript() string {
+// WindowsTaskActionScript prints the program the scheduled task runs and,
+// on the next line, its arguments; nothing when it is not registered.
+func WindowsTaskActionScript() string {
 	return psPreamble + fmt.Sprintf(`$task = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue
-if ($task) { Write-Output $task.Actions[0].Execute }
+if ($task) { Write-Output $task.Actions[0].Execute; Write-Output $task.Actions[0].Arguments }
 `, psQuote(TaskName))
 }
 
@@ -93,7 +94,8 @@ func WindowsElevatedScript(exe string, args []string, outFile string) string {
 		}
 		return strings.Join(quoted, sep)
 	}
-	inner := fmt.Sprintf("& %s %s *>&1 | Out-File -Encoding utf8 %s\nexit $LASTEXITCODE\n", psQuote(exe), quote(args, " "), psQuote(outFile))
+	// A new powershell.exe decodes the program's output with the OEM code page unless told otherwise.
+	inner := fmt.Sprintf("[Console]::OutputEncoding = [Text.Encoding]::UTF8\n& %s %s *>&1 | Out-File -Encoding utf8 %s\nexit $LASTEXITCODE\n", psQuote(exe), quote(args, " "), psQuote(outFile))
 	return psPreamble + fmt.Sprintf(`$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList %s
 exit $p.ExitCode
 `, quote(PowerShellArgs(inner), ","))

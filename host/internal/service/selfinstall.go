@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -84,4 +85,42 @@ func removeLeftovers(dir string) {
 	for _, old := range olds {
 		_ = os.Remove(old)
 	}
+}
+
+// taskRoot is the --root of a scheduled task's arguments (WindowsTaskArgs),
+// "" when there is none.
+func taskRoot(args string) string {
+	_, rest, ok := strings.Cut(args, `--root "`)
+	if !ok {
+		return ""
+	}
+	dir, _, ok := strings.Cut(rest, `"`)
+	if !ok {
+		return ""
+	}
+	// WindowsTaskArgs writes a directory ending in \ as \. (a \ before " escapes it).
+	return strings.TrimSuffix(dir, ".")
+}
+
+// Start at login, as `install` finds it.
+const (
+	autostartUnset     = iota // not set: on for a first install, else left off
+	autostartHere             // runs this installation's tray: refreshed
+	autostartElsewhere        // runs another copy: left alone
+)
+
+// autostartState classifies the Run value current (a quoted program path) for an installation in dir.
+func autostartState(current, dir string) int {
+	program := strings.Trim(current, `"`)
+	if program == "" {
+		return autostartUnset
+	}
+	parent := ""
+	if i := strings.LastIndexAny(program, `\/`); i >= 0 {
+		parent = program[:i]
+	}
+	if strings.EqualFold(strings.TrimRight(parent, `\/`), strings.TrimRight(dir, `\/`)) {
+		return autostartHere
+	}
+	return autostartElsewhere
 }

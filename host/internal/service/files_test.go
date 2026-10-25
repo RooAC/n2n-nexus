@@ -109,7 +109,7 @@ func TestWindowsFirewallScript(t *testing.T) {
 }
 
 func TestWindowsInstallScripts(t *testing.T) {
-	mustContain(t, WindowsTaskExeScript(), "Get-ScheduledTask -TaskName 'n2n-nexus-host'", "$task.Actions[0].Execute")
+	mustContain(t, WindowsTaskActionScript(), "Get-ScheduledTask -TaskName 'n2n-nexus-host'", "$task.Actions[0].Execute", "$task.Actions[0].Arguments")
 	s := WindowsElevatedScript(`C:\Program's\n2n-nexus-host.exe`, []string{"service", "install"}, `C:\Temp\out.log`)
 	mustContain(t, s, "Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru", "exit $p.ExitCode")
 	i := strings.Index(s, "'-EncodedCommand','")
@@ -118,7 +118,7 @@ func TestWindowsInstallScripts(t *testing.T) {
 	}
 	b64 := s[i+len("'-EncodedCommand','"):]
 	inner := decodePS(t, b64[:strings.Index(b64, "'")])
-	mustContain(t, inner, `& 'C:\Program''s\n2n-nexus-host.exe' 'service' 'install' *>&1 | Out-File -Encoding utf8 'C:\Temp\out.log'`, "exit $LASTEXITCODE")
+	mustContain(t, inner, "[Console]::OutputEncoding = [Text.Encoding]::UTF8", `& 'C:\Program''s\n2n-nexus-host.exe' 'service' 'install' *>&1 | Out-File -Encoding utf8 'C:\Temp\out.log'`, "exit $LASTEXITCODE")
 }
 
 // plistStrings parses a plist and returns its <string> values in order.

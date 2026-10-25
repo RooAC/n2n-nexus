@@ -8,7 +8,7 @@
 
 ### 新增
 
-- Windows 上的 host：`n2n-nexus-host.exe install [--dir <dir>]` 从解压后的发布 zip 把 host 安装到 `%LOCALAPPDATA%\Programs\n2n-nexus-host`，第一次安装时打开登录后自启，并启动托盘。从新版本的发布包里再运行一次即可升级：它会结束已安装的托盘、替换程序（正在运行的程序先挪开，下次安装时删除），并在管理员确认后让后台服务改用新版本重启。
+- Windows 上的 host：`n2n-nexus-host.exe install [--dir <dir>]` 从解压后的发布 zip 把 host 安装到 `%LOCALAPPDATA%\Programs\n2n-nexus-host`，第一次安装时打开登录后自启，并启动托盘。从新版本的发布包里再运行一次即可升级：它会替换程序（正在运行的程序先挪开，下次安装时删除）、重启托盘，并在管理员确认后让后台服务改用新版本、按原来的数据目录重启。
 
 ## [0.9.5] - 2026-10-26
 

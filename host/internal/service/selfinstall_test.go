@@ -76,3 +76,51 @@ func TestReplaceProgramsNeedsTheRelease(t *testing.T) {
 		t.Fatal("installed program lost")
 	}
 }
+
+func TestReplaceProgramsKeepsARunningOld(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	writeFiles(t, src, map[string]string{"a.exe": "new"})
+	writeFiles(t, dst, map[string]string{"a.exe": "current"})
+	// An .old that cannot be removed (here a non-empty folder; on Windows a running program).
+	writeFiles(t, filepath.Join(dst, "a.exe.old"), map[string]string{"x": "running"})
+	if err := ReplacePrograms(src, dst, []string{"a.exe"}); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(t, filepath.Join(dst, "a.exe")) != "new" {
+		t.Fatal("not replaced")
+	}
+	aside, _ := filepath.Glob(filepath.Join(dst, "a.exe.*.old"))
+	if len(aside) != 1 || readFile(t, aside[0]) != "current" {
+		t.Fatalf("current program not moved aside under a new name: %v", aside)
+	}
+}
+
+func TestTaskRoot(t *testing.T) {
+	for args, want := range map[string]string{
+		WindowsTaskArgs(`D:\nexus data`, `D:\logs`): `D:\nexus data`,
+		WindowsTaskArgs(`D:\`, `D:\logs`):           `D:\`,
+		"serve --supervise":                         "",
+		`serve --root "unterminated`:                "",
+	} {
+		if got := taskRoot(args); got != want {
+			t.Errorf("taskRoot(%q) = %q, want %q", args, got, want)
+		}
+	}
+}
+
+func TestAutostartState(t *testing.T) {
+	dir := `C:\Users\u\AppData\Local\Programs\n2n-nexus-host`
+	for current, want := range map[string]int{
+		"": autostartUnset,
+		`"C:\Users\u\AppData\Local\Programs\n2n-nexus-host\n2n-nexus-host-tray.exe"`: autostartHere,
+		`"c:\users\u\appdata\local\programs\N2N-NEXUS-HOST\n2n-nexus-host-tray.exe"`: autostartHere,
+		`"C:\Users\u\scoop\apps\n2n-nexus-host\current\n2n-nexus-host-tray.exe"`:     autostartElsewhere,
+	} {
+		if got := autostartState(current, dir); got != want {
+			t.Errorf("autostartState(%q) = %d, want %d", current, got, want)
+		}
+	}
+	if autostartState(`"C:\x\tray.exe"`, `C:\x\`) != autostartHere {
+		t.Error("a trailing separator on dir")
+	}
+}
