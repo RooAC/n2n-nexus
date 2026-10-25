@@ -105,7 +105,7 @@ describe("Windows .cmd shims", () => {
         const text = `New message\n- From x" & calc & ": hi %TEMP% ^ |\nRead it with read.`;
         const server = http.createServer((req, res) => {
             req.resume();
-            req.on("end", () => res.end(JSON.stringify({ output: { wake: text } })));
+            req.on("end", () => res.end(JSON.stringify({ output: { wake: text, dispatchId: "d1" } })));
         });
         await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
         try {

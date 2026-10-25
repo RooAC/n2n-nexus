@@ -61,6 +61,14 @@ func (a *Agents) hook(client string, input map[string]any) (map[string]any, *wai
 		}
 		return nil, a.backgroundWait(id), nil
 	}
+	if event == a.o.Contract.Hook.WakeResultEvent {
+		// A report from the background wait's client, not activity of the conversation.
+		dispatchID, _ := input["dispatch_id"].(string)
+		ok, _ := input["ok"].(bool)
+		return nil, nil, a.wakeResult(id, dispatchID, ok)
+	}
+	// Any real event of the session follows a wake it was handed: delivered, or overtaken by real input.
+	delete(a.dispatches, id)
 	cwd, _ := input["cwd"].(string)
 	if err := a.touch(id, client, cwd, now); err != nil {
 		return nil, nil, err

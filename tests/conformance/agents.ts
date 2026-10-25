@@ -17,6 +17,7 @@ export type HookOutput = {
     reason?: string;
     hookSpecificOutput?: { hookEventName: string; additionalContext: string };
     wake?: string;
+    dispatchId?: string;
     timeout?: boolean;
 } | null;
 export type Profile = { id: string; name: string; client: HookClient; cwd: string; note: string; status: string; lastActiveAt: string };
@@ -24,6 +25,7 @@ export type Profile = { id: string; name: string; client: HookClient; cwd: strin
 export const { noticePrefix: NOTICE_PREFIX, notifyClosing: NOTIFY_CLOSING, stopClosing: STOP_CLOSING, statusNote: STATUS_NOTE,
     sessionStartClosing: SESSION_START_CLOSING, messageTrustNote: MESSAGE_TRUST_NOTE, noAgentSessionError: NO_AGENT_SESSION_ERROR } = HOOK.texts;
 export const BACKGROUND_WAIT_EVENT = HOOK.backgroundWaitEvent;
+export const WAKE_RESULT_EVENT = HOOK.wakeResultEvent;
 
 const OBSERVER = "conformance-observer";
 let testSeq = 0;

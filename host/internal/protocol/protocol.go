@@ -103,6 +103,7 @@ type Hook struct {
 	MCPServerName       string            `json:"mcpServerName"`
 	HookInputFields     []string          `json:"hookInputFields"`
 	BackgroundWaitEvent string            `json:"backgroundWaitEvent"`
+	WakeResultEvent     string            `json:"wakeResultEvent"`
 	AgentStatuses       []string          `json:"agentStatuses"`
 	Timing              struct {
 		ListenWaitMs               int64 `json:"listenWaitMs"`

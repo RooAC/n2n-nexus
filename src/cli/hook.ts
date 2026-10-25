@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 
 import {
-    BACKGROUND_WAIT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, SESSION_END_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
+    BACKGROUND_WAIT_EVENT, WAKE_RESULT_EVENT, HOOK_INPUT_FIELDS, HOOK_REQUEST_TIMEOUT_MS, HOOK_STOP_REQUEST_TIMEOUT_MS, SESSION_END_REQUEST_TIMEOUT_MS, WAIT_HOOK_TIMEOUT_SEC, noDaemonHint,
     isHookClient, type HookClient, type HookResponse
 } from "../contract.js";
 import { NexusClient, NexusTransportError, REQUEST_TIMEOUT_CODE } from "../client/nexus-client.js";
@@ -83,18 +83,21 @@ async function forward(argv: string[]): Promise<string> {
 /** The background wait ends before the client's hook timeout would kill it during a request. */
 const WAIT_DEADLINE_MS = (WAIT_HOOK_TIMEOUT_SEC - 10) * 1000;
 
+/** A wake from the host: the notification text and the id its delivery is reported under. */
+type Wake = { text: string; dispatchId: string };
+
 /**
- * Ask the daemon until something arrives for the session (the notification
- * text), the session becomes active again or the deadline passes (null).
+ * Ask the daemon until something arrives for the session (the wake), the
+ * session becomes active again or the deadline passes (null).
  */
-export async function waitForWake(client: HookClient, sessionId: string, endpoint: string, deadlineMs = WAIT_DEADLINE_MS): Promise<string | null> {
+export async function waitForWake(client: HookClient, sessionId: string, endpoint: string, deadlineMs = WAIT_DEADLINE_MS): Promise<Wake | null> {
     const nexus = new NexusClient({ endpoint });
     // Start a request only if it can run to its own timeout before the deadline.
     const deadline = Date.now() + deadlineMs - HOOK_STOP_REQUEST_TIMEOUT_MS;
     while (Date.now() < deadline) {
         const response = await nexus.hook({ client, input: { hook_event_name: BACKGROUND_WAIT_EVENT, session_id: sessionId } }, HOOK_STOP_REQUEST_TIMEOUT_MS);
         const output = isPlainObject(response) ? response.output : null;
-        if (isPlainObject(output) && typeof output.wake === "string") return output.wake;
+        if (isPlainObject(output) && typeof output.wake === "string" && typeof output.dispatchId === "string") return { text: output.wake, dispatchId: output.dispatchId };
         if (!(isPlainObject(output) && output.timeout === true)) return null;
     }
     return null;
@@ -105,7 +108,9 @@ export async function waitForWake(client: HookClient, sessionId: string, endpoin
  * asyncRewake hook: exit code 2 with the notification on stderr wakes the
  * conversation. Codex has no such hook, so its Stop hook starts a detached copy
  * (`--session <id>`) and returns at once; the copy hands the notification to
- * `codex queue` (NEXUS_CODEX_COMMAND, default `codex`), which starts a turn.
+ * `codex queue` (NEXUS_CODEX_COMMAND, default `codex`), which starts a turn,
+ * and reports to the host whether it did (WAKE_RESULT_EVENT): a failed queue
+ * leaves the messages to wake the session again.
  */
 async function runWait(argv: string[]): Promise<number> {
     const client = argv[0];
@@ -128,14 +133,18 @@ async function runWait(argv: string[]): Promise<number> {
     // Load what a wake needs before waiting: the wait lasts up to an hour, and an
     // upgrade or a cleared npx cache may remove the package's files meanwhile.
     const { spawnClientSync } = client === "codex" ? await import("./client-command.js") : { spawnClientSync: undefined };
-    const text = await waitForWake(client, sessionId, await resolveEndpoint(configured));
-    if (text === null) return 0;
+    const endpoint = await resolveEndpoint(configured);
+    const wake = await waitForWake(client, sessionId, endpoint);
+    if (wake === null) return 0;
     if (spawnClientSync) {
         // Never through cmd.exe: the text comes from another session and spans several lines.
-        spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", text], { stdio: "ignore", windowsHide: true });
+        const queued = spawnClientSync(process.env.NEXUS_CODEX_COMMAND || "codex", ["queue", "--thread", sessionId, "--message", wake.text], { stdio: "ignore", windowsHide: true });
+        const ok = !queued.error && queued.status === 0;
+        const input = { hook_event_name: WAKE_RESULT_EVENT, session_id: sessionId, dispatch_id: wake.dispatchId, ok };
+        await new NexusClient({ endpoint }).hook({ client, input }, HOOK_REQUEST_TIMEOUT_MS).catch(() => { /* unknown result: the host keeps the wake */ });
         return 0;
     }
-    await new Promise<void>((resolve) => process.stderr.write(text + "\n", () => resolve()));
+    await new Promise<void>((resolve) => process.stderr.write(wake.text + "\n", () => resolve()));
     return 2;
 }
 

@@ -55,13 +55,21 @@ export type HookResponse = { output: Record<string, unknown> | null };
 
 /**
  * Pseudo hook event of the background wait (`n2n-nexus hook <client> --wait`):
- * started when a turn ends, it waits and returns `{ wake: text }` when
+ * started when a turn ends, it waits and returns `{ wake: text, dispatchId }` when
  * something new arrives for the session, `{ timeout: true }` when the time
  * runs out (the client asks again), or null when the session became active
  * again (the client stops). Claude delivers the text through an asyncRewake
  * hook, Codex through `codex queue`.
  */
 export const BACKGROUND_WAIT_EVENT: string = contract.backgroundWaitEvent;
+
+/**
+ * Pseudo hook event with which the Codex background wait reports whether
+ * `codex queue` took a wake: input `{ session_id, dispatch_id, ok }`. On
+ * `ok: false` the host undoes the wake, so its messages and notices wake the
+ * session again.
+ */
+export const WAKE_RESULT_EVENT: string = contract.wakeResultEvent;
 
 /** HTTP timeout of the hook command: a listening Stop may wait long, every other event is quick. */
 export const HOOK_STOP_REQUEST_TIMEOUT_MS: number = contract.timing.hookStopRequestTimeoutMs;

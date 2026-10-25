@@ -13,7 +13,9 @@ package agents
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"strings"
@@ -62,6 +64,20 @@ type Agents struct {
 	autoTurns map[string]int
 	// wokenAt: when a background wait last woke each session, to tell the woken turn's prompt from the user's.
 	wokenAt map[string]time.Time
+	// dispatches: the last wake per session whose delivery the client has not reported yet
+	// (WakeResult) and that no real hook event of the session has followed.
+	dispatches map[string]*dispatch
+}
+
+// dispatch is one wake handed to a client (backgroundWait), kept so that a
+// failed delivery can be undone: what the wake marked notified, and the wake
+// time it replaced.
+type dispatch struct {
+	id         string
+	messageIDs []string
+	noticeIDs  []int64
+	// prevWokenAt is the session's wokenAt before this wake (zero: none).
+	prevWokenAt time.Time
 }
 
 // waiter is one held hook request. Its functions run with Agents.mu held.
@@ -95,6 +111,7 @@ func New(o Options) (*Agents, error) {
 		backgroundWaits: map[string]map[*waiter]bool{},
 		autoTurns:       map[string]int{},
 		wokenAt:         map[string]time.Time{},
+		dispatches:      map[string]*dispatch{},
 	}, nil
 }
 
@@ -323,8 +340,9 @@ func (a *Agents) waitForMessages(sessionID string) *waiter {
 }
 
 // backgroundWait (the BackgroundWait pseudo event): the session counts as
-// listening, and the wait returns {wake} with what was not notified yet as
-// soon as there is any, {timeout: true} when the wait runs out (the client asks
+// listening, and the wait returns {wake, dispatchId} with what was not notified
+// yet as soon as there is any (the client reports the delivery with a
+// WakeResult naming dispatchId, see wakeResult), {timeout: true} when the wait runs out (the client asks
 // again) and null when the session became active or the client went away.
 // While a listening Stop hook waits, that hook delivers instead. It never
 // delivers while the session is working: the wait starts alongside Stop, which
@@ -378,17 +396,77 @@ func (a *Agents) backgroundWait(sessionID string) *waiter {
 		if s.Status == "idle" {
 			a.logErr("background wait", a.setStatus(sessionID, "listening"))
 		}
-		text, err := a.notifyFresh(sessionID, a.o.Contract.Hook.Texts.NotifyClosing)
-		if err != nil || text == "" {
+		messages, notices, err := a.unnotified(sessionID, true)
+		if err != nil || (len(messages) == 0 && len(notices) == 0) {
 			a.logErr("background wait", err)
 			return
 		}
+		text, err := a.notify(messages, notices, "new", a.o.Contract.Hook.Texts.NotifyClosing)
+		if err != nil {
+			a.logErr("background wait", err)
+			return
+		}
+		d := &dispatch{id: newDispatchID(), prevWokenAt: a.wokenAt[sessionID]}
+		for _, m := range messages {
+			d.messageIDs = append(d.messageIDs, m.ID)
+		}
+		for _, n := range notices {
+			d.noticeIDs = append(d.noticeIDs, n.ID)
+		}
+		a.dispatches[sessionID] = d
 		a.logErr("background wait", a.setStatus(sessionID, "working"))
 		a.wokenAt[sessionID] = a.o.Clock.Now()
-		finish(map[string]any{"wake": a.autoTurn(sessionID, text)})
+		finish(map[string]any{"wake": a.autoTurn(sessionID, text), "dispatchId": d.id})
 	}
 	a.startWait(w)
 	return w
+}
+
+func newDispatchID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b) // never fails (crypto/rand)
+	return hex.EncodeToString(b)
+}
+
+// wakeResult (the WakeResult pseudo event): the client reports whether it
+// delivered the wake dispatchID. A failed delivery of the session's pending
+// wake is undone: its messages and notices count as not notified again, the
+// session leaves working (listening while another wait holds it, else idle),
+// and the automatic turn and wake time it counted are taken back; any wait
+// still held is woken to deliver it again. A success, an unknown id or a wake
+// that a real hook event of the session already followed changes nothing
+// (mu held).
+func (a *Agents) wakeResult(sessionID, dispatchID string, ok bool) error {
+	d := a.dispatches[sessionID]
+	if d == nil || dispatchID == "" || d.id != dispatchID {
+		return nil
+	}
+	delete(a.dispatches, sessionID)
+	if ok {
+		return nil
+	}
+	if err := a.unmarkNotified(d.messageIDs, d.noticeIDs); err != nil {
+		return err
+	}
+	if n := a.autoTurns[sessionID] - 1; n > 0 {
+		a.autoTurns[sessionID] = n
+	} else {
+		delete(a.autoTurns, sessionID)
+	}
+	if d.prevWokenAt.IsZero() {
+		delete(a.wokenAt, sessionID)
+	} else {
+		a.wokenAt[sessionID] = d.prevWokenAt
+	}
+	status := "idle"
+	if len(a.backgroundWaits[sessionID]) > 0 || a.listeningStops[sessionID] {
+		status = "listening"
+	}
+	if err := a.setStatusIf(sessionID, "working", status); err != nil {
+		return err
+	}
+	a.wake(sessionID)
+	return nil
 }
 
 // cancelBackgroundWaits: the session became active again; its background waits
@@ -483,18 +561,24 @@ func (a *Agents) notifyFresh(sessionID, closing string) (string, error) {
 }
 
 func (a *Agents) notifyWith(sessionID string, fresh bool, label, closing string) (string, error) {
+	messages, notices, err := a.unnotified(sessionID, fresh)
+	if err != nil || (len(messages) == 0 && len(notices) == 0) {
+		return "", err
+	}
+	return a.notify(messages, notices, label, closing)
+}
+
+// unnotified: the unread messages (only those not notified yet when fresh) and the pending notices.
+func (a *Agents) unnotified(sessionID string, fresh bool) ([]*message, []notice, error) {
 	messages, err := unread(a.db(), sessionID, fresh)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	notices, err := a.pendingNotices(sessionID)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
-	if len(messages) == 0 && len(notices) == 0 {
-		return "", nil
-	}
-	return a.notify(messages, notices, label, closing)
+	return messages, notices, nil
 }
 
 // introduce: the SessionStart introduction, who this session is and which other sessions are online now.
