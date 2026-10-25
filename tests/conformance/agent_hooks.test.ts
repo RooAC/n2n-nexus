@@ -81,10 +81,10 @@ describe("POST /api/hook: sessions and names", () => {
         await hook("claude", "UserPromptSubmit", s("a"), { title: "" });
         expect((await profile(`claude:${s("a")}`))?.title).toBe("Release 2.1");
 
-        // Cut in UTF-16 units, never inside a surrogate pair.
+        // Cut to maxTitleChars characters (code points), as the client and set_profile count.
         const max = HOOK.limits.maxTitleChars;
         await hook("claude", "UserPromptSubmit", s("a"), { title: `${"t".repeat(max - 1)}\u{1F600}rest` });
-        expect((await profile(`claude:${s("a")}`))?.title).toBe("t".repeat(max - 1));
+        expect((await profile(`claude:${s("a")}`))?.title).toBe(`${"t".repeat(max - 1)}\u{1F600}`);
     });
 
     it("SessionEnd sets offline and prints nothing", async () => {
