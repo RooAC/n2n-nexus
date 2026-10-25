@@ -206,7 +206,6 @@ describe("install claude", () => {
         expect(result.stderr).toContain("cannot write config: EACCES");
         expect(result.stderr).toContain(`MCP server is still registered in ${path.join(claudeDir, ".claude.json")}`);
         expect(calls()).toEqual([
-            ["claude", "--version"],
             ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"]
         ]);
     });
@@ -216,7 +215,6 @@ describe("install claude", () => {
         expect(result.code).toBe(0);
         expect(result.stderr).toBe("");
         expect(calls()).toEqual([
-            ["claude", "--version"],
             ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"]
         ]);
     });
@@ -231,7 +229,6 @@ describe("install claude", () => {
         expect(result.code).toBe(0);
         expect(readJson(claudeSettings())).toEqual(userSettings);
         expect(calls()).toEqual([
-            ["claude", "--version"],
             ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"]
         ]);
     });
@@ -245,6 +242,36 @@ describe("install claude", () => {
         expect(fs.readFileSync(claudeSettings(), "utf8")).toBe("{ broken");
         expect(fs.readdirSync(claudeDir)).toEqual(["settings.json"]);
         expect(calls()).toEqual([["claude", "--version"]]);
+    });
+
+    it("uninstall without claude on PATH removes the hooks and says how to remove the MCP server", () => {
+        fs.mkdirSync(claudeDir, { recursive: true });
+        fs.writeFileSync(claudeSettings(), JSON.stringify(userSettings));
+        expect(run(["install", "claude"]).code).toBe(0);
+        registerClaudeMcp();
+        fs.rmSync(executablePath(path.join(bin, "claude")));
+        fs.writeFileSync(callsLog, "");
+
+        const result = run(["uninstall", "claude"]);
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(readJson(claudeSettings())).toEqual(userSettings);
+        expect(result.stdout).toContain(`Removed hooks from ${claudeSettings()}`);
+        expect(result.stdout).toContain(`Skipped "claude mcp remove --scope user n2n-nexus": the "claude" command was not found on PATH.`);
+        expect(result.stdout).toContain(`still registered in ${path.join(claudeDir, ".claude.json")}`);
+        expect(calls()).toEqual([]);
+    });
+
+    it("uninstall without claude on PATH says nothing about an MCP server that is not registered", () => {
+        fs.mkdirSync(claudeDir, { recursive: true });
+        fs.writeFileSync(claudeSettings(), JSON.stringify(userSettings));
+        expect(run(["install", "claude"]).code).toBe(0);
+        fs.rmSync(executablePath(path.join(bin, "claude")));
+
+        const result = run(["uninstall", "claude"]);
+        expect(result.code).toBe(0);
+        expect(readJson(claudeSettings())).toEqual(userSettings);
+        expect(result.stdout).not.toContain("Skipped");
     });
 
     it("refuses to install when claude is not on PATH and writes nothing", () => {
@@ -321,7 +348,22 @@ describe("install codex", () => {
         fs.writeFileSync(callsLog, "");
         expect(run(["uninstall", "codex"]).code).toBe(0);
         expect(readJson(codexHooks())).toEqual(original);
-        expect(calls()).toEqual([["codex", "--version"], ["codex", "mcp", "remove", "n2n-nexus"]]);
+        expect(calls()).toEqual([["codex", "mcp", "remove", "n2n-nexus"]]);
+    });
+
+    it("uninstall without codex on PATH removes the hooks and says how to remove the MCP server", () => {
+        expect(run(["install", "codex"]).code).toBe(0);
+        fs.writeFileSync(path.join(codexHome, "config.toml"), `[mcp_servers.n2n-nexus]\ncommand = "node"\nargs = ["mcp"]\n`);
+        fs.rmSync(executablePath(path.join(bin, "codex")));
+        fs.writeFileSync(callsLog, "");
+
+        const result = run(["uninstall", "codex"]);
+        expect(result.code).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(readJson(codexHooks())).toEqual({ hooks: {} });
+        expect(result.stdout).toContain(`Skipped "codex mcp remove n2n-nexus": the "codex" command was not found on PATH.`);
+        expect(result.stdout).toContain(`still registered in ${path.join(codexHome, "config.toml")}`);
+        expect(calls()).toEqual([]);
     });
 
     it("refuses when codex is not on PATH or hooks.json is broken, writing nothing", () => {
@@ -450,7 +492,7 @@ describe("node path", () => {
         fs.writeFileSync(callsLog, "");
         expect(run(["uninstall", "claude"]).code).toBe(0);
         expect(readJson(claudeSettings())).toEqual(userSettings);
-        expect(calls()).toEqual([["claude", "--version"], ["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"]]);
+        expect(calls()).toEqual([["claude", "mcp", "remove", "--scope", "user", "n2n-nexus"]]);
     });
 
     it("satisfiesEngines follows ^22.14.0 || >=23.6.0", () => {

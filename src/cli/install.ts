@@ -304,7 +304,9 @@ function runClient(client: HookClient, args: string[], stdio: ["ignore", "ignore
 /**
  * Run `<client> mcp remove`. A failure is ignored only when `<client> mcp get`
  * shows the server is not registered (never installed, or already removed);
- * otherwise the removal really failed and we stop before `mcp add`.
+ * otherwise the removal really failed and we stop before `mcp add`. On
+ * uninstall, a client that cannot be run skips the step with a note on how to
+ * remove the registration that is still there.
  */
 function removeMcpServer(client: HookClient, action: InstallOptions["action"], hooksRemoved: boolean): void {
     const removeArgs = mcpRemoveArgs(client);
@@ -322,6 +324,13 @@ function removeMcpServer(client: HookClient, action: InstallOptions["action"], h
             // Keep registered = true: the error below tells the user what to look at.
         }
         if (!registered) return;
+        if (action === "uninstall" && (error as NodeJS.ErrnoException).code === "ENOENT") {
+            const file = mcpConfigFile(client);
+            const what = client === "claude" ? `the "${MCP_SERVER_NAME}" entry under "mcpServers"` : `the [mcp_servers.${MCP_SERVER_NAME}] table`;
+            process.stdout.write(`Skipped "${client} ${removeArgs.join(" ")}": the "${client}" command was not found on PATH. `
+                + `The MCP server is still registered in ${file}; run that command once ${client} is on PATH, or delete ${what} from ${file}.\n`);
+            return;
+        }
         const failure = error as { stderr?: unknown; status?: number | null; message: string };
         const stderr = typeof failure.stderr === "string" ? failure.stderr.trim() : "";
         const detail = stderr || (typeof failure.status === "number" ? `exit code ${failure.status}` : failure.message);
@@ -340,9 +349,12 @@ export function runInstall(options: InstallOptions): number {
         if (action === "install" && /[/\\]_npx[/\\]/.test(entry)) {
             throw new InstallError(`n2n-nexus is running from an npx cache (${entry}), which can be cleared at any time. Install it first: npm i -g ${MCP_PACKAGE}`);
         }
-        const probe = spawnClientSync(client, ["--version"], { stdio: "ignore" });
-        if (probe.error || probe.status !== 0) {
-            throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
+        // Uninstall does not need the client: our hooks are removed from its config file either way.
+        if (action === "install") {
+            const probe = spawnClientSync(client, ["--version"], { stdio: "ignore" });
+            if (probe.error || probe.status !== 0) {
+                throw new InstallError(`The "${client}" command was not found on PATH; install ${client === "claude" ? "Claude Code" : "Codex"} first.`);
+            }
         }
         const node = action === "install" ? (options.node ? checkNodePath(options.node) : stableNodePath()) : undefined;
         const npm = node ? npxFor(node) : undefined;
