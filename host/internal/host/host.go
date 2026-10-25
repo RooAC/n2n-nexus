@@ -102,7 +102,7 @@ func start(o Options, lock *Lock) (*Host, error) {
 	srv := api.New(api.Options{
 		Version: o.Version, Contract: contract, Clock: clk,
 		AllowedHosts: o.Settings.AllowedHosts, RateLimit: o.Settings.RateLimit, RateBurst: o.Settings.RateBurst,
-		Logger: o.Logger, Health: ag.Health,
+		Logger: o.Logger, Health: ag.Health, SessionOf: ag.SessionOf,
 	})
 	c := core.New(core.Deps{Store: st, Clock: clk, Contract: contract, Logger: o.Logger, Identities: ag, Meetings: ag})
 	c.Register(srv)

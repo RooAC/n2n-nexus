@@ -54,6 +54,20 @@ func (a *Agents) Identity(c api.Call) (api.Identity, error) {
 	return api.Identity{Kind: api.IdentityInstance, ID: c.Actor(), Instance: c.Actor()}, nil
 }
 
+// SessionOf is the conversation a tool caller belongs to (api.Options.SessionOf),
+// "" when it cannot be identified or the lookup fails: the call is then rate
+// limited per instance. Read-only, like Identity; call it outside any store
+// transaction.
+func (a *Agents) SessionOf(c *api.Caller) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	id, err := a.callerSession(api.Call{Caller: c})
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
 // callerSession is the session key the caller names: a Claude toolUseId bound
 // within the binding TTL, or a Codex session id; "" when there is none.
 func (a *Agents) callerSession(c api.Call) (string, error) {

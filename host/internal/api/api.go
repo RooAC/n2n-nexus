@@ -125,6 +125,10 @@ type Options struct {
 	Logger       *log.Logger
 	// Health adds fields to GET /health (the agents' session count), nil for none.
 	Health func() map[string]any
+	// SessionOf names the conversation a caller belongs to, "" when it cannot be
+	// identified; tool calls are then limited per conversation instead of per
+	// instance. Nil limits every call per instance.
+	SessionOf func(c *Caller) string
 }
 
 // Server routes requests to the registered tools and hook handler.
@@ -304,7 +308,18 @@ func (s *Server) serveToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instance, _ := req.InstanceID.(string)
-	if instance != "" {
+	caller := parseCaller(req.Caller)
+	session := ""
+	if caller != nil && s.opts.SessionOf != nil {
+		session = s.opts.SessionOf(caller)
+	}
+	switch {
+	case session != "":
+		if wait := s.instances.Take("session:" + session); wait > 0 {
+			writeError(w, rateLimited(wait, fmt.Sprintf("conversation '%s'", session)))
+			return
+		}
+	case instance != "":
 		if wait := s.instances.Take("instance:" + instance); wait > 0 {
 			writeError(w, rateLimited(wait, fmt.Sprintf("instance '%s'", instance)))
 			return
@@ -323,7 +338,7 @@ func (s *Server) serveToolCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &httpError{status: 400, message: fmt.Sprintf("Invalid arguments for %s: %s", req.Tool, err)})
 		return
 	}
-	call := Call{Ctx: r.Context(), InstanceID: instance, Caller: parseCaller(req.Caller), Args: args}
+	call := Call{Ctx: r.Context(), InstanceID: instance, Caller: caller, Args: args}
 	result, err := fn(call)
 	if err != nil {
 		var te *ToolError

@@ -45,7 +45,7 @@ The single source of the protocol: `tools.json` (every tool's name, title, descr
 - `internal/store` — opens `<data dir>/nexus.db` (WAL, foreign keys, one connection), runs `migrations/NNNN_*.sql` in order (version in `PRAGMA user_version`), `Tx` for one transaction per write.
 - `internal/core` — project, doc, meeting, chat, event and task tools and their tables (`0001_core.sql`), hourly task / event cleanup.
 - `internal/agents` — conversations: the hook handler, the direct-message tools, their tables (`0002_agents.sql`). `agents.Agents` is the in-process coordinator holding all wait state behind one mutex.
-- `internal/api` — HTTP server: `GET /health`, `GET /api/tools`, `POST /api/tools/call`, `POST /api/hook`; Host / Origin guard, 16 MB body limit, rate limits per instance, per address and per hook session.
+- `internal/api` — HTTP server: `GET /health`, `GET /api/tools`, `POST /api/tools/call`, `POST /api/hook`; Host / Origin guard, 16 MB body limit, rate limits per conversation (per instance when none is identified), per address and per hook session.
 - `internal/discovery` — UDP LAN discovery responder. `internal/host` — assembles one host (single-instance `host.lock`, database, tools, server, discovery, hourly maintenance, `host.log` / `tray.log` rotation). `internal/tray` — tray menu and texts. `internal/service` — boot service and autostart files per OS, `serve --supervise`, Windows firewall script. `internal/clock`, `internal/testhooks` — the settable clock and `POST /test/clock` / `--test-listen-wait-ms`, compiled only with `-tags testclock`.
 
 ### Client (`src/`, npm package `n2n-nexus`)

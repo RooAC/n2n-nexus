@@ -25,6 +25,7 @@
 - 被叫醒的那一轮开始时，提示词不再重复叫醒时已经提醒过的内容。
 - Codex 的 SessionEnd hook 符合 Codex 的 3 秒上限：`n2n-nexus install codex` 写入超时 3（已有安装要重新运行一次，Codex 的 "clamping SessionEnd hook timeout" 告警随之消失），SessionEnd 请求 1.5 秒后放弃，不再重新查找 host。
 - `n2n-nexus uninstall <client>` 不再要求客户端在 PATH 上：照样从客户端的配置文件里删掉 hooks。找不到客户端时跳过 `<client> mcp remove`，MCP 服务仍有注册时会说明这一点以及怎么删（之后再运行该命令，或从 `~/.claude.json` / `config.toml` 里删掉 `n2n-nexus` 条目）。`install` 仍要求客户端存在。
+- 工具调用在 hooks 识别出对话时按对话限流，共用一个适配器实例的多个对话（同一客户端、同一目录）不再互相耗尽额度；没装 hooks 时仍按实例限流。按客户端地址的限流不变。
 
 ## [0.9.3] - 2026-10-24
 

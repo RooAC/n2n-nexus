@@ -111,8 +111,8 @@ Read when the host starts; command-line flags override it. A missing file or fie
 | `port` | TCP port | `5688` |
 | `discoveryPort` | UDP port of LAN discovery, answered only when `host` is not a loopback address | `5688` |
 | `allowedHosts` | Extra DNS names accepted in the `Host` header (IP literals, `localhost` and `host.docker.internal` are always accepted) | `[]` |
-| `rateLimit` | Tool calls per second per instance; each client address gets 5x. Hooks have their own budget at the same rate per conversation and 5x per client address. `0` disables rate limiting | `20` |
-| `rateBurst` | Calls an instance may make at once before the per-second limit applies (minimum 1) | `60` |
+| `rateLimit` | Tool calls per second per conversation (per instance without the hooks); each client address gets 5x. Hooks have their own budget at the same rate per conversation and 5x per client address. `0` disables rate limiting | `20` |
+| `rateBurst` | Calls a conversation (an instance without the hooks) may make at once before the per-second limit applies (minimum 1) | `60` |
 | `maxAutoTurns` | Automatic turns a conversation may take between its user's prompts (wakes, listening and Stops held open for messages); past it, direct messages wait until the user prompts. Meeting news is not counted or limited. `0` disables the limit | `0` |
 | `stanceReminderMinutes` | Minutes a meeting may stay quiet while required approvers have not taken a stance on its current draft; then each of them is reminded once and the draft's author is told who is missing. Reminders never end a meeting. `0` turns them off | `10` |
 
