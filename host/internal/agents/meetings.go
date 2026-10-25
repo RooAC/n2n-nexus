@@ -219,5 +219,38 @@ func (a *Agents) MeetingClosed(meetingID, byID string) {
 	a.wake(slices.DeleteFunc(active, func(id string) bool { return id == byID })...)
 }
 
-// MeetingNotice (api.MeetingNotifier): not implemented yet.
-func (a *Agents) MeetingNotice(meetingID string, to []string, text string) {}
+// MeetingNotice (api.MeetingNotifier): each of the sessions in to that exists
+// gets the notice from the meeting; those that are active members of it (and
+// have not left) are woken with it, others see it at their next hook.
+func (a *Agents) MeetingNotice(meetingID string, to []string, text string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.o.Clock.Now()
+	told := map[string]bool{}
+	err := a.tx(func(tx *sql.Tx) error {
+		for _, id := range to {
+			if told[id] {
+				continue
+			}
+			s, err := getSession(tx, id)
+			if err != nil {
+				return err
+			}
+			if s == nil {
+				continue
+			}
+			if err := a.addNotice(tx, id, text, meetingID, now); err != nil {
+				return err
+			}
+			told[id] = true
+		}
+		return nil
+	})
+	if err != nil {
+		a.logErr("meeting notice", err)
+		return
+	}
+	active, err := a.members(meetingID, true)
+	a.logErr("meeting notice", err)
+	a.wake(slices.DeleteFunc(active, func(id string) bool { return !told[id] })...)
+}

@@ -19,18 +19,22 @@ type Settings struct {
 	RateLimit    float64 `json:"rateLimit"`
 	RateBurst    float64 `json:"rateBurst"`
 	MaxAutoTurns int     `json:"maxAutoTurns"`
+	// StanceReminderMinutes: a meeting quiet this long reminds the approvers of
+	// its current draft that took no stance (0 disables the reminders).
+	StanceReminderMinutes int `json:"stanceReminderMinutes"`
 }
 
 // Defaults are the settings of a fresh install.
 func Defaults() Settings {
 	return Settings{
-		Host:          "127.0.0.1",
-		Port:          5688,
-		DiscoveryPort: 5688,
-		AllowedHosts:  []string{},
-		RateLimit:     20,
-		RateBurst:     60,
-		MaxAutoTurns:  0,
+		Host:                  "127.0.0.1",
+		Port:                  5688,
+		DiscoveryPort:         5688,
+		AllowedHosts:          []string{},
+		RateLimit:             20,
+		RateBurst:             60,
+		MaxAutoTurns:          0,
+		StanceReminderMinutes: 10,
 	}
 }
 
@@ -67,6 +71,8 @@ func (s Settings) Validate() error {
 		return errors.New("settings: rateLimit and rateBurst must not be negative")
 	case s.MaxAutoTurns < 0:
 		return errors.New("settings: maxAutoTurns must not be negative")
+	case s.StanceReminderMinutes < 0:
+		return errors.New("settings: stanceReminderMinutes must not be negative")
 	}
 	return nil
 }

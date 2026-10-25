@@ -211,3 +211,27 @@ func TestMeetingEndNoticeSparesTheCloserAndAsyncMembers(t *testing.T) {
 	contains(t, h.hook("codex", "UserPromptSubmit", "c").context(), "has ended")
 	eq(t, h.hook("codex", "Stop", "b", stopInactive).str("decision"), "block")
 }
+
+func TestMeetingNoticeWakesActiveMembersOnly(t *testing.T) {
+	h := start(t, listenWait(5*time.Second))
+	for _, s := range []string{"a", "c"} {
+		h.hook("codex", "SessionStart", s)
+		h.hook("codex", "Stop", s, stopActive)
+	}
+	h.meeting("m1", map[string]string{"codex:a": "active", "codex:c": "async"})
+	waitA := h.openHook("codex", texts0BackgroundWait(), "a")
+	h.untilStatus("codex:a", "listening")
+	waitC := h.openHook("codex", texts0BackgroundWait(), "c")
+	h.untilStatus("codex:c", "listening")
+
+	h.ag.MeetingNotice("m1", []string{"codex:a", "codex:c", "codex:ghost"}, "Take a stance on draft #1.")
+	contains(t, waitA.wait(t).str("wake"), "Take a stance on draft #1.")
+	// The async member is not woken; it sees the notice at its next hook. A session that does not exist is skipped.
+	eq(t, h.status("codex:c"), "listening")
+	contains(t, h.hook("codex", "UserPromptSubmit", "c").context(), "Take a stance on draft #1.")
+	if out := waitC.wait(t); out != nil {
+		t.Fatalf("async member woken: %v", out)
+	}
+	eq(t, h.count(`SELECT COUNT(*) FROM agent_notices WHERE session_id = 'codex:ghost'`), 0)
+	eq(t, h.count(`SELECT COUNT(*) FROM agent_notices WHERE meeting_id = 'm1'`), 2)
+}

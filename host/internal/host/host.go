@@ -1,5 +1,6 @@
 // Package host assembles and runs one host: the database, the tools, the HTTP
-// server, LAN discovery and the hourly maintenance. serve and the tray both use it.
+// server, LAN discovery, the hourly maintenance and the stance reminders.
+// serve and the tray both use it.
 package host
 
 import (
@@ -24,6 +25,9 @@ import (
 
 // MaintainInterval is how often old rows are purged.
 const MaintainInterval = time.Hour
+
+// RemindInterval is how often meetings are checked for missing stances on their drafts.
+const RemindInterval = time.Minute
 
 // Options configure a host.
 type Options struct {
@@ -145,6 +149,26 @@ func start(o Options, lock *Lock) (*Host, error) {
 			}
 		}
 	}()
+	if o.Settings.StanceReminderMinutes > 0 {
+		after := time.Duration(o.Settings.StanceReminderMinutes) * time.Minute
+		go func() {
+			t := time.NewTicker(RemindInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					line, err := c.RemindStances(ctx, after)
+					if err != nil {
+						o.Logger.Printf("stance reminders: %v", err)
+					} else if line != "" {
+						o.Logger.Print(line)
+					}
+				}
+			}
+		}()
+	}
 	go func() {
 		defer close(h.done)
 		if err := h.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
