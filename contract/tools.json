@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "tools": [
     {
       "name": "sync_project_assets",
@@ -1401,7 +1401,7 @@
     {
       "name": "send_message",
       "title": "Post Message",
-      "description": "Post to a meeting (meetingId, else the active meeting) or, when no meeting is active, to the shared global chat that every session can read with read_messages. Not a direct message: to message one session use send.",
+      "description": "Post to a meeting (meetingId, else the active meeting) or, when no meeting is active, to the shared global chat that every session can read with read_messages. The sender is this conversation's session id (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else the MCP adapter instance; identity says which. Not a direct message: to message one session use send.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1461,12 +1461,21 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "identity": {
+            "type": "string",
+            "enum": [
+              "session",
+              "instance"
+            ]
           }
         },
         "required": [
           "ok",
           "message",
-          "sentTo"
+          "sentTo",
+          "messageId",
+          "identity"
         ],
         "additionalProperties": false
       },
@@ -1475,7 +1484,7 @@
     {
       "name": "read_messages",
       "title": "Read Chat / Meeting Messages",
-      "description": "Read global chat (default) or one meeting's messages (meetingId) that this MCP adapter has not fetched yet; the host keeps the cursor, so each message is returned once per adapter. Not your direct messages: those come through read. Message 'from' values are adapter instance ids, not peers session ids.",
+      "description": "Read global chat (default) or one meeting's messages (meetingId). Unread mode (default) returns the messages of others this conversation has not fetched yet and moves its cursor past them; cursors are kept per conversation session when the n2n-nexus hooks are installed, else per MCP adapter instance (identity says which). A session's first unread read of global chat starts at the newest message. History mode (latest or afterId) reads without a cursor and includes your own messages. Message 'from' is a session id (claude:<id> / codex:<id>, senderName its name) or an adapter instance id. Not your direct messages: those come through read.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1490,12 +1499,22 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 500,
-            "description": "Most messages to return (oldest unread first)."
+            "description": "Most messages to return (oldest first; with latest, the newest)."
           },
           "meetingId": {
             "type": "string",
             "minLength": 1,
             "description": "Meeting to read; omit for global chat."
+          },
+          "latest": {
+            "type": "boolean",
+            "description": "History mode: the newest count messages, oldest first. Moves no cursor. Not with afterId."
+          },
+          "afterId": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "History mode: the first count messages with an id above afterId. Moves no cursor. Not with latest."
           }
         }
       },
@@ -1507,6 +1526,20 @@
             "enum": [
               "meeting",
               "global"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "unread",
+              "history"
+            ]
+          },
+          "identity": {
+            "type": "string",
+            "enum": [
+              "session",
+              "instance"
             ]
           },
           "meetingId": {
@@ -1524,6 +1557,12 @@
                 },
                 "from": {
                   "type": "string"
+                },
+                "senderName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "text": {
                   "type": "string"
@@ -1550,8 +1589,11 @@
                 }
               },
               "required": [
+                "id",
                 "from",
+                "senderName",
                 "text",
+                "category",
                 "timestamp"
               ],
               "additionalProperties": false
@@ -1561,10 +1603,14 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "note": {
+            "type": "string"
           }
         },
         "required": [
           "source",
+          "mode",
           "messages",
           "count"
         ],
@@ -1885,7 +1931,7 @@
     {
       "name": "list_meetings",
       "title": "List Meetings",
-      "description": "List meetings, newest first: id, topic, status, initiator, participants, message/decision counts, summary. Read messages with read_messages(meetingId).",
+      "description": "List meetings, newest first: id, topic, status, initiator, participants, message/decision counts, summary. Initiator and participants are conversation session ids (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else MCP adapter instance ids. Read messages with read_messages(meetingId).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -1997,7 +2043,7 @@
     {
       "name": "start_meeting",
       "title": "Start Meeting",
-      "description": "Start a meeting and return its id. It becomes the active meeting that send_message and end_meeting use when no meetingId is given.",
+      "description": "Start a meeting and return its id. It becomes the active meeting that send_message and end_meeting use when no meetingId is given. The initiator is this conversation's session id when the n2n-nexus hooks are installed, else the MCP adapter instance.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,

@@ -4,9 +4,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-
+	"slices"
+	
 	"github.com/n2ns/n2n-nexus/host/internal/api"
 )
+
+// ---------------------------------------------------------------------------
+// identity
+
+// identity resolves who a chat or meeting call acts as; without a resolver
+// every call acts as its instance. Call it outside c.tx: the resolver uses
+// the store, which has one connection.
+func (c *Core) identity(call api.Call) (api.Identity, error) {
+	if c.d.Identities == nil {
+		return api.Identity{Kind: api.IdentityInstance, ID: call.Actor(), Instance: call.Actor()}, nil
+	}
+	return c.d.Identities.Identity(call)
+}
 
 // ---------------------------------------------------------------------------
 // send_message
@@ -18,8 +32,12 @@ type sendMessageArgs struct {
 }
 
 func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
+	id, err := c.identity(call)
+	if err != nil {
+		return nil, err
+	}
 	var result map[string]any
-	err := c.tx(call, func(tx *sql.Tx) error {
+	err = c.tx(call, func(tx *sql.Tx) error {
 		meetingID := a.MeetingID
 		if meetingID == "" {
 			var err error
@@ -28,23 +46,25 @@ func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
 			}
 		}
 		if meetingID != "" {
-			if err := c.addMeetingMessage(tx, meetingID, call.Actor(), a.Message, a.Category); err != nil {
+			messageID, err := c.addMeetingMessage(tx, meetingID, id.ID, a.Message, a.Category)
+			if err != nil {
 				return err
 			}
-			result = map[string]any{"ok": true, "sentTo": "meeting", "meetingId": meetingID,
-				"message": fmt.Sprintf("Message sent to meeting %s.", meetingID)}
+			result = map[string]any{"ok": true, "sentTo": "meeting", "meetingId": meetingID, "messageId": messageID,
+				"identity": id.Kind, "message": fmt.Sprintf("Message sent to meeting %s.", meetingID)}
 			return nil
 		}
 		res, err := tx.Exec(`INSERT INTO global_messages (sender, text, category, timestamp) VALUES (?, ?, ?, ?)`,
-			call.Actor(), a.Message, nullString(a.Category), c.now())
+			id.ID, a.Message, nullString(a.Category), c.now())
 		if err != nil {
 			return err
 		}
-		id, err := res.LastInsertId()
+		messageID, err := res.LastInsertId()
 		if err != nil {
 			return err
 		}
-		result = map[string]any{"ok": true, "sentTo": "global", "messageId": id, "message": "Message sent to global chat."}
+		result = map[string]any{"ok": true, "sentTo": "global", "messageId": messageID, "identity": id.Kind,
+			"message": "Message sent to global chat."}
 		return nil
 	})
 	if err != nil {
@@ -54,27 +74,32 @@ func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
 }
 
 // addMeetingMessage appends to an active meeting, adds the sender to its
-// participants and records a DECISION message as a decision.
-func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category string) error {
+// participants and records a DECISION message as a decision; it returns the message id.
+func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category string) (int64, error) {
 	var status, participantsJSON string
 	err := tx.QueryRow(`SELECT status, participants FROM meetings WHERE id = ?`, meetingID).Scan(&status, &participantsJSON)
 	if err == sql.ErrNoRows {
-		return notFoundMeeting(meetingID)
+		return 0, notFoundMeeting(meetingID)
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if status != "active" {
-		return api.Errorf("Meeting '%s' is %s, cannot add messages.", meetingID, status)
+		return 0, api.Errorf("Meeting '%s' is %s, cannot add messages.", meetingID, status)
 	}
 	now := c.now()
-	if _, err := tx.Exec(`INSERT INTO meeting_messages (meeting_id, sender, text, category, timestamp) VALUES (?, ?, ?, ?, ?)`,
-		meetingID, from, text, nullString(category), now); err != nil {
-		return err
+	res, err := tx.Exec(`INSERT INTO meeting_messages (meeting_id, sender, text, category, timestamp) VALUES (?, ?, ?, ?, ?)`,
+		meetingID, from, text, nullString(category), now)
+	if err != nil {
+		return 0, err
+	}
+	messageID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
 	}
 	var participants []string
 	if err := json.Unmarshal([]byte(participantsJSON), &participants); err != nil {
-		return err
+		return 0, err
 	}
 	known := false
 	for _, p := range participants {
@@ -83,15 +108,15 @@ func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category str
 	if !known {
 		raw, _ := json.Marshal(append(participants, from))
 		if _, err := tx.Exec(`UPDATE meetings SET participants = ? WHERE id = ?`, string(raw), meetingID); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if category == "DECISION" {
 		if _, err := tx.Exec(`INSERT INTO decisions (meeting_id, content, timestamp) VALUES (?, ?, ?)`, meetingID, text, now); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return messageID, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -100,37 +125,94 @@ func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category str
 type readMessagesArgs struct {
 	Count     int    `json:"count"`
 	MeetingID string `json:"meetingId"`
+	Latest    bool   `json:"latest"`
+	AfterID   *int64 `json:"afterId"`
 }
 
-// meetingMessage: a meeting message without a category has category null.
-type meetingMessage struct {
-	ID        int64   `json:"id"`
-	From      string  `json:"from"`
-	Text      string  `json:"text"`
-	Category  *string `json:"category"`
-	Timestamp string  `json:"timestamp"`
+// chatMessage is a global or meeting message. SenderName is the sending
+// session's name, null for an instance; Category is null when none was given.
+type chatMessage struct {
+	ID         int64   `json:"id"`
+	From       string  `json:"from"`
+	SenderName *string `json:"senderName"`
+	Text       string  `json:"text"`
+	Category   *string `json:"category"`
+	Timestamp  string  `json:"timestamp"`
 }
 
-// globalMessage: a global message without a category has no category field.
-type globalMessage struct {
-	ID        int64   `json:"id"`
-	From      string  `json:"from"`
-	Text      string  `json:"text"`
-	Category  *string `json:"category,omitempty"`
-	Timestamp string  `json:"timestamp"`
+// firstGlobalReadNote is returned by the first unread read of global chat as a session.
+const firstGlobalReadNote = "First read of global chat as this session: unread messages are counted from now on. Use latest or afterId to see earlier messages."
+
+// messageSource is the table and filter of one read_messages context.
+type messageSource struct {
+	contextType, contextID string
+	table                  string
+	// where filters the context ("" for global chat); args are its arguments.
+	where string
+	args  []any
+}
+
+func sourceOf(meetingID string) messageSource {
+	if meetingID == "" {
+		return messageSource{contextType: "global", contextID: "global", table: "global_messages"}
+	}
+	return messageSource{contextType: "meeting", contextID: meetingID, table: "meeting_messages",
+		where: "m.meeting_id = ? AND ", args: []any{meetingID}}
+}
+
+// query selects the context's messages matching cond (with its arguments appended).
+func (s messageSource) query(tx *sql.Tx, cond, tail string, args ...any) ([]chatMessage, error) {
+	rows, err := tx.Query(`SELECT m.id, m.sender, m.text, m.category, m.timestamp, s.name
+		FROM `+s.table+` m LEFT JOIN agent_sessions s ON s.id = m.sender
+		WHERE `+s.where+cond+` `+tail, append(append([]any{}, s.args...), args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []chatMessage
+	for rows.Next() {
+		var m chatMessage
+		var category, name sql.NullString
+		if err := rows.Scan(&m.ID, &m.From, &m.Text, &category, &m.Timestamp, &name); err != nil {
+			return nil, err
+		}
+		if category.Valid {
+			m.Category = &category.String
+		}
+		if name.Valid {
+			m.SenderName = &name.String
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// maxID is the newest message id of the context, or 0.
+func (s messageSource) maxID(tx *sql.Tx) (int64, error) {
+	var id int64
+	err := tx.QueryRow(`SELECT COALESCE(MAX(m.id), 0) FROM `+s.table+` m WHERE `+s.where+`1`, s.args...).Scan(&id)
+	return id, err
 }
 
 func (c *Core) readMessages(call api.Call, a readMessagesArgs) (any, error) {
-	if call.InstanceID == "" {
-		return nil, api.Errorf("read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.")
+	if a.Latest && a.AfterID != nil {
+		return nil, api.Errorf("read_messages takes latest or afterId, not both.")
 	}
-	contextType, contextID := "global", "global"
-	query := `SELECT id, sender, text, category, timestamp FROM global_messages WHERE id > ? ORDER BY id LIMIT ?`
-	if a.MeetingID != "" {
-		contextType, contextID = "meeting", a.MeetingID
-		query = `SELECT id, sender, text, category, timestamp FROM meeting_messages WHERE meeting_id = ? AND id > ? ORDER BY id LIMIT ?`
+	src := sourceOf(a.MeetingID)
+	history := a.Latest || a.AfterID != nil
+	// History reads need no identity: they neither read nor move a cursor.
+	var id api.Identity
+	if !history {
+		var err error
+		if id, err = c.identity(call); err != nil {
+			return nil, err
+		}
+		if id.Kind == api.IdentityInstance && call.InstanceID == "" {
+			return nil, api.Errorf("read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically) to keep unread cursors; history reads (latest or afterId) need none.")
+		}
 	}
-	var messages []globalMessage
+	var messages []chatMessage
+	note := ""
 	err := c.tx(call, func(tx *sql.Tx) error {
 		if a.MeetingID != "" {
 			if ok, err := meetingExists(tx, a.MeetingID); err != nil {
@@ -139,59 +221,74 @@ func (c *Core) readMessages(call api.Call, a readMessagesArgs) (any, error) {
 				return notFoundMeeting(a.MeetingID)
 			}
 		}
+		var err error
+		switch {
+		case a.Latest:
+			messages, err = src.query(tx, "1", "ORDER BY m.id DESC LIMIT ?", a.Count)
+			slices.Reverse(messages)
+			return err
+		case a.AfterID != nil:
+			messages, err = src.query(tx, "m.id > ?", "ORDER BY m.id LIMIT ?", *a.AfterID, a.Count)
+			return err
+		}
 		var last int64
-		err := tx.QueryRow(`SELECT last_read_id FROM read_cursors WHERE instance_id = ? AND context_type = ? AND context_id = ?`,
-			call.InstanceID, contextType, contextID).Scan(&last)
-		if err != nil && err != sql.ErrNoRows {
+		err = tx.QueryRow(`SELECT last_read_id FROM read_cursors WHERE instance_id = ? AND context_type = ? AND context_id = ?`,
+			id.ID, src.contextType, src.contextID).Scan(&last)
+		first := err == sql.ErrNoRows
+		if err != nil && !first {
 			return err
 		}
-		args := []any{last, a.Count}
-		if a.MeetingID != "" {
-			args = append([]any{a.MeetingID}, args...)
-		}
-		rows, err := tx.Query(query, args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var m globalMessage
-			var category sql.NullString
-			if err := rows.Scan(&m.ID, &m.From, &m.Text, &category, &m.Timestamp); err != nil {
-				rows.Close()
+		var cursor int64
+		switch {
+		case first && id.Kind == api.IdentitySession && a.MeetingID == "":
+			// A session's first read of global chat starts at the newest message.
+			if cursor, err = src.maxID(tx); err != nil {
 				return err
 			}
-			if category.Valid {
-				m.Category = &category.String
+			note = firstGlobalReadNote
+		default:
+			// The caller's own messages are left out; the cursor moves past them.
+			if messages, err = src.query(tx, "m.id > ? AND m.sender != ?", "ORDER BY m.id LIMIT ?", last, id.ID, a.Count); err != nil {
+				return err
 			}
-			messages = append(messages, m)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(messages) == 0 {
-			return nil
+			if len(messages) == a.Count {
+				cursor = messages[len(messages)-1].ID
+			} else {
+				// Fewer than count: the scan reached the newest message.
+				if cursor, err = src.maxID(tx); err != nil {
+					return err
+				}
+			}
+			if cursor <= last {
+				return nil
+			}
 		}
 		_, err = tx.Exec(`
 			INSERT INTO read_cursors (instance_id, context_type, context_id, last_read_id, updated_at) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (instance_id, context_type, context_id) DO UPDATE SET last_read_id = excluded.last_read_id, updated_at = excluded.updated_at`,
-			call.InstanceID, contextType, contextID, messages[len(messages)-1].ID, c.now())
+			id.ID, src.contextType, src.contextID, cursor, c.now())
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	if a.MeetingID == "" {
-		if messages == nil {
-			messages = []globalMessage{}
-		}
-		return map[string]any{"source": "global", "messages": messages, "count": len(messages)}, nil
+	result := map[string]any{"mode": "unread", "count": len(messages)}
+	if history {
+		result["mode"] = "history"
+	} else {
+		result["identity"] = id.Kind
 	}
-	out := make([]meetingMessage, len(messages))
-	for i, m := range messages {
-		out[i] = meetingMessage(m)
+	if note != "" {
+		result["note"] = note
 	}
-	return map[string]any{"source": "meeting", "meetingId": a.MeetingID, "messages": out, "count": len(out)}, nil
+	if messages == nil {
+		messages = []chatMessage{}
+	}
+	result["source"], result["messages"] = "global", messages
+	if a.MeetingID != "" {
+		result["source"], result["meetingId"] = "meeting", a.MeetingID
+	}
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------

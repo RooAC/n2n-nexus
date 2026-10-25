@@ -32,6 +32,12 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t, nil)
+}
+
+// newHarnessWith runs the core tools with an identity resolver (nil = every call acts as its instance).
+func newHarnessWith(t *testing.T, ids api.IdentityResolver) *harness {
+	t.Helper()
 	contract, err := protocol.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +50,7 @@ func newHarness(t *testing.T) *harness {
 	clk.Set(start)
 	logger := log.New(io.Discard, "", 0)
 	srv := api.New(api.Options{Version: "test", Contract: contract, Clock: clk, Logger: logger})
-	c := New(Deps{Store: st, Clock: clk, Contract: contract, Logger: logger})
+	c := New(Deps{Store: st, Clock: clk, Contract: contract, Logger: logger, Identities: ids})
 	c.Register(srv)
 	h := &harness{t: t, core: c, srv: srv, store: st, clock: clk, http: httptest.NewServer(srv)}
 	t.Cleanup(func() {
@@ -63,9 +69,18 @@ type response struct {
 // call posts a tool call; instance "" sends no instanceId.
 func (h *harness) call(tool string, args any, instance string) response {
 	h.t.Helper()
+	return h.callAs(tool, args, instance, nil)
+}
+
+// callAs posts a tool call with a caller (nil sends none).
+func (h *harness) callAs(tool string, args any, instance string, caller *api.Caller) response {
+	h.t.Helper()
 	body := map[string]any{"tool": tool, "args": args}
 	if instance != "" {
 		body["instanceId"] = instance
+	}
+	if caller != nil {
+		body["caller"] = caller
 	}
 	raw, _ := json.Marshal(body)
 	res, err := http.Post(h.http.URL+"/api/tools/call", "application/json", bytes.NewReader(raw))

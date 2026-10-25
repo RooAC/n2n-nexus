@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -117,8 +118,8 @@ func TestMeetingMessagesAndList(t *testing.T) {
 	if res["sentTo"] != "meeting" || res["meetingId"] != a {
 		t.Fatalf("send %v", res)
 	}
-	if _, ok := res["messageId"]; ok {
-		t.Fatal("meeting message returns a messageId")
+	if res["messageId"] != float64(h.count(`SELECT MAX(id) FROM meeting_messages`)) || res["identity"] != "instance" {
+		t.Fatalf("send %v", res)
 	}
 	h.ok("send_message", map[string]any{"message": "d", "category": "DECISION"}, "ide-a")
 	h.ok("send_message", map[string]any{"message": "plain"}, "ide-b")
@@ -195,5 +196,67 @@ func TestMeetingMessagesAndList(t *testing.T) {
 	json.Unmarshal(h.call("list_meetings", map[string]any{"limit": 1}, "").result, &limited)
 	if limited.Count != 1 {
 		t.Fatalf("limit %+v", limited)
+	}
+}
+
+func TestMeetingsPerSession(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	id := h.as("a", "start_meeting", map[string]any{"topic": "Plan"})["meetingId"].(string)
+	h.ok("send_message", map[string]any{"message": "m1"}, "mcp-0")
+	sent := h.as("c", "send_message", map[string]any{"message": "m2"})
+	if sent["sentTo"] != "meeting" || sent["identity"] != "session" ||
+		sent["messageId"] != float64(h.count(`SELECT MAX(id) FROM meeting_messages`)) {
+		t.Fatalf("send %v", sent)
+	}
+	// Two sessions on the same instance each read every meeting message, from the start.
+	for _, s := range []string{"a", "b"} {
+		res := h.as(s, "read_messages", map[string]any{"meetingId": id})
+		if got := messageTexts(res); !slices.Equal(got, []string{"m1", "m2"}) || res["note"] != nil || res["source"] != "meeting" {
+			t.Fatalf("%s: %v", s, res)
+		}
+	}
+	h.as("b", "send_message", map[string]any{"message": "m3"})
+	if got := messageTexts(h.as("a", "read_messages", map[string]any{"meetingId": id})); !slices.Equal(got, []string{"m3"}) {
+		t.Fatalf("a again %v", got)
+	}
+	if got := messageTexts(h.as("b", "read_messages", map[string]any{"meetingId": id})); len(got) != 0 {
+		t.Fatalf("b again %v", got)
+	}
+
+	var listed struct {
+		Meetings []struct {
+			Initiator    string   `json:"initiator"`
+			Participants []string `json:"participants"`
+		} `json:"meetings"`
+	}
+	json.Unmarshal(h.call("list_meetings", map[string]any{}, "").result, &listed)
+	m := listed.Meetings[0]
+	if m.Initiator != "codex:a" || !slices.Equal(m.Participants, []string{"codex:a", "mcp-0", "codex:c", "codex:b"}) {
+		t.Fatalf("meeting %+v", m)
+	}
+
+	// Meeting events name the acting identity.
+	h.as("a", "end_meeting", map[string]any{"meetingId": id})
+	h.as("b", "archive_meeting", map[string]any{"meetingId": id})
+	h.ok("reopen_meeting", map[string]any{"meetingId": id}, "mcp-0")
+	var actors []string
+	for _, e := range h.ok("list_events", map[string]any{"action": "meeting"}, "")["events"].([]any) {
+		ev := e.(map[string]any)
+		actors = append(actors, ev["action"].(string)+" "+ev["actor"].(string))
+	}
+	if want := []string{"meeting.reopen mcp-0", "meeting.archive codex:b", "meeting.end codex:a", "meeting.start codex:a"}; !slices.Equal(actors, want) {
+		t.Fatalf("events %v", actors)
+	}
+
+	// An unresolved session cannot start a meeting or read one by cursor; history still works.
+	if r := h.callAs("start_meeting", map[string]any{"topic": "x"}, "mcp-1", codex("lost")); r.status != 400 {
+		t.Fatalf("start: %d", r.status)
+	}
+	if r := h.callAs("read_messages", map[string]any{"meetingId": id}, "mcp-1", codex("lost")); r.status != 400 {
+		t.Fatalf("read: %d", r.status)
+	}
+	r := h.callAs("read_messages", map[string]any{"meetingId": id, "afterId": 0}, "mcp-1", codex("lost"))
+	if r.status != 200 || !strings.Contains(string(r.result), `"text":"m3"`) {
+		t.Fatalf("history: %d %s", r.status, r.err)
 	}
 }
