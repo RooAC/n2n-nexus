@@ -30,6 +30,8 @@ type Deps struct {
 	Clock    clock.Clock
 	Contract *protocol.Contract
 	Logger   *log.Logger
+	// Identities resolves who a chat or meeting call acts as; nil = always the instance.
+	Identities api.IdentityResolver
 }
 
 // Core holds the core tools.

@@ -57,6 +57,34 @@ func (c Call) Actor() string {
 	return c.InstanceID
 }
 
+// Identity is who a chat or meeting tool call acts as: the conversation when
+// its hooks made it known, else the adapter instance.
+type Identity struct {
+	// Kind is IdentitySession or IdentityInstance.
+	Kind string
+	// ID is the session key (claude:<id> / codex:<id>) or the instance id.
+	ID string
+	// Name is the session's name; "" for an instance.
+	Name string
+	// Instance is the calling adapter's instance (Call.Actor()), kept for events.
+	Instance string
+}
+
+// Identity kinds.
+const (
+	IdentitySession  = "session"
+	IdentityInstance = "instance"
+)
+
+// IdentityResolver resolves the identity of a call. It uses the database and
+// must be called outside any store transaction (the store has one connection).
+// It returns a ToolError when the call names a conversation that cannot be
+// resolved although its instance has resolved one before: falling back to the
+// instance would share the instance's cursors with its other conversations.
+type IdentityResolver interface {
+	Identity(c Call) (Identity, error)
+}
+
 // ToolFunc handles a tool; the result must satisfy the tool's output schema.
 type ToolFunc func(c Call) (any, error)
 
