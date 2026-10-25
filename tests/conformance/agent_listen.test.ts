@@ -22,7 +22,7 @@ describe("POST /api/hook: background wait", () => {
         expect(payload.output?.wake).toContain(`${NOTICE_PREFIX} 1 new direct message:`);
         expect(payload.output?.wake).toContain("wake up");
         expect(await status(r)).toBe("working");
-        expect(await hook("claude", "UserPromptSubmit", s("r"))).not.toBeNull();  // still unread until read
+        expect(await hook("claude", "UserPromptSubmit", s("r"))).toBeNull();      // the woken turn's prompt does not repeat the wake
     });
 
     it("waits while the turn is still ending, and Stop keeps the session listening", async () => {
