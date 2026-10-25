@@ -627,7 +627,7 @@ func (a *Agents) announce(sessionID string, b batch, label, closing string) (str
 			if i == limit {
 				break
 			}
-			line := fmt.Sprintf("- From %s (%s) at %s: %s", m.FromName, m.FromID, m.CreatedAt, a.preview(m.Text))
+			line := fmt.Sprintf("- From %s (%s) at %s: %s", displayName(m.FromName, m.FromTitle), m.FromID, m.CreatedAt, a.preview(m.Text))
 			if !m.ExpectsReply {
 				line += " " + h.Texts.NoReplyMark
 			}
@@ -753,7 +753,7 @@ func (a *Agents) introduce(sessionID string) (string, error) {
 			if i == h.Limits.NotifyListLimit {
 				break
 			}
-			line := fmt.Sprintf("- %s (%s), %s, %s", p.Name, p.ID, p.Client, p.Status)
+			line := fmt.Sprintf("- %s (%s), %s, %s", displayName(p.Name, p.Title), p.ID, p.Client, p.Status)
 			if p.Cwd != "" {
 				line += ", " + p.Cwd
 			}

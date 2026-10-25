@@ -46,7 +46,7 @@ describe("tool results", () => {
         await call("read_messages", { latest: true, count: 5 });
         await call("peers");
         await call("peers", { includeOffline: true });
-        await call("set_profile", { name: "contract-test", note: "checking contracts" });
+        await call("set_profile", { name: "contract-test", note: "checking contracts", title: "Contract test" });
         await call("listen", { on: false });
         await call("send", { to: "codex:peer", text: "direct hi", notifyWhenIdle: true });
         const inbox = await call("read", {}, "peer") as { messages: { messageId: string }[] };

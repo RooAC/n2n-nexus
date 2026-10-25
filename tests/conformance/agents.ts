@@ -20,7 +20,7 @@ export type HookOutput = {
     dispatchId?: string;
     timeout?: boolean;
 } | null;
-export type Profile = { id: string; name: string; client: HookClient; cwd: string; note: string; status: string; lastActiveAt: string };
+export type Profile = { id: string; name: string; title: string; client: HookClient; cwd: string; note: string; status: string; lastActiveAt: string };
 
 export const { noticePrefix: NOTICE_PREFIX, notifyClosing: NOTIFY_CLOSING, stopClosing: STOP_CLOSING, statusNote: STATUS_NOTE,
     sessionStartClosing: SESSION_START_CLOSING, messageTrustNote: MESSAGE_TRUST_NOTE, noAgentSessionError: NO_AGENT_SESSION_ERROR } = HOOK.texts;

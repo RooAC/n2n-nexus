@@ -32,15 +32,18 @@ var bg = context.Background()
 
 type session struct {
 	ID, Client, Name, Note, Cwd, Status string
-	Listening                           bool
-	CreatedAt, LastActiveAt             string
+	// Title is the conversation's title, for display only; TitleSource is
+	// "client" (from the hooks), "self" (set_profile) or "" (none).
+	Title, TitleSource      string
+	Listening               bool
+	CreatedAt, LastActiveAt string
 }
 
 type message struct {
-	ID, FromID, FromName, ToID, Text string
-	ReplyTo                          *string
-	Status, CreatedAt, ExpiresAt     string
-	NotifiedAt, ReadAt               *string
+	ID, FromID, FromName, FromTitle, ToID, Text string
+	ReplyTo                                     *string
+	Status, CreatedAt, ExpiresAt                string
+	NotifiedAt, ReadAt                          *string
 	// ExpectsReply: the sender wants an answer; Wake: the message may wake the recipient.
 	ExpectsReply, Wake bool
 }
@@ -55,12 +58,12 @@ type notice struct {
 	Wakes bool
 }
 
-const sessionColumns = "id, client, name, note, cwd, status, listening, created_at, last_active_at"
+const sessionColumns = "id, client, name, note, cwd, status, listening, created_at, last_active_at, title, title_source"
 
 func scanSession(row interface{ Scan(...any) error }) (*session, error) {
 	var s session
 	var listening int
-	if err := row.Scan(&s.ID, &s.Client, &s.Name, &s.Note, &s.Cwd, &s.Status, &listening, &s.CreatedAt, &s.LastActiveAt); err != nil {
+	if err := row.Scan(&s.ID, &s.Client, &s.Name, &s.Note, &s.Cwd, &s.Status, &listening, &s.CreatedAt, &s.LastActiveAt, &s.Title, &s.TitleSource); err != nil {
 		return nil, err
 	}
 	s.Listening = listening == 1
@@ -240,8 +243,20 @@ func (a *Agents) setListening(id string, on bool) error {
 	return err
 }
 
-// updateProfile sets name and/or note; a name another non-offline session uses is the caller's error.
-func (a *Agents) updateProfile(id string, name, note *string) (*session, error) {
+// setClientTitle stores the title the client's hook reported, unless the
+// session set its own with set_profile; an unchanged title is not written.
+func (a *Agents) setClientTitle(id, title string) error {
+	title = cutUnits(title, a.o.Contract.Hook.Limits.MaxTitleChars)
+	if title == "" {
+		return nil
+	}
+	_, err := a.db().ExecContext(bg, "UPDATE agent_sessions SET title = ?, title_source = 'client' WHERE id = ? AND title_source != 'self' AND title != ?", title, id, title)
+	return err
+}
+
+// updateProfile sets name, note and/or title; a name another non-offline session uses is the caller's error.
+// A non-empty title is the session's own (the client's no longer replaces it); "" clears it and lets the client's apply again.
+func (a *Agents) updateProfile(id string, name, note, title *string) (*session, error) {
 	var out *session
 	err := a.tx(func(tx *sql.Tx) error {
 		if name != nil {
@@ -258,6 +273,15 @@ func (a *Agents) updateProfile(id string, name, note *string) (*session, error) 
 		}
 		if note != nil {
 			if _, err := tx.ExecContext(bg, "UPDATE agent_sessions SET note = ? WHERE id = ?", *note, id); err != nil {
+				return err
+			}
+		}
+		if title != nil {
+			source := "self"
+			if *title == "" {
+				source = ""
+			}
+			if _, err := tx.ExecContext(bg, "UPDATE agent_sessions SET title = ?, title_source = ? WHERE id = ?", *title, source, id); err != nil {
 				return err
 			}
 		}
@@ -323,7 +347,7 @@ func (a *Agents) addMessage(fromID, toID, text string, replyTo *string, expectsR
 }
 
 const messageSelect = `
-    SELECT m.id, m.from_id, s.name AS from_name, m.to_id, m.text, m.reply_to, m.status,
+    SELECT m.id, m.from_id, s.name AS from_name, s.title AS from_title, m.to_id, m.text, m.reply_to, m.status,
            m.created_at, m.expires_at, m.notified_at, m.read_at, m.expects_reply, m.wake
     FROM agent_messages m JOIN agent_sessions s ON s.id = m.from_id`
 
@@ -336,7 +360,7 @@ func queryMessages(q querier, query string, args ...any) ([]*message, error) {
 	var out []*message
 	for rows.Next() {
 		var m message
-		if err := rows.Scan(&m.ID, &m.FromID, &m.FromName, &m.ToID, &m.Text, &m.ReplyTo, &m.Status, &m.CreatedAt, &m.ExpiresAt, &m.NotifiedAt, &m.ReadAt, &m.ExpectsReply, &m.Wake); err != nil {
+		if err := rows.Scan(&m.ID, &m.FromID, &m.FromName, &m.FromTitle, &m.ToID, &m.Text, &m.ReplyTo, &m.Status, &m.CreatedAt, &m.ExpiresAt, &m.NotifiedAt, &m.ReadAt, &m.ExpectsReply, &m.Wake); err != nil {
 			return nil, err
 		}
 		out = append(out, &m)
@@ -549,17 +573,29 @@ func (a *Agents) resolveToolUse(toolUseID string, now time.Time) (string, error)
 func (a *Agents) preview(text string) string {
 	line, _, _ := strings.Cut(text, "\n")
 	line = strings.TrimSuffix(line, "\r")
-	limit := a.o.Contract.Hook.Limits.PreviewChars
+	return cutUnits(line, a.o.Contract.Hook.Limits.PreviewChars)
+}
+
+// cutUnits cuts s to at most limit UTF-16 code units, never splitting a surrogate pair.
+func cutUnits(s string, limit int) string {
 	units := 0
-	for i, r := range line {
+	for i, r := range s {
 		n := utf16.RuneLen(r)
 		if n < 0 {
 			n = 1
 		}
 		if units+n > limit {
-			return line[:i]
+			return s[:i]
 		}
 		units += n
 	}
-	return line
+	return s
+}
+
+// displayName is how notifications name a session: its name, followed by its title in quotes when it has one.
+func displayName(name, title string) string {
+	if title == "" {
+		return name
+	}
+	return fmt.Sprintf("%s \"%s\"", name, title)
 }

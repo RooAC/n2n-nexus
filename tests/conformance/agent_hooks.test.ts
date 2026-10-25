@@ -64,6 +64,29 @@ describe("POST /api/hook: sessions and names", () => {
         expect(await hook("claude", "UnknownEvent", s("a"))).toBeNull();
     });
 
+    it("takes the conversation title from SessionStart, UserPromptSubmit and Stop, cut to maxTitleChars", async () => {
+        const s = ids();
+        await hook("claude", "SessionStart", s("a"));
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("");
+        await hook("claude", "SessionStart", s("a"), { title: "Plan the release" });
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("Plan the release");
+        await hook("claude", "UserPromptSubmit", s("a"), { title: "Release 2.0" });
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("Release 2.0");
+        await hook("claude", "Stop", s("a"), { title: "Release 2.1", stop_hook_active: false });
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("Release 2.1");
+
+        // Tool-call hooks and empty titles leave it alone.
+        await hook("claude", "PostToolUse", s("a"), { title: "from a tool call" });
+        await hook("claude", "PreToolUse", s("a"), { title: "from a tool call", tool_use_id: `toolu_t_${s("a")}` });
+        await hook("claude", "UserPromptSubmit", s("a"), { title: "" });
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("Release 2.1");
+
+        // Cut in UTF-16 units, never inside a surrogate pair.
+        const max = HOOK.limits.maxTitleChars;
+        await hook("claude", "UserPromptSubmit", s("a"), { title: `${"t".repeat(max - 1)}\u{1F600}rest` });
+        expect((await profile(`claude:${s("a")}`))?.title).toBe("t".repeat(max - 1));
+    });
+
     it("SessionEnd sets offline and prints nothing", async () => {
         const s = ids();
         await hook("codex", "SessionStart", s("a"));
@@ -96,6 +119,15 @@ describe("POST /api/hook: SessionStart introduction", () => {
         expect(text.endsWith(SESSION_START_CLOSING)).toBe(true);
         expect(text).toContain(STATUS_NOTE);
         expect(await status(`claude:${s("h")}`)).toBe("idle");
+    });
+
+    it("shows the title of a listed session and of a message's sender after its name", async () => {
+        const s = ids();
+        await hook("codex", "SessionStart", s("a"), { title: "Fix login" });
+        const text = context(await hook("claude", "SessionStart", s("b")));
+        expect(text).toContain(`- codex@proj "Fix login" (codex:${s("a")}), codex, idle, /work/proj`);
+        await send(s("a"), `claude:${s("b")}`, "hello");
+        expect(context(await hook("claude", "UserPromptSubmit", s("b")))).toContain(`- From codex@proj "Fix login" (codex:${s("a")}) at `);
     });
 });
 

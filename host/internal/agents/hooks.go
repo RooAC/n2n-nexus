@@ -95,6 +95,14 @@ func (a *Agents) hook(client string, input map[string]any) (map[string]any, *wai
 	if event != "Stop" {
 		a.cancelBackgroundWaits(id)
 	}
+	// The client reports the conversation's title with these events only.
+	if event == "SessionStart" || event == "UserPromptSubmit" || event == "Stop" {
+		if title, _ := input["title"].(string); title != "" {
+			if err := a.setClientTitle(id, title); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
 
 	switch event {
 	case "SessionStart":

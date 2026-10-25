@@ -9,6 +9,7 @@ import (
 type profile struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
+	Title        string `json:"title"`
 	Client       string `json:"client"`
 	Cwd          string `json:"cwd"`
 	Note         string `json:"note"`
@@ -17,7 +18,7 @@ type profile struct {
 }
 
 func profileOf(s *session) profile {
-	return profile{ID: s.ID, Name: s.Name, Client: s.Client, Cwd: s.Cwd, Note: s.Note, Status: s.Status, LastActiveAt: s.LastActiveAt}
+	return profile{ID: s.ID, Name: s.Name, Title: s.Title, Client: s.Client, Cwd: s.Cwd, Note: s.Note, Status: s.Status, LastActiveAt: s.LastActiveAt}
 }
 
 type recipient struct {
@@ -233,20 +234,21 @@ func (a *Agents) toolListen(c api.Call) (any, error) {
 
 func (a *Agents) toolSetProfile(c api.Call) (any, error) {
 	var args struct {
-		Name *string `json:"name"`
-		Note *string `json:"note"`
+		Name  *string `json:"name"`
+		Note  *string `json:"note"`
+		Title *string `json:"title"`
 	}
 	if err := decode(c, &args); err != nil {
 		return nil, err
 	}
-	if args.Name == nil && args.Note == nil {
-		return nil, api.Errorf("Invalid arguments for set_profile: Pass name, note or both")
+	if args.Name == nil && args.Note == nil && args.Title == nil {
+		return nil, api.Errorf("Invalid arguments for set_profile: Pass at least one of name, note and title")
 	}
 	self, err := a.resolve(c)
 	if err != nil {
 		return nil, err
 	}
-	s, err := a.updateProfile(self.ID, args.Name, args.Note)
+	s, err := a.updateProfile(self.ID, args.Name, args.Note, args.Title)
 	if err != nil {
 		return nil, err
 	}

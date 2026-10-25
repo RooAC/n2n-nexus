@@ -392,7 +392,7 @@ func TestJoinAndLeaveMeeting(t *testing.T) {
 
 func TestListMeetingsMembers(t *testing.T) {
 	h := newHarnessWith(t, fakeIdentities{})
-	h.exec(`INSERT INTO agent_sessions (id, client, name, cwd, status, created_at, last_active_at) VALUES ('codex:a', 'codex', 'alice', '/w', 'listening', 'x', 'x')`)
+	h.exec(`INSERT INTO agent_sessions (id, client, name, title, cwd, status, created_at, last_active_at) VALUES ('codex:a', 'codex', 'alice', 'Fix login', '/w', 'listening', 'x', 'x')`)
 	id := h.as("a", "start_meeting", map[string]any{"topic": "t"})["meetingId"].(string)
 	h.ok("join_meeting", map[string]any{"meetingId": id, "mode": "async"}, "mcp-plain")
 	h.exec(`UPDATE meeting_members SET wakes = 3, last_woken_at = 'w' WHERE member_id = 'codex:a'`)
@@ -400,8 +400,11 @@ func TestListMeetingsMembers(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("members %v", got)
 	}
-	if m := got[0]; m["name"] != "alice" || m["status"] != "listening" || m["wakes"] != 3.0 || m["lastWokenAt"] != "w" {
+	if m := got[0]; m["name"] != "alice" || m["title"] != "Fix login" || m["status"] != "listening" || m["wakes"] != 3.0 || m["lastWokenAt"] != "w" {
 		t.Fatalf("session member %v", m)
+	}
+	if title, ok := got[1]["title"]; !ok || title != nil {
+		t.Fatalf("instance member title %v", got[1])
 	}
 	if m := got[1]; m["id"] != "mcp-plain" || m["name"] != nil || m["status"] != nil || m["mode"] != "async" || m["approver"] != "optional" || m["lastWokenAt"] != nil {
 		t.Fatalf("instance member %v", m)

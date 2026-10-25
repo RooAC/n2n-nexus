@@ -281,6 +281,7 @@ type proposalSummary struct {
 type meetingMember struct {
 	ID          string  `json:"id"`
 	Name        *string `json:"name"`
+	Title       *string `json:"title"`
 	Mode        string  `json:"mode"`
 	Approver    string  `json:"approver"`
 	Status      *string `json:"status"`
@@ -292,7 +293,7 @@ type meetingMember struct {
 // loadMembers lists the members of a meeting that have not left, in the order they joined.
 func loadMembers(tx *sql.Tx, meetingID string) ([]meetingMember, error) {
 	rows, err := tx.Query(`
-		SELECT mm.member_id, s.name, mm.mode, mm.approver, s.status, mm.joined_at, mm.wakes, mm.last_woken_at
+		SELECT mm.member_id, s.name, s.title, mm.mode, mm.approver, s.status, mm.joined_at, mm.wakes, mm.last_woken_at
 		FROM meeting_members mm LEFT JOIN agent_sessions s ON s.id = mm.member_id
 		WHERE mm.meeting_id = ? AND mm.left_at IS NULL
 		ORDER BY mm.joined_at, mm.rowid`, meetingID)
@@ -303,11 +304,11 @@ func loadMembers(tx *sql.Tx, meetingID string) ([]meetingMember, error) {
 	members := []meetingMember{}
 	for rows.Next() {
 		var m meetingMember
-		var name, status, woken sql.NullString
-		if err := rows.Scan(&m.ID, &name, &m.Mode, &m.Approver, &status, &m.JoinedAt, &m.Wakes, &woken); err != nil {
+		var name, title, status, woken sql.NullString
+		if err := rows.Scan(&m.ID, &name, &title, &m.Mode, &m.Approver, &status, &m.JoinedAt, &m.Wakes, &woken); err != nil {
 			return nil, err
 		}
-		m.Name, m.Status, m.LastWokenAt = nullable(name), nullable(status), nullable(woken)
+		m.Name, m.Title, m.Status, m.LastWokenAt = nullable(name), nullable(title), nullable(status), nullable(woken)
 		members = append(members, m)
 	}
 	return members, rows.Err()
