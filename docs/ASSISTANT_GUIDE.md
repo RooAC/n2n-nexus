@@ -101,6 +101,8 @@ start_meeting(topic)              → open a meeting (you join it as an active m
 join_meeting(meetingId, mode?)    → take part: active (new messages wake you) or async (you see them at your next prompt)
 leave_meeting(meetingId)          → stop taking part
 send_message("...", "PROPOSAL")   → post a proposal inside the meeting
+send_message("...", "PROPOSAL", meetingId, draft: true) → publish the current draft for approval
+stance(meetingId, messageId, "endorse" | "object" | "withdraw", note?) → take a stance on a draft
 send_message("...", "DECISION")   → record a decision
 end_meeting(meetingId?, summary?) → close and lock the meeting
 archive_meeting(meetingId)        → move to archive (read-only)
@@ -110,6 +112,8 @@ reopen_meeting(meetingId)         → reactivate a closed or archived meeting
 Starting (or reopening) a meeting makes it the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends. Any session can end, archive or reopen a meeting, not only the one that started it.
 
 To take part in a meeting until it ends, `join_meeting(meetingId)`: a `[n2n-nexus]` line tells you when others post (`Meeting "…" (id): N new message(s) …`), and as an active member it wakes you or continues your turn. Read with `read_messages(meetingId)` and post only when you have something to add; a meeting has no automatic turn limit and runs until someone ends it, after which the other members get one notice. Switch to `mode: "async"` to keep up without being woken.
+
+To reach a decision, publish the text everyone should agree on with `draft: true`; every required member then answers with `stance`: `endorse`, or `object` with the reason (then the text is revised and published as a new draft). Ordinary proposals do not reset anyone's stance. When at least two required approvers endorsed the current draft and nobody objects, the meeting closes by itself with the draft as its decision. An endorsement is the answer: do not also post "agreed" messages.
 
 ### 6. Task tracking
 
@@ -152,8 +156,9 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 1. start_meeting("Topic")           ← others join with join_meeting(meetingId)
 2. send_message("My proposal...", "PROPOSAL")
 3. read_messages(meetingId)        ← when a notification says others posted
-4. send_message("Consensus reached", "DECISION")
-5. end_meeting(meetingId, "summary")
+4. send_message("Agreed text...", "PROPOSAL", meetingId, draft: true)
+5. stance(meetingId, n, "endorse") ← each required member; the meeting closes by consensus
+   (or: send_message("...", "DECISION") and end_meeting(meetingId, "summary"))
 ```
 
 ---

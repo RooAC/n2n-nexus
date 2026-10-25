@@ -27,7 +27,8 @@ const INSTRUCTIONS =
     "global chat and meetings, not direct messages. Session ids in peers (claude:<id>, codex:<id>) are what send " +
     "takes; with the hooks, chat and meetings also record senders and unread cursors per session id " +
     "(without them, per MCP adapter instance id, mcp-…). join_meeting makes new messages of a meeting wake you " +
-    "(mode active) or show at your next prompt (async) until leave_meeting or the meeting ends. " +
+    "(mode active) or show at your next prompt (async) until leave_meeting or the meeting ends; a draft " +
+    "(send_message draft) is decided with stance, and the meeting closes once its required approvers endorse it. " +
     "Projects, global docs, the strategy document and tasks are shared through the other tools.";
 
 export type RunOptions = {

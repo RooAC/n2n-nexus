@@ -8,10 +8,10 @@
 
 ## 约定
 
-- 每个成功的结果都返回两份：一份是 `structuredContent`（JSON 对象），另一份是放在文本块里的同一段 JSON，供只读取文本的客户端使用。返回数据的工具（`search_projects`、`get_global_topology`、`get_project`、`read_messages`、`list_events`、`get_global_strategy`、`list_global_docs`、`get_global_doc`、`list_meetings`、`get_task`、`list_tasks`、`peers`、`read`、`set_profile`）还会提供 `outputSchema`；只返回确认的工具不提供，以保持 `tools/list` 精简。结果的结构就是 `contract/tools.json` 里的 `outputSchema` 条目；host 用它们校验每一个结果。
+- 每个成功的结果都返回两份：一份是 `structuredContent`（JSON 对象），另一份是放在文本块里的同一段 JSON，供只读取文本的客户端使用。返回数据的工具（`search_projects`、`get_global_topology`、`get_project`、`read_messages`、`list_events`、`get_global_strategy`、`list_global_docs`、`get_global_doc`、`list_meetings`、`stance`、`get_task`、`list_tasks`、`peers`、`read`、`set_profile`）还会提供 `outputSchema`；只返回确认的工具不提供，以保持 `tools/list` 精简。结果的结构就是 `contract/tools.json` 里的 `outputSchema` 条目；host 用它们校验每一个结果。
 - 调用按实例限流（默认每秒 20 次，突发 60 次；对应 host `settings.json` 中的 `rateLimit` 和 `rateBurst`）。超出限制的调用会失败并返回 "Rate limit exceeded ... retry after Ns"；等待该时长后重试。
 - 每个工具都有供客户端界面显示的 `title`（例如 "Delete Project"）。
-- 每个工具都带有 MCP annotations：`readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint: false`（所有工具都只作用于 host）。按照 MCP 的定义，只有更新完全是追加时，工具才算非破坏性。读取类工具标为只读。`start_meeting`、`join_meeting`、`create_task`、`send_message`、`send` 和 `reply` 只追加数据，是非破坏性的（`join_meeting` 也是幂等的）；`update_task` 也标为非破坏性且幂等。`listen`、`set_profile`、`sync_project_assets`、`update_project`、`upload_project_asset`、`rename_project`、`sync_global_doc`、`update_global_strategy`、`end_meeting`、`archive_meeting`、`reopen_meeting`、`leave_meeting`、`cancel_task`、`host_maintenance` 和 `host_delete_project` 会改写或删除已有状态，标为破坏性，以便客户端请求确认。`read_messages` 和 `read` 不是只读的，因为它们会推进调用方自己的未读状态；但它们是非破坏性的，因为不改变任何共享数据。
+- 每个工具都带有 MCP annotations：`readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint: false`（所有工具都只作用于 host）。按照 MCP 的定义，只有更新完全是追加时，工具才算非破坏性。读取类工具标为只读。`start_meeting`、`join_meeting`、`create_task`、`send_message`、`send` 和 `reply` 只追加数据，是非破坏性的（`join_meeting` 也是幂等的）；`update_task` 也标为非破坏性且幂等。`listen`、`set_profile`、`sync_project_assets`、`update_project`、`upload_project_asset`、`rename_project`、`sync_global_doc`、`update_global_strategy`、`end_meeting`、`archive_meeting`、`reopen_meeting`、`leave_meeting`、`stance`、`cancel_task`、`host_maintenance` 和 `host_delete_project` 会改写或删除已有状态，标为破坏性，以便客户端请求确认。`read_messages` 和 `read` 不是只读的，因为它们会推进调用方自己的未读状态；但它们是非破坏性的，因为不改变任何共享数据。
 - 每个适配器都有一个实例 ID（`NEXUS_INSTANCE_ID`、`--id`，默认是 `mcp-<hostname>-<工作目录的哈希>-<IDE 名>`，其中 IDE 名是 MCP 客户端名，取自请求的 `io.modelcontextprotocol/clientInfo`，2025 代的客户端则取自 `initialize`）。同一个 IDE 在同一个工作区里重启后它保持不变，而同一个工作区里的两个 IDE 仍然互相区分。适配器在每次调用中都以 `instanceId` 带上它。同一个 IDE 在同一个工作区里的多个对话共用它，所以装了 n2n-nexus hooks 时，聊天和会议工具改为识别对话本身（见下一条）；没装 hooks 的客户端按实例识别，这时没有 `instanceId` 的 `read_messages` 会失败。
 - 结果里会出现两种 ID：对话的会话 ID（`claude:<id>` 或 `codex:<id>`）和适配器实例 ID（`mcp-…`）。直接消息工具（`peers`、`send`、`read`、`reply`）使用会话 ID。聊天和会议在装了 hooks 时使用调用方对话的会话 ID，否则使用实例 ID：`send_message` / `read_messages` 的发送方和 `from`、未读游标、会议的 `initiator` 和 `participants`、`meeting.*` 事件的 `actor`；结果里的 `identity`（`session` 或 `instance`）说明是哪一种。这里的会话 ID 可以用于 `send`，实例 ID 不能。某个实例在最近 30 分钟内识别出过对话、而这次调用识别不出时，调用会失败并提示重试，而不会改用该实例共用的游标。其他事件和全局文档的 `updatedBy` 仍是实例 ID。
 - 项目 ID 采用 `[prefix]_[name]` 格式；前缀列在[助手指南](ASSISTANT_GUIDE_zh.md#2-项目-id)中。
@@ -183,6 +183,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 | `message` | string | 是 | 消息正文。 |
 | `category` | string | 否 | `PROPOSAL`、`DECISION`、`UPDATE`、`CHAT` 或 `MEETING_START`（保留值；host 从不写入）之一。不传时消息没有分类。 |
 | `meetingId` | string | 否 | 目标会议。必须处于活跃状态。 |
+| `draft` | boolean | 否 | 把这条消息发布为会议的当前待决稿（只限会议；类别为 `PROPOSAL`）。见 [`stance`](#stance)。 |
 
 行为：
 
@@ -191,7 +192,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 - 否则写入全局聊天。
 - 会议中的 `DECISION` 消息还会记入该会议的决策（`list_meetings` 中的 `decisionCount`）。
 - 随消息保存的发送方是调用方对话的会话 ID，没装 hooks 时是适配器实例 ID。
-- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`；`messageId` 是消息在所属会议里的编号（每个会议从 1 开始），或它的全局聊天 ID（可用于 `afterId`）。
+- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, currentProposalId?, message }`（带 `draft` 时有 `currentProposalId`）；`messageId` 是消息在所属会议里的编号（每个会议从 1 开始），或它的全局聊天 ID（可用于 `afterId`）。
 
 ### `read_messages`
 
@@ -290,7 +291,8 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 行为：
 
-- 返回 `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary? }] }`。
+- 返回 `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary?, endReason, proposal }] }`。
+- `endReason` 为 `consensus`（由 [`stance`](#stance) 自动结案）、`manual`（`end_meeting`）或 null。`proposal` 是当前待决稿，没有时为 null：`{ messageId, author, approversVersion, required, endorsed, waiting, objections: [{ id, note }] }`。
 - `participants` 是所有发过言的人；`members` 是加入了且没有离开的成员：`[{ id, name, mode, approver, status, joinedAt, wakes, lastWokenAt }]`，`name` 和 `status` 取自会话（适配器实例为 null）。`wakes` 统计这个会议引起的叫醒和拦住结束的次数，按成员和按会议各一个；它只用于展示，不会因此结束会议。
 - 用 `read_messages(meetingId)` 读取会议的消息。
 
@@ -335,6 +337,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 行为：
 
 - 任何适配器实例都能结束、存档或重新开启会议，不只是它的 `initiator`。
+- `end_meeting` 关闭时 `endReason` 为 `manual`，不算共识；`reopen_meeting` 清除它，保留当前稿、名单和表态。
 - 结束会议时，除结束者以外的每个成员收到一条会议已结束的通知（附总结），无需回复；active 成员会被它叫醒，async 成员在下次输入或调用工具时看到。重新开启不会恢复已离开的成员。
 
 ### `join_meeting`
@@ -366,6 +369,26 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 行为：
 
 - 结果：`{ ok, meetingId }`。记录 `meeting.leave` 事件。`join_meeting` 可以重新加入；`reopen_meeting` 不会。
+- 离开会把你从当前稿的必需认可名单里移除（见 [`stance`](#stance)）。
+
+### `stance`
+
+认可或反对一份提案，或撤回你的表态。会议通过对当前稿达成共识形成决议。
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `meetingId` | string | 是 | 一个活跃会议。 |
+| `messageId` | integer | 是 | 提案在会议里的编号（一条 `PROPOSAL` 消息）。 |
+| `stance` | string | 是 | `endorse`、`object` 或 `withdraw`。 |
+| `note` | string | `object` 时必填 | 反对的理由，或认可时附带的保留意见。 |
+
+行为：
+
+- 当前稿是最近一次用 `send_message(..., draft: true)` 发布的消息；普通的 `PROPOSAL` 既不换稿，也不改变任何人的表态。发布草案时确定它的必需认可名单：通过 hooks 以 `required` 身份加入的成员（适配器实例不能认可）。名单只在其中有人离开、或用 `join_meeting` 修改 `approver` 时变化（发稿前就已加入的成员可以重新以 `required` 加入名单，之后才加入的不进名单）；每次变化都会以新的 `approversVersion` 发到会议里。
+- 每人对每份提案一条表态，新的覆盖旧的，`withdraw` 删除。反对会连同理由发到会议里。提案作者会收到每次表态的通知；认可不会叫醒其他人。
+- 当前稿至少有 2 名必需认可人、他们全部认可、且没有任何人反对（适配器实例的反对同样阻止）时，会议以共识结案：`n2n-nexus` 发一条带草案原文的 `DECISION`，会议以 `endReason: consensus` 关闭，其他成员收到结束通知。必需认可人少于 2 名时，只能用 `end_meeting` 结束。
+- 结果：`{ ok, meetingId, messageId, stance, currentProposalId, counted, approvals: { required, endorsed, waiting, objections: [{ id, note }] }, decided }`。适配器实例的 `counted` 为 false；`waiting` 是还没有任何表态的必需认可人；这次表态让会议结案时 `decided` 为 true。
+- 有草案的会议安静超过 `stanceReminderMinutes`（host `settings.json`，默认 10）、且有必需认可人还没表态时，每人被提醒一次，作者收到一份缺谁的汇总。提醒从不结束会议。
 
 ## 任务管理
 

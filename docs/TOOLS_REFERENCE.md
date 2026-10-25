@@ -8,10 +8,10 @@ Parameter tables below are derived from `contract/tools.json`, the JSON Schema t
 
 ## Conventions
 
-- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `get_task`, `list_tasks`, `peers`, `read`, `set_profile`) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are the `outputSchema` entries in `contract/tools.json`; the host validates every result against them.
+- Every successful result is returned twice: as `structuredContent` (a JSON object) and as the same JSON in a text block for clients that only read text. Tools that return data (`search_projects`, `get_global_topology`, `get_project`, `read_messages`, `list_events`, `get_global_strategy`, `list_global_docs`, `get_global_doc`, `list_meetings`, `stance`, `get_task`, `list_tasks`, `peers`, `read`, `set_profile`) also publish an `outputSchema`; acknowledgement-only tools do not publish one, to keep `tools/list` small. The result shapes are the `outputSchema` entries in `contract/tools.json`; the host validates every result against them.
 - Calls are rate limited per instance (default 20 per second, burst 60; `rateLimit` and `rateBurst` in the host's `settings.json`). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
-- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `join_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive (`join_meeting` is also idempotent); `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `leave_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
+- Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `join_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive (`join_meeting` is also idempotent); `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `leave_meeting`, `stance`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
 - Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). It stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call. Several conversations of one IDE in one workspace share it, so chat and meeting tools identify the conversation instead when the n2n-nexus hooks are installed (see the next item); a client without the hooks is identified by its instance, and `read_messages` then fails without `instanceId`.
 - Two kinds of id appear in results: conversation session ids, `claude:<id>` or `codex:<id>`, and adapter instance ids (`mcp-…`). The direct-message tools (`peers`, `send`, `read`, `reply`) use session ids. Chat and meetings use the calling conversation's session id when the hooks are installed, else its instance id: the sender and `from` of `send_message` / `read_messages`, the unread cursor, a meeting's `initiator` and `participants` and the `actor` of `meeting.*` events; results say which with `identity` (`session` or `instance`). A session id there can be used with `send`; an instance id cannot. If an instance has had a conversation identified within the last 30 minutes and one of its calls cannot be identified, the call fails with a retry message instead of using the instance's shared cursor. Other events and `updatedBy` of global docs keep the instance id.
 - Project IDs follow `[prefix]_[name]`; the prefixes are listed in the [Assistant guide](ASSISTANT_GUIDE.md#2-project-ids).
@@ -183,6 +183,7 @@ Post to a meeting or to global chat. For a message to one conversation, use `sen
 | `message` | string | yes | Message body. |
 | `category` | string | no | One of `PROPOSAL`, `DECISION`, `UPDATE`, `CHAT` or `MEETING_START` (reserved; the host never writes it). Omitted, the message has no category. |
 | `meetingId` | string | no | Target meeting. Must be active. |
+| `draft` | boolean | no | Publish the message as the meeting's current draft (meetings only; the category is `PROPOSAL`). See [`stance`](#stance). |
 
 Behavior:
 
@@ -191,7 +192,7 @@ Behavior:
 - Otherwise it is written to global chat.
 - A `DECISION` message in a meeting is also recorded in that meeting's decisions (`decisionCount` in `list_meetings`).
 - The sender stored with the message is the calling conversation's session ID, or the adapter instance ID without hooks.
-- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`; `messageId` is the message's number in its meeting, counted from 1 in each meeting, or its global chat id (use it with `afterId`).
+- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, currentProposalId?, message }` (`currentProposalId` with `draft`); `messageId` is the message's number in its meeting, counted from 1 in each meeting, or its global chat id (use it with `afterId`).
 
 ### `read_messages`
 
@@ -290,7 +291,8 @@ List meetings, newest first.
 
 Behavior:
 
-- Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary? }] }`.
+- Returns `{ count, activeMeetingId, meetings: [{ id, topic, status, initiator, startTime, endTime?, participants, members, messageCount, decisionCount, wakes, summary?, endReason, proposal }] }`.
+- `endReason` is `consensus` (closed by [`stance`](#stance)), `manual` (`end_meeting`) or null. `proposal` is the current draft, or null: `{ messageId, author, approversVersion, required, endorsed, waiting, objections: [{ id, note }] }`.
 - `participants` is everyone who has posted; `members` is who has joined and not left: `[{ id, name, mode, approver, status, joinedAt, wakes, lastWokenAt }]`, where `name` and `status` are the session's (null for an adapter instance). `wakes` counts the wakes and held Stops the meeting caused, per member and for the meeting; it is only shown, nothing ends a meeting because of it.
 - Read a meeting's messages with `read_messages(meetingId)`.
 
@@ -335,6 +337,7 @@ Reactivate a closed or archived meeting.
 Behavior:
 
 - Any adapter instance can end, archive or reopen a meeting, not only its `initiator`.
+- `end_meeting` closes with `endReason: manual`, not a consensus; `reopen_meeting` clears it and keeps the draft, its approvers and their stances.
 - Ending a meeting gives each member but the one who ended it one notice that it ended (with the summary), which needs no reply; active members are woken with it, async members see it at their next prompt or tool call. Reopening does not bring back members that left.
 
 ### `join_meeting`
@@ -366,6 +369,26 @@ Leave a meeting: you are no longer notified about it and your approval no longer
 Behavior:
 
 - Result: `{ ok, meetingId }`. Records a `meeting.leave` event. `join_meeting` joins again; `reopen_meeting` does not.
+- Leaving removes you from the current draft's required approvers (see [`stance`](#stance)).
+
+### `stance`
+
+Endorse or object to a proposal, or withdraw your stance on it. A meeting reaches a decision by consensus on its current draft.
+
+| Parameter | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `meetingId` | string | yes | An active meeting. |
+| `messageId` | integer | yes | The proposal's number in the meeting (a `PROPOSAL` message). |
+| `stance` | string | yes | `endorse`, `object` or `withdraw`. |
+| `note` | string | for `object` | The reason of an objection, or a reservation with an endorsement. |
+
+Behavior:
+
+- The current draft is the message last published with `send_message(..., draft: true)`; an ordinary `PROPOSAL` changes neither the draft nor anyone's stance. Publishing a draft fixes its required approvers: the members joined as `required` through the hooks (adapter instances cannot approve). The list changes only when one of them leaves or changes `approver` with `join_meeting` (a member that joined before the draft can be added back as `required`; members joining later are not added); each change is posted to the meeting with the new `approversVersion`.
+- You have one stance per proposal; a new one replaces it and `withdraw` removes it. An objection is also posted to the meeting with its reason. The proposal's author gets a notice of every stance; nobody else is woken by an endorsement.
+- The meeting closes by consensus when the current draft has at least 2 required approvers, every one of them endorsed it and nobody objects to it (an adapter instance's objection blocks too): a `DECISION` with the draft's text is posted by `n2n-nexus`, the meeting closes with `endReason: consensus` and the other members get the closing notice. With fewer than 2 required approvers it closes only with `end_meeting`.
+- Result: `{ ok, meetingId, messageId, stance, currentProposalId, counted, approvals: { required, endorsed, waiting, objections: [{ id, note }] }, decided }`. `counted` is false for an adapter instance; `waiting` are required approvers without any stance; `decided` is true when this stance closed the meeting.
+- When a meeting with a draft stays quiet for `stanceReminderMinutes` (host `settings.json`, default 10) and required approvers have not taken a stance, each of them is reminded once and the author is told who is missing. Reminders never end a meeting.
 
 ## Task management
 

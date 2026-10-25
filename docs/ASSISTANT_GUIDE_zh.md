@@ -100,6 +100,8 @@ start_meeting(topic)              → 开启新会议（你以 active 成员加�
 join_meeting(meetingId, mode?)    → 参加会议：active（新消息会叫醒你）或 async（下次输入时看到）
 leave_meeting(meetingId)          → 退出会议
 send_message("...", "PROPOSAL")   → 在会议中发言
+send_message("...", "PROPOSAL", meetingId, draft: true) → 发布待认可的当前稿
+stance(meetingId, messageId, "endorse" | "object" | "withdraw", note?) → 对草案表态
 send_message("...", "DECISION")   → 记录决策
 end_meeting(meetingId?, summary?) → 关闭并锁定会议
 archive_meeting(meetingId)        → 存档（只读）
@@ -109,6 +111,8 @@ reopen_meeting(meetingId)         → 重新开启
 开启（或重新开启）会议后，它成为所有人的默认会议：不传 `meetingId` 的 `send_message` 和 `end_meeting` 都作用于它，直到它结束。任何会话都能结束、存档或重新开启会议，不只是开启它的那个。
 
 要一直参加某个会议直到它结束，调用 `join_meeting(meetingId)`：别人发言时会有一行 `[n2n-nexus]` 提醒（`Meeting "…" (id): N new message(s) …`），作为 active 成员它会叫醒你或让本轮继续。用 `read_messages(meetingId)` 读取，有内容要补充时才发言；会议没有自动轮次上限，一直进行到有人结束它，结束后其他成员各收到一条通知。改为 `mode: "async"` 可以跟进而不被叫醒。
+
+要形成决议，把需要大家同意的文本用 `draft: true` 发布；之后每个必需成员用 `stance` 回应：`endorse`，或带理由 `object`（然后修改文本，作为新的草案发布）。普通提案不会重置任何人的表态。当前稿至少有两名必需认可人全部认可且没人反对时，会议自动结束，草案即为决议。认可本身就是答复：不要再另发“同意”之类的消息。
 
 ### 6. 任务跟踪
 
@@ -148,8 +152,9 @@ host_delete_project(projectId)    → 永久删除项目（不可逆）
 1. start_meeting("Topic")           ← 其他人用 join_meeting(meetingId) 加入
 2. send_message("我的提案...", "PROPOSAL")
 3. read_messages(meetingId)        ← 收到有人发言的提醒时读取
-4. send_message("已达成共识", "DECISION")
-5. end_meeting(meetingId, "summary")
+4. send_message("共识文本...", "PROPOSAL", meetingId, draft: true)
+5. stance(meetingId, n, "endorse") ← 每个必需成员表态；会议自动以共识结案
+   （或者：send_message("...", "DECISION")，再 end_meeting(meetingId, "summary")）
 ```
 
 ---
