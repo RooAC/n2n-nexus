@@ -130,7 +130,7 @@ hook 输出的通知文本统一以 `[n2n-nexus]` 开头。正文只能通过 `r
 **`n2n-nexus install <claude|codex> [--endpoint <url>] [--node <path>]` / `n2n-nexus uninstall <claude|codex>`**
 - 命令写成 `"<node 绝对路径>" "<入口脚本绝对路径>" ...`。node 路径默认取 PATH 上的 `node`（与当前运行的 Node 按真实路径比较是同一个文件时），找不到时回退到当前运行的 Node 的真实路径；`--node <path>` 可手动指定，路径必须存在、可执行且版本满足 package.json 的 engines，否则报错、退出码 1、不写任何配置。入口脚本路径里含 `/_npx/` 时拒绝安装，提示先执行 `npm i -g n2n-nexus`。
 - Claude：
-  - 合并写入 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` 的 hooks：SessionStart、SessionEnd、UserPromptSubmit、PreToolUse（matcher `mcp__n2n-nexus__.*`）、PostToolUse、Stop。Stop 的 `timeout` 设 600，其余设 10。
+  - 合并写入 `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` 的 hooks：SessionStart、SessionEnd、UserPromptSubmit、PreToolUse（matcher `mcp__n2n-nexus__.*`）、PostToolUse、Stop。Stop 的 `timeout` 设 600，其余设 10（Codex 的 SessionEnd 设 3：Codex 把 SessionEnd hook 的超时限制在 3 秒）。
   - MCP：先执行 `claude mcp remove --scope user n2n-nexus`（失败时读 `~/.claude.json` 的 `mcpServers` 判断：仍注册则报错、退出码 1、不继续；本来没注册则忽略。不用 `claude mcp get`：它跨 scope 查找且会启动服务做健康检查），再执行 `claude mcp add --scope user n2n-nexus [-e NEXUS_ENDPOINT=<url>] -- <node> <脚本> mcp`。
 - Codex：
   - 合并写入 `${CODEX_HOME:-~/.codex}/hooks.json`：SessionStart、SessionEnd、UserPromptSubmit、PostToolUse、Stop，超时设置同上。

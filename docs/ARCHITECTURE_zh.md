@@ -90,14 +90,15 @@ Stop                           ◀── decision: block   ◀─┘  每次结�
 一轮结束 ──▶ Stop hook（提醒未读，或进入 listen 等待）
          └─▶ Stop hook --wait ──▶ POST /api/hook {BackgroundWait}（每次最多 590 秒，循环最长 1 小时）
                                     │  等待期间会话显示为 "listening"
-                                    ├─ 有新消息 ─▶ { wake: 通知 }
+                                    ├─ 有新消息 ─▶ { wake: 通知, dispatchId }
                                     │     Claude Code：asyncRewake hook 以退出码 2 结束，通知开启新的一轮
-                                    │     Codex：独立后台进程执行 `codex queue --thread <id> --message <通知>`
+                                    │     Codex：独立后台进程执行 `codex queue --thread <id> --message <通知>`，
+                                    │       再回报 POST /api/hook {WakeResult, dispatch_id, ok}
                                     ├─ 该会话有其他任何事件 ─▶ null（等待结束）
                                     └─ 时间到 ─▶ { timeout: true }（再次请求）
 ```
 
-会话处于 `working`，或者 listen 模式的 Stop hook 正在等待时，后台等待不会送达，所以同一条消息只提醒一次。已在 Windows 上用 Claude 桌面应用和 Codex 桌面应用实测（2026-10-23）：两个方向都能在数秒内叫醒空闲的对话。已知限制：
+会话处于 `working`，或者 listen 模式的 Stop hook 正在等待时，后台等待不会送达，所以同一条消息只提醒一次。`codex queue` 失败（出错或退出码非 0）时，Codex 的后台等待回报 `ok: false`，host 撤销这次唤醒：它提醒过的消息和通知重新算作未提醒，会话退出 `working`，这一轮不计入自动轮次，下一次等待会再次送达。回报到达前该会话已有其他事件，说明唤醒已送达，回报被忽略。已在 Windows 上用 Claude 桌面应用和 Codex 桌面应用实测（2026-10-23）：两个方向都能在数秒内叫醒空闲的对话。已知限制：
 
 - Codex 只会为运行中的 Codex 应用里已加载的对话启动排队的一轮。Codex 重启后，用户点开对话才会加载。
 - Codex 的后台等待会随 Codex 应用退出而结束，要等该对话再结束一轮才会重新启动。这期间发来的消息留在 host 里为未读（不进入 Codex 自己的队列），直到用户下次在该对话里发消息。

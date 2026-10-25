@@ -90,14 +90,15 @@ An idle conversation is not running, so hooks alone can only reach it when its u
 turn ends ──▶ Stop hook (announces unread, or listens)
           └─▶ Stop hook --wait ──▶ POST /api/hook {BackgroundWait}  (up to 590 s per request, repeated for up to 1 h)
                                      │  session shows as "listening"
-                                     ├─ new message ─▶ { wake: notification }
+                                     ├─ new message ─▶ { wake: notification, dispatchId }
                                      │     Claude Code: asyncRewake hook exits 2, the notification starts a turn
-                                     │     Codex: detached process runs `codex queue --thread <id> --message <notification>`
+                                     │     Codex: detached process runs `codex queue --thread <id> --message <notification>`,
+                                     │       then reports POST /api/hook {WakeResult, dispatch_id, ok}
                                      ├─ any other event of the session ─▶ null (wait ends)
                                      └─ time runs out ─▶ { timeout: true } (ask again)
 ```
 
-The wait never delivers while the session is `working` or while a listening Stop hook is waiting, so a message is announced once. Verified on Windows with the Claude desktop app and the Codex desktop app (2026-10-23): both directions wake an idle conversation within seconds. Known limits:
+The wait never delivers while the session is `working` or while a listening Stop hook is waiting, so a message is announced once. When `codex queue` fails (an error or a non-zero exit), the Codex wait reports `ok: false` and the host undoes that wake: the messages and notices it announced count as not announced again, the session leaves `working` and the automatic turn is not counted, so the next wait delivers them again. Any other event of the session before the report means the wake was delivered, and the report is ignored. Verified on Windows with the Claude desktop app and the Codex desktop app (2026-10-23): both directions wake an idle conversation within seconds. Known limits:
 
 - Codex starts a queued turn only for a conversation loaded in the running Codex app. After Codex restarts, a conversation is loaded once the user opens it.
 - The Codex background wait ends when the Codex app quits, and starts again only when the conversation ends a turn. Messages sent meanwhile stay unread in the host (not in Codex's own queue) until the user next prompts that conversation.
