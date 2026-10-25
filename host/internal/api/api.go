@@ -92,6 +92,9 @@ type MeetingNotifier interface {
 	MeetingUpdated(meetingID string)
 	// MeetingClosed: the meeting ended; each member but byID (who ended it) gets one notice that needs no reply.
 	MeetingClosed(meetingID, byID string)
+	// MeetingNotice gives each of the sessions to one notice from the meeting;
+	// active members are woken with it, others see it at their next hook.
+	MeetingNotice(meetingID string, to []string, text string)
 }
 
 // ToolFunc handles a tool; the result must satisfy the tool's output schema.

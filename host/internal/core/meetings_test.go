@@ -274,6 +274,9 @@ func (n *notes) record(kind, meetingID string) {
 }
 func (n *notes) MeetingUpdated(meetingID string)   { n.record("updated", meetingID) }
 func (n *notes) MeetingClosed(meetingID, _ string) { n.record("closed", meetingID) }
+func (n *notes) MeetingNotice(meetingID string, to []string, text string) {
+	n.calls = append(n.calls, fmt.Sprintf("notice %s %v %s", meetingID, to, text))
+}
 
 func newNotedHarness(t *testing.T) (*harness, *notes) {
 	n := &notes{}

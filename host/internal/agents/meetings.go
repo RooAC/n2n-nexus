@@ -218,3 +218,6 @@ func (a *Agents) MeetingClosed(meetingID, byID string) {
 	a.logErr("meeting closed", err)
 	a.wake(slices.DeleteFunc(active, func(id string) bool { return id == byID })...)
 }
+
+// MeetingNotice (api.MeetingNotifier): not implemented yet.
+func (a *Agents) MeetingNotice(meetingID string, to []string, text string) {}

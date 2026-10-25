@@ -70,6 +70,11 @@
     "meetingNews": "Meeting \"%s\" (%s): %d new message(s) (#%d–#%d) from %s.",
     "meetingClosing": "Read them with read_messages(meetingId); post with send_message(meetingId) only when you have something to add.",
     "meetingEnded": "Meeting \"%s\" (%s) has ended%s. No reply needed.",
+    "stanceNotice": "%s %s draft #%d of meeting \"%s\" (%s)%s. No reply needed.",
+    "approversChanged": "Required approvers of draft #%d changed (version %d): %s.",
+    "consensusDecision": "Decision by consensus on draft #%d: every required approver (%s) endorsed it.\n\n%s",
+    "stanceReminder": "Meeting \"%s\" (%s) waits for your stance on draft #%d: call stance with meetingId and messageId %d, endorse or object (with a reason). No other reply needed.",
+    "stanceWaiting": "Meeting \"%s\" (%s): draft #%d still waits for the stance of %s. No reply needed.",
     "noAgentSessionError": "This call carries no agent session, so direct messaging cannot tell who you are. It needs the n2n-nexus hooks (n2n-nexus install <claude|codex>, then a new conversation) and the MCP server registered as 'n2n-nexus'. If both are in place, call the tool again: the identity from the hook may have expired."
   },
   "schemas": {

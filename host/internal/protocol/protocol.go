@@ -144,6 +144,11 @@ type Hook struct {
 		MeetingNews         string `json:"meetingNews"`
 		MeetingClosing      string `json:"meetingClosing"`
 		MeetingEnded        string `json:"meetingEnded"`
+		StanceNotice        string `json:"stanceNotice"`
+		ApproversChanged    string `json:"approversChanged"`
+		ConsensusDecision   string `json:"consensusDecision"`
+		StanceReminder      string `json:"stanceReminder"`
+		StanceWaiting       string `json:"stanceWaiting"`
 		NoAgentSessionError string `json:"noAgentSessionError"`
 	} `json:"texts"`
 }
