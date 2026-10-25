@@ -29,9 +29,17 @@ type sendMessageArgs struct {
 	Message   string `json:"message"`
 	Category  string `json:"category"`
 	MeetingID string `json:"meetingId"`
+	// Draft publishes the message as the meeting's current draft (a PROPOSAL).
+	Draft bool `json:"draft"`
 }
 
 func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
+	if a.Draft {
+		if a.Category != "" && a.Category != "PROPOSAL" {
+			return nil, api.Errorf("A draft is a PROPOSAL; leave category out or set it to PROPOSAL, not %s.", a.Category)
+		}
+		a.Category = "PROPOSAL"
+	}
 	id, err := c.identity(call)
 	if err != nil {
 		return nil, err
@@ -52,7 +60,18 @@ func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
 			}
 			result = map[string]any{"ok": true, "sentTo": "meeting", "meetingId": meetingID, "messageId": messageID,
 				"identity": id.Kind, "message": fmt.Sprintf("Message sent to meeting %s.", meetingID)}
-			return nil
+			if !a.Draft {
+				return nil
+			}
+			var row int64
+			if err := tx.QueryRow(`SELECT id FROM meeting_messages WHERE meeting_id = ? AND seq = ?`, meetingID, messageID).Scan(&row); err != nil {
+				return err
+			}
+			result["currentProposalId"] = messageID
+			return publishDraft(tx, meetingID, row)
+		}
+		if a.Draft {
+			return api.Errorf("A draft is published to a meeting: give meetingId, or start one; no meeting is active.")
 		}
 		res, err := tx.Exec(`INSERT INTO global_messages (sender, text, category, timestamp) VALUES (?, ?, ?, ?)`,
 			id.ID, a.Message, nullString(a.Category), c.now())

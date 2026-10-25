@@ -1425,7 +1425,7 @@
     {
       "name": "send_message",
       "title": "Post Message",
-      "description": "Post to a meeting (meetingId, else the active meeting) or, when no meeting is active, to the shared global chat that every session can read with read_messages. The sender is this conversation's session id (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else the MCP adapter instance; identity says which. messageId is the message's number in its meeting (from 1), or its global chat id. Not a direct message: to message one session use send.",
+      "description": "Post to a meeting (meetingId, else the active meeting) or, when no meeting is active, to the shared global chat that every session can read with read_messages. The sender is this conversation's session id (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else the MCP adapter instance; identity says which. messageId is the message's number in its meeting (from 1), or its global chat id. draft: true publishes the message as the meeting's current draft (a PROPOSAL; currentProposalId is its number): its required approvers are the members that are required approvers and conversation sessions at that moment, and the members take a stance on it with stance. Only a draft replaces the current draft and starts its stances afresh; a PROPOSAL sent without draft changes neither. Not a direct message: to message one session use send.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1455,6 +1455,10 @@
             "description": "Target meeting. Defaults to the active meeting, or global chat when none is active.",
             "type": "string",
             "minLength": 1
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "Publish as the meeting's current draft for the members to endorse or object to (meetings only; category is PROPOSAL, any other category fails)."
           }
         },
         "required": [
@@ -1492,6 +1496,11 @@
               "session",
               "instance"
             ]
+          },
+          "currentProposalId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -1955,7 +1964,7 @@
     {
       "name": "list_meetings",
       "title": "List Meetings",
-      "description": "List meetings, newest first: id, topic, status, initiator, participants (everyone who has posted), members (who has joined and not left: mode, approver, session status, wakes the meeting caused), message/decision counts, summary. Initiator, participants and members are conversation session ids (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else MCP adapter instance ids. Read messages with read_messages(meetingId).",
+      "description": "List meetings, newest first: id, topic, status, initiator, participants (everyone who has posted), members (who has joined and not left: mode, approver, session status, wakes the meeting caused), message/decision counts, summary, endReason (manual: end_meeting; consensus: every required approver endorsed the current draft) and proposal: the current draft (messageId, author), the version of its required approver list and its approvals (required, endorsed, waiting: required approvers without a stance, objections), null when no draft was published. Initiator, participants and members are conversation session ids (claude:<id> / codex:<id>) when the n2n-nexus hooks are installed, else MCP adapter instance ids. Read messages with read_messages(meetingId).",
       "annotations": {
         "readOnlyHint": true,
         "openWorldHint": false
@@ -2106,6 +2115,85 @@
                     ],
                     "additionalProperties": false
                   }
+                },
+                "endReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "manual",
+                    "consensus",
+                    null
+                  ]
+                },
+                "proposal": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "messageId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "author": {
+                      "type": "string"
+                    },
+                    "approversVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "required": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "endorsed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "waiting": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "objections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "note"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "messageId",
+                    "author",
+                    "approversVersion",
+                    "required",
+                    "endorsed",
+                    "waiting",
+                    "objections"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -2118,7 +2206,9 @@
                 "messageCount",
                 "decisionCount",
                 "wakes",
-                "members"
+                "members",
+                "endReason",
+                "proposal"
               ],
               "additionalProperties": false
             }
@@ -2479,6 +2569,149 @@
         "additionalProperties": false
       },
       "publishOutputSchema": false
+    },
+    {
+      "name": "stance",
+      "title": "Take Stance",
+      "description": "Endorse or object to a PROPOSAL of an active meeting (messageId: its number in the meeting), or withdraw your stance on it. You have one stance per proposal; a new one replaces it. object needs a note with the reason and also posts it to the meeting; the proposal's author is told of every stance. When the proposal is the meeting's current draft (published with send_message draft) and it has at least 2 required approvers, every one of them endorsed it and no conversation objects to it, the meeting closes by consensus: a DECISION with the draft is posted and decided is true. A stance by an MCP adapter instance (no n2n-nexus hooks) is recorded but not counted (counted: false). approvals are the proposal's: required (its required approvers, empty unless it is the current draft), endorsed, waiting (required approvers without a stance) and objections.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "meetingId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "messageId": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The proposal's number in the meeting."
+          },
+          "stance": {
+            "type": "string",
+            "enum": [
+              "endorse",
+              "object",
+              "withdraw"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "description": "Why; required for object."
+          }
+        },
+        "required": [
+          "meetingId",
+          "messageId",
+          "stance"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "meetingId": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "stance": {
+            "type": "string",
+            "enum": [
+              "endorse",
+              "object",
+              "withdraw"
+            ]
+          },
+          "currentProposalId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "counted": {
+            "type": "boolean"
+          },
+          "approvals": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "endorsed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "waiting": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "objections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "note"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "required",
+              "endorsed",
+              "waiting",
+              "objections"
+            ],
+            "additionalProperties": false
+          },
+          "decided": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "meetingId",
+          "messageId",
+          "stance",
+          "currentProposalId",
+          "counted",
+          "approvals",
+          "decided"
+        ],
+        "additionalProperties": false
+      },
+      "publishOutputSchema": true
     },
     {
       "name": "create_task",

@@ -157,17 +157,7 @@ func (c *Core) endMeeting(call api.Call, a endMeetingArgs) (any, error) {
 		if m.status != "active" {
 			return api.Errorf("Meeting '%s' is already %s.", id, m.status)
 		}
-		if _, err := tx.Exec(`UPDATE meetings SET status = 'closed', is_default = 0, closed_at = ?, summary = ? WHERE id = ?`,
-			c.now(), nullString(summary), id); err != nil {
-			return err
-		}
-		// The most recently activated meeting still active becomes the default.
-		var next string
-		err = tx.QueryRow(`SELECT id FROM meetings WHERE status = 'active' ORDER BY active_order DESC LIMIT 1`).Scan(&next)
-		if err != nil && err != sql.ErrNoRows {
-			return err
-		}
-		if err := makeDefault(tx, next); err != nil {
+		if err := c.closeMeeting(tx, id, nullString(summary), "manual"); err != nil {
 			return err
 		}
 		detail := map[string]any{"topic": m.topic}
@@ -233,7 +223,7 @@ func (c *Core) reopenMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if m.status == "active" {
 			return api.Errorf("Meeting '%s' is already active.", a.MeetingID)
 		}
-		if _, err := tx.Exec(`UPDATE meetings SET status = 'active', closed_at = NULL,
+		if _, err := tx.Exec(`UPDATE meetings SET status = 'active', closed_at = NULL, end_reason = NULL,
 			active_order = (SELECT MAX(active_order) + 1 FROM meetings) WHERE id = ?`, a.MeetingID); err != nil {
 			return err
 		}
@@ -270,6 +260,19 @@ type meetingSummary struct {
 	// Wakes is the number of wakes the meeting caused, members that left included.
 	Wakes   int64           `json:"wakes"`
 	Members []meetingMember `json:"members"`
+	// EndReason is manual or consensus for a meeting that ended, else null.
+	EndReason *string `json:"endReason"`
+	// Proposal is the current draft and its approvals; null when none was published.
+	Proposal *proposalSummary `json:"proposal"`
+}
+
+// proposalSummary is a meeting's current draft: its number, author, the
+// version of its approver list and its approvals.
+type proposalSummary struct {
+	MessageID        int64  `json:"messageId"`
+	Author           string `json:"author"`
+	ApproversVersion int64  `json:"approversVersion"`
+	approvals
 }
 
 // meetingMember is a member that has not left. Name and Status are the
@@ -321,7 +324,7 @@ func (c *Core) listMeetings(call api.Call, a listMeetingsArgs) (any, error) {
 	var active string
 	err := c.tx(call, func(tx *sql.Tx) error {
 		rows, err := tx.Query(`
-			SELECT m.id, m.topic, m.status, m.initiator, m.participants, m.created_at, m.closed_at, m.summary,
+			SELECT m.id, m.topic, m.status, m.initiator, m.participants, m.created_at, m.closed_at, m.summary, m.end_reason,
 				(SELECT COUNT(*) FROM meeting_messages WHERE meeting_id = m.id),
 				(SELECT COUNT(*) FROM decisions WHERE meeting_id = m.id),
 				(SELECT COALESCE(SUM(wakes), 0) FROM meeting_members WHERE meeting_id = m.id)
@@ -335,14 +338,14 @@ func (c *Core) listMeetings(call api.Call, a listMeetingsArgs) (any, error) {
 		for rows.Next() {
 			var m meetingSummary
 			var participants string
-			var closed, summary sql.NullString
-			if err := rows.Scan(&m.ID, &m.Topic, &m.Status, &m.Initiator, &participants, &m.StartTime, &closed, &summary,
+			var closed, summary, reason sql.NullString
+			if err := rows.Scan(&m.ID, &m.Topic, &m.Status, &m.Initiator, &participants, &m.StartTime, &closed, &summary, &reason,
 				&m.MessageCount, &m.DecisionCount, &m.Wakes); err != nil {
 				rows.Close()
 				return err
 			}
 			m.Participants = json.RawMessage(participants)
-			m.EndTime, m.Summary = closed.String, summary.String
+			m.EndTime, m.Summary, m.EndReason = closed.String, summary.String, nullable(reason)
 			meetings = append(meetings, m)
 		}
 		rows.Close()
@@ -352,6 +355,17 @@ func (c *Core) listMeetings(call api.Call, a listMeetingsArgs) (any, error) {
 		for i := range meetings {
 			if meetings[i].Members, err = loadMembers(tx, meetings[i].ID); err != nil {
 				return err
+			}
+			d, ok, err := currentDraft(tx, meetings[i].ID)
+			if err != nil {
+				return err
+			}
+			if ok {
+				p := &proposalSummary{MessageID: d.seq, Author: d.author, ApproversVersion: d.version}
+				if p.approvals, err = loadApprovals(tx, meetings[i].ID, d.row, true); err != nil {
+					return err
+				}
+				meetings[i].Proposal = p
 			}
 		}
 		active, err = defaultMeetingID(tx)
@@ -386,6 +400,7 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var posted, decided bool
 	err = c.tx(call, func(tx *sql.Tx) error {
 		m, err := loadMeeting(tx, a.MeetingID)
 		if err != nil {
@@ -398,12 +413,16 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 		if err != nil {
 			return err
 		}
-		var one int
-		err = tx.QueryRow(`SELECT 1 FROM meeting_members WHERE meeting_id = ? AND member_id = ?`, a.MeetingID, who.ID).Scan(&one)
+		var joinedAt string
+		var leftAt sql.NullString
+		err = tx.QueryRow(`SELECT joined_at, left_at FROM meeting_members WHERE meeting_id = ? AND member_id = ?`,
+			a.MeetingID, who.ID).Scan(&joinedAt, &leftAt)
 		first := err == sql.ErrNoRows
 		if err != nil && !first {
 			return err
 		}
+		// Only a member that has not left can change its place in the current draft's approver list.
+		member := !first && !leftAt.Valid
 		since := a.Since
 		if since == nil && first {
 			since = json.RawMessage(`"latest"`)
@@ -429,11 +448,38 @@ func (c *Core) joinMeeting(call api.Call, a joinMeetingArgs) (any, error) {
 			a.MeetingID, who.ID, a.Mode, a.Approver, c.now(), newest); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, who.ID, "meeting.join", a.MeetingID, map[string]any{"mode": a.Mode, "approver": a.Approver})
+		if err := c.recordEvent(tx, who.ID, "meeting.join", a.MeetingID, map[string]any{"mode": a.Mode, "approver": a.Approver}); err != nil {
+			return err
+		}
+		if !member {
+			return nil // a new member is not an approver of a draft published before it joined
+		}
+		d, ok, err := currentDraft(tx, a.MeetingID)
+		if err != nil || !ok {
+			return err
+		}
+		listed, err := isApprover(tx, a.MeetingID, who.ID)
+		if err != nil {
+			return err
+		}
+		switch {
+		case a.Approver == "optional" && listed:
+			_, err = tx.Exec(`DELETE FROM meeting_approvers WHERE meeting_id = ? AND member_id = ?`, a.MeetingID, who.ID)
+		case a.Approver == "required" && !listed && isSessionID(who.ID) && joinedAt <= d.timestamp:
+			_, err = tx.Exec(`INSERT INTO meeting_approvers (meeting_id, member_id) VALUES (?, ?)`, a.MeetingID, who.ID)
+		default:
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		posted, decided, err = c.approversChanged(tx, a.MeetingID, who.ID, d)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+	c.afterMeetingChange(a.MeetingID, who.ID, posted, decided)
 	// An instance has no hooks, so nothing can notify it.
 	delivery := "unavailable"
 	if who.Kind == api.IdentitySession {
@@ -473,6 +519,7 @@ func (c *Core) leaveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var posted, decided bool
 	err = c.tx(call, func(tx *sql.Tx) error {
 		if _, err := loadMeeting(tx, a.MeetingID); err != nil {
 			return err
@@ -485,10 +532,32 @@ func (c *Core) leaveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if n == 0 {
 			return api.Errorf("%s is not a member of meeting '%s'.", who.ID, a.MeetingID)
 		}
-		return c.recordEvent(tx, who.ID, "meeting.leave", a.MeetingID, nil)
+		if err := c.recordEvent(tx, who.ID, "meeting.leave", a.MeetingID, nil); err != nil {
+			return err
+		}
+		d, ok, err := currentDraft(tx, a.MeetingID)
+		if err != nil || !ok {
+			return err
+		}
+		// A member that leaves is no longer an approver of the current draft.
+		if n, err = exec(tx, `DELETE FROM meeting_approvers WHERE meeting_id = ? AND member_id = ?`, a.MeetingID, who.ID); err != nil || n == 0 {
+			return err
+		}
+		posted, decided, err = c.approversChanged(tx, a.MeetingID, who.ID, d)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
+	c.afterMeetingChange(a.MeetingID, who.ID, posted, decided)
 	return map[string]any{"ok": true, "meetingId": a.MeetingID}, nil
+}
+
+func isApprover(tx *sql.Tx, meetingID, memberID string) (bool, error) {
+	var one int
+	err := tx.QueryRow(`SELECT 1 FROM meeting_approvers WHERE meeting_id = ? AND member_id = ?`, meetingID, memberID).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
 }

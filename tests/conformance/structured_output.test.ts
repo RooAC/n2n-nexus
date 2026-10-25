@@ -57,6 +57,9 @@ describe("tool results", () => {
         await call("read_messages", { meetingId: meeting.meetingId, count: 5 });
         await call("read_messages", { meetingId: meeting.meetingId, afterId: 0 }, "peer");
         await call("join_meeting", { meetingId: meeting.meetingId, mode: "async", since: "beginning" }, "peer");
+        const draft = await call("send_message", { meetingId: meeting.meetingId, message: "the plan", draft: true });
+        await call("stance", { meetingId: meeting.meetingId, messageId: draft.currentProposalId, stance: "object", note: "not yet" }, "peer");
+        await call("stance", { meetingId: meeting.meetingId, messageId: draft.currentProposalId, stance: "endorse" });
         await call("list_meetings", {});
         await call("leave_meeting", { meetingId: meeting.meetingId }, "peer");
         await call("end_meeting", { meetingId: meeting.meetingId, summary: "done" });
