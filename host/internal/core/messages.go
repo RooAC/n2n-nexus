@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	
+
 	"github.com/n2ns/n2n-nexus/host/internal/api"
 )
 
@@ -74,7 +74,8 @@ func (c *Core) sendMessage(call api.Call, a sendMessageArgs) (any, error) {
 }
 
 // addMeetingMessage appends to an active meeting, adds the sender to its
-// participants and records a DECISION message as a decision; it returns the message id.
+// participants and records a DECISION message as a decision; it returns the
+// message's number in the meeting.
 func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category string) (int64, error) {
 	var status, participantsJSON string
 	err := tx.QueryRow(`SELECT status, participants FROM meetings WHERE id = ?`, meetingID).Scan(&status, &participantsJSON)
@@ -88,13 +89,12 @@ func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category str
 		return 0, api.Errorf("Meeting '%s' is %s, cannot add messages.", meetingID, status)
 	}
 	now := c.now()
-	res, err := tx.Exec(`INSERT INTO meeting_messages (meeting_id, sender, text, category, timestamp) VALUES (?, ?, ?, ?, ?)`,
-		meetingID, from, text, nullString(category), now)
-	if err != nil {
+	var seq int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(seq), 0) + 1 FROM meeting_messages WHERE meeting_id = ?`, meetingID).Scan(&seq); err != nil {
 		return 0, err
 	}
-	messageID, err := res.LastInsertId()
-	if err != nil {
+	if _, err := tx.Exec(`INSERT INTO meeting_messages (meeting_id, seq, sender, text, category, timestamp) VALUES (?, ?, ?, ?, ?, ?)`,
+		meetingID, seq, from, text, nullString(category), now); err != nil {
 		return 0, err
 	}
 	var participants []string
@@ -116,7 +116,7 @@ func (c *Core) addMeetingMessage(tx *sql.Tx, meetingID, from, text, category str
 			return 0, err
 		}
 	}
-	return messageID, nil
+	return seq, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -129,9 +129,12 @@ type readMessagesArgs struct {
 	AfterID   *int64 `json:"afterId"`
 }
 
-// chatMessage is a global or meeting message. SenderName is the sending
-// session's name, null for an instance; Category is null when none was given.
+// chatMessage is a global or meeting message. ID is its number: the global
+// chat id, or its number in the meeting; row is the table id, which orders
+// messages and keeps read cursors. SenderName is the sending session's name,
+// null for an instance; Category is null when none was given.
 type chatMessage struct {
+	row        int64
 	ID         int64   `json:"id"`
 	From       string  `json:"from"`
 	SenderName *string `json:"senderName"`
@@ -147,6 +150,8 @@ const firstGlobalReadNote = "First read of global chat as this session: unread m
 type messageSource struct {
 	contextType, contextID string
 	table                  string
+	// number is the column of the message number shown as id.
+	number string
 	// where filters the context ("" for global chat); args are its arguments.
 	where string
 	args  []any
@@ -154,15 +159,15 @@ type messageSource struct {
 
 func sourceOf(meetingID string) messageSource {
 	if meetingID == "" {
-		return messageSource{contextType: "global", contextID: "global", table: "global_messages"}
+		return messageSource{contextType: "global", contextID: "global", table: "global_messages", number: "m.id"}
 	}
-	return messageSource{contextType: "meeting", contextID: meetingID, table: "meeting_messages",
+	return messageSource{contextType: "meeting", contextID: meetingID, table: "meeting_messages", number: "m.seq",
 		where: "m.meeting_id = ? AND ", args: []any{meetingID}}
 }
 
 // query selects the context's messages matching cond (with its arguments appended).
 func (s messageSource) query(tx *sql.Tx, cond, tail string, args ...any) ([]chatMessage, error) {
-	rows, err := tx.Query(`SELECT m.id, m.sender, m.text, m.category, m.timestamp, s.name
+	rows, err := tx.Query(`SELECT m.id, `+s.number+`, m.sender, m.text, m.category, m.timestamp, s.name
 		FROM `+s.table+` m LEFT JOIN agent_sessions s ON s.id = m.sender
 		WHERE `+s.where+cond+` `+tail, append(append([]any{}, s.args...), args...)...)
 	if err != nil {
@@ -173,7 +178,7 @@ func (s messageSource) query(tx *sql.Tx, cond, tail string, args ...any) ([]chat
 	for rows.Next() {
 		var m chatMessage
 		var category, name sql.NullString
-		if err := rows.Scan(&m.ID, &m.From, &m.Text, &category, &m.Timestamp, &name); err != nil {
+		if err := rows.Scan(&m.row, &m.ID, &m.From, &m.Text, &category, &m.Timestamp, &name); err != nil {
 			return nil, err
 		}
 		if category.Valid {
@@ -187,7 +192,7 @@ func (s messageSource) query(tx *sql.Tx, cond, tail string, args ...any) ([]chat
 	return out, rows.Err()
 }
 
-// maxID is the newest message id of the context, or 0.
+// maxID is the table id of the context's newest message, or 0.
 func (s messageSource) maxID(tx *sql.Tx) (int64, error) {
 	var id int64
 	err := tx.QueryRow(`SELECT COALESCE(MAX(m.id), 0) FROM `+s.table+` m WHERE `+s.where+`1`, s.args...).Scan(&id)
@@ -228,7 +233,7 @@ func (c *Core) readMessages(call api.Call, a readMessagesArgs) (any, error) {
 			slices.Reverse(messages)
 			return err
 		case a.AfterID != nil:
-			messages, err = src.query(tx, "m.id > ?", "ORDER BY m.id LIMIT ?", *a.AfterID, a.Count)
+			messages, err = src.query(tx, src.number+" > ?", "ORDER BY m.id LIMIT ?", *a.AfterID, a.Count)
 			return err
 		}
 		var last int64
@@ -252,7 +257,7 @@ func (c *Core) readMessages(call api.Call, a readMessagesArgs) (any, error) {
 				return err
 			}
 			if len(messages) == a.Count {
-				cursor = messages[len(messages)-1].ID
+				cursor = messages[len(messages)-1].row
 			} else {
 				// Fewer than count: the scan reached the newest message.
 				if cursor, err = src.maxID(tx); err != nil {

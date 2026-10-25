@@ -191,7 +191,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 - 否则写入全局聊天。
 - 会议中的 `DECISION` 消息还会记入该会议的决策（`list_meetings` 中的 `decisionCount`）。
 - 随消息保存的发送方是调用方对话的会话 ID，没装 hooks 时是适配器实例 ID。
-- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`；`messageId` 是数字，会议和全局聊天共用一个序列（可用于 `afterId`）。
+- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`；`messageId` 是消息在所属会议里的编号（每个会议从 1 开始），或它的全局聊天 ID（可用于 `afterId`）。
 
 ### `read_messages`
 
@@ -202,14 +202,14 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 | `count` | integer | 否 | `10` | 要读取的消息数（1–500）。 |
 | `meetingId` | string | 否 |  | 提供时从该会议读取。否则从全局聊天读取。 |
 | `latest` | boolean | 否 |  | 历史模式：最新的 `count` 条，最早的在前。不能与 `afterId` 同时使用。 |
-| `afterId` | integer | 否 |  | 历史模式：ID 大于 `afterId` 的前 `count` 条。不能与 `latest` 同时使用。 |
+| `afterId` | integer | 否 |  | 历史模式：ID 大于 `afterId` 的前 `count` 条（会议里是消息编号）。不能与 `latest` 同时使用。 |
 
 行为：
 
 - 未读模式按对话增量进行（没装 hooks 时按适配器实例）：每次调用返回尚未返回给它的他人消息，最早的在前，游标越过这些消息和它自己发的消息。
 - 对话第一次以未读模式读全局聊天时从最新消息开始：本次不返回消息，带一条 `note`；更早的消息用 `latest` 或 `afterId` 读。第一次读某个会议时从该会议的第一条开始。
 - 历史模式不动游标，包含自己的消息，也不需要识别身份。
-- 结果：`{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`。`from` 是发送方的会话 ID（`senderName` 是它的名字，可用于 `send`）或实例 ID（`senderName` 为 null）；没有类别的消息 `category` 为 null。
+- 结果：`{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`。`from` 是发送方的会话 ID（`senderName` 是它的名字，可用于 `send`）或实例 ID（`senderName` 为 null）；没有类别的消息 `category` 为 null。会议消息的 `id` 是它在该会议里的编号，从 1 开始；全局聊天的消息有自己的 ID。
 - 没装 hooks 时未读模式需要调用方实例：没有 `instanceId` 的调用会失败，并返回 `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` MCP 适配器总会带上它。
 
 ### `list_events`

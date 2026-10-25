@@ -11,7 +11,7 @@
 - 契约版本升为 2：npm 客户端和 host 必须一起升级（`n2n-nexus doctor` 会报告版本不一致）。
 - 装了 n2n-nexus hooks 时，聊天和会议识别的是对话本身，而不是 MCP 适配器实例。同一个 IDE 在同一个工作区里的多个对话共用一个实例；现在它们各有自己的未读游标，它们的消息、会议的 `initiator` 和 `participants`、`meeting.*` 事件的 `actor` 都带会话 ID（`claude:<id>` / `codex:<id>`），可以用于 `send`。没装 hooks 的客户端仍按实例。某个实例在最近 30 分钟内识别出过对话、而某次调用识别不出时，调用会失败并提示重试，而不会通过共用的游标读取。结果里的 `identity` 说明用的是哪种身份。
 - `read_messages` 的未读模式不再返回你自己发的消息；对话第一次以未读模式读全局聊天时从最新消息开始。新增历史模式：`latest: true` 或 `afterId` 读取时不移动游标，并包含自己的消息。每条消息带 `senderName`，`category` 总是存在（没有类别时为 null）。
-- `send_message` 发到会议时也返回 `messageId`。
+- 会议消息按会议编号，从 1 开始：`read_messages` 的 `id`、`send_message` 返回的 `messageId`（发到会议时现在也返回）和会议里的 `afterId` 都用这个编号，新会议不再接着之前会议的编号。
 
 ### 修复
 

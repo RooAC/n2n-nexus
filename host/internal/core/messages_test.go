@@ -373,3 +373,41 @@ func TestUnresolvedIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestMeetingMessageNumbers(t *testing.T) {
+	h := newHarnessWith(t, fakeIdentities{})
+	m1 := h.as("a", "start_meeting", map[string]any{"topic": "one"})["meetingId"].(string)
+	m2 := h.as("a", "start_meeting", map[string]any{"topic": "two"})["meetingId"].(string)
+	// Interleaved: each meeting numbers its own messages from 1.
+	for i, m := range []string{m1, m2, m1, m2, m1} {
+		sent := h.as("b", "send_message", map[string]any{"message": fmt.Sprintf("%s-%d", m, i), "meetingId": m})
+		want := map[string]float64{m1: float64(i/2 + 1), m2: float64(i/2 + 1)}[m]
+		if sent["messageId"] != want {
+			t.Fatalf("send %d to %s: messageId %v, want %v", i, m, sent["messageId"], want)
+		}
+	}
+	ids := func(res map[string]any) []float64 {
+		out := []float64{}
+		for _, m := range res["messages"].([]any) {
+			out = append(out, m.(map[string]any)["id"].(float64))
+		}
+		return out
+	}
+	// Unread reads show the numbers and keep the cursor across a count cut.
+	if got := ids(h.as("a", "read_messages", map[string]any{"meetingId": m1, "count": 2})); !slices.Equal(got, []float64{1, 2}) {
+		t.Fatalf("m1 first %v", got)
+	}
+	if got := ids(h.as("a", "read_messages", map[string]any{"meetingId": m1})); !slices.Equal(got, []float64{3}) {
+		t.Fatalf("m1 second %v", got)
+	}
+	if got := ids(h.as("a", "read_messages", map[string]any{"meetingId": m2})); !slices.Equal(got, []float64{1, 2}) {
+		t.Fatalf("m2 %v", got)
+	}
+	// afterId in a meeting is a meeting number.
+	if got := messageTexts(h.as("a", "read_messages", map[string]any{"meetingId": m1, "afterId": 1})); !slices.Equal(got, []string{m1 + "-2", m1 + "-4"}) {
+		t.Fatalf("afterId %v", got)
+	}
+	if got := ids(h.as("a", "read_messages", map[string]any{"meetingId": m2, "latest": true, "count": 1})); !slices.Equal(got, []float64{2}) {
+		t.Fatalf("latest %v", got)
+	}
+}

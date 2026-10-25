@@ -191,7 +191,7 @@ Behavior:
 - Otherwise it is written to global chat.
 - A `DECISION` message in a meeting is also recorded in that meeting's decisions (`decisionCount` in `list_meetings`).
 - The sender stored with the message is the calling conversation's session ID, or the adapter instance ID without hooks.
-- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`; `messageId` is a number, shared by meeting and global ids (use it with `afterId`).
+- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`; `messageId` is the message's number in its meeting, counted from 1 in each meeting, or its global chat id (use it with `afterId`).
 
 ### `read_messages`
 
@@ -202,14 +202,14 @@ Read global chat or meeting messages: the unread ones (default) or history. Dire
 | `count` | integer | no | `10` | Number of messages to read (1–500). |
 | `meetingId` | string | no |  | When provided, reads from that meeting. Otherwise reads from global chat. |
 | `latest` | boolean | no |  | History mode: the newest `count` messages, oldest first. Not with `afterId`. |
-| `afterId` | integer | no |  | History mode: the first `count` messages with an id above `afterId`. Not with `latest`. |
+| `afterId` | integer | no |  | History mode: the first `count` messages with an id above `afterId` (in a meeting, its message number). Not with `latest`. |
 
 Behavior:
 
 - Unread mode is incremental per conversation (per adapter instance without hooks): each call returns messages of others not yet returned to it, oldest first, and moves its cursor past them and past its own messages.
 - A conversation's first unread read of global chat starts at the newest message: it returns nothing and a `note`; read earlier messages with `latest` or `afterId`. Its first read of a meeting starts at the meeting's first message.
 - History mode moves no cursor, includes your own messages and needs no identity.
-- Result: `{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`. `from` is the sender's session ID (`senderName` is its name, usable with `send`) or instance ID (`senderName` null); `category` is null for a message without one.
+- Result: `{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`. `from` is the sender's session ID (`senderName` is its name, usable with `send`) or instance ID (`senderName` null); `category` is null for a message without one. A meeting message's `id` is its number in the meeting, from 1; global chat messages have their own ids.
 - Unread mode without hooks needs the calling instance: a call without `instanceId` fails with `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` The MCP adapter always sends one.
 
 ### `list_events`

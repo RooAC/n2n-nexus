@@ -37,6 +37,17 @@ describe("meeting tools", () => {
         expect(noActive.payload.error).toContain("No active meeting");
     });
 
+    it("numbers each meeting's messages from 1", async () => {
+        const first = await start("Numbers one", "ide-n");
+        const second = await start("Numbers two", "ide-n");
+        const send = async (meetingId: string, message: string) =>
+            (await host.callTool<{ messageId: number }>("send_message", { meetingId, message }, "ide-m")).payload.result!.messageId;
+        expect([await send(first, "a"), await send(second, "b"), await send(first, "c")]).toEqual([1, 1, 2]);
+        const read = await host.callTool<{ messages: { id: number; text: string }[] }>("read_messages", { meetingId: first, afterId: 1 }, "ide-n");
+        expect(read.payload.result!.messages.map((m) => [m.id, m.text])).toEqual([[2, "c"]]);
+        for (const meetingId of [first, second]) await host.callTool("end_meeting", { meetingId }, "ide-n");
+    });
+
     it("routes send_message to the active meeting, an explicit meeting, or global chat", async () => {
         const meetingId = await start("Routing", "ide-a");
 

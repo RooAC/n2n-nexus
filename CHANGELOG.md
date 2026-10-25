@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 - Contract version 2: the npm client and the host must be upgraded together (`n2n-nexus doctor` reports a mismatch).
 - Chat and meetings identify the conversation, not the MCP adapter instance, when the n2n-nexus hooks are installed. Several conversations of one IDE in one workspace share an instance; they now keep their own unread cursors, and their messages, a meeting's `initiator` and `participants` and the `actor` of `meeting.*` events carry their session id (`claude:<id>` / `codex:<id>`), which works with `send`. Clients without the hooks keep using the instance. If an instance has had a conversation identified within the last 30 minutes and a call of it cannot be identified, the call fails with a retry message instead of reading through the shared cursor. Results say which identity was used (`identity`).
 - `read_messages` no longer returns your own messages in unread mode; a conversation's first unread read of global chat starts at the newest message. New history mode: `latest: true` or `afterId` read without moving a cursor and include your own messages. Each message has `senderName`, and `category` is always present (null without one).
-- `send_message` to a meeting returns its `messageId` too.
+- Meeting messages are numbered per meeting, from 1: `id` in `read_messages`, `messageId` from `send_message` (now returned for meetings too) and `afterId` in a meeting use that number, so a new meeting no longer continues the numbers of earlier ones.
 
 ### Fixed
 
