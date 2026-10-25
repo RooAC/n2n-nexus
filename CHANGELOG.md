@@ -4,13 +4,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.9.5] - 2026-10-26
 
 ### Added
 
 - Host on Windows: `n2n-nexus-host.exe install [--dir <dir>]` installs the host from an extracted release zip into `%LOCALAPPDATA%\Programs\n2n-nexus-host`, turns start at login on the first time and starts the tray. Run it again from a newer release to upgrade: it replaces the programs (running ones are moved aside and removed by the next install), restarts the tray and, after an administrator prompt, restarts the background service on the new version for the same data directory.
-
-## [0.9.5] - 2026-10-26
 
 ### Changed
 
