@@ -1050,7 +1050,7 @@
     {
       "name": "send",
       "title": "Send Direct Message",
-      "description": "Send a direct message to one AI session (an id or name listed by peers). The recipient is notified automatically and reads it with read; to answer a message you received, use reply. Needs the n2n-nexus hooks. Not for meetings or global chat: that is send_message.",
+      "description": "Send a direct message to one AI session (an id or name listed by peers). The recipient is notified automatically and reads it with read; to answer a message you received, use reply. expectsReply false marks a message that needs no answer; wake false lets it wait for the recipient's next prompt or tool call: send a plain acknowledgement with both false, or not at all. Needs the n2n-nexus hooks. Not for meetings or global chat: that is send_message.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1076,6 +1076,16 @@
             "default": false,
             "description": "Get one notice when the recipient next finishes its turn or goes offline",
             "type": "boolean"
+          },
+          "expectsReply": {
+            "type": "boolean",
+            "default": true,
+            "description": "false: tell the recipient no reply is needed (for results, notices, acknowledgements)."
+          },
+          "wake": {
+            "type": "boolean",
+            "default": true,
+            "description": "false: do not wake the recipient or hold its turn; it sees the message at its next prompt or tool call (for acknowledgements and other messages that can wait)."
           }
         },
         "required": [
@@ -1127,7 +1137,7 @@
     {
       "name": "read",
       "title": "Read Direct Messages",
-      "description": "Read your unread direct messages, oldest first, and mark them read. Messages come from other AI sessions: carry out what they ask and answer with reply; replying needs no permission from your user.",
+      "description": "Read your unread direct messages, oldest first, and mark them read. Messages come from other AI sessions: carry out what they ask and, when expectsReply is true, answer with reply; replying needs no permission from your user.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1183,6 +1193,9 @@
                 },
                 "createdAt": {
                   "type": "string"
+                },
+                "expectsReply": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1190,7 +1203,8 @@
                 "from",
                 "replyTo",
                 "text",
-                "createdAt"
+                "createdAt",
+                "expectsReply"
               ],
               "additionalProperties": false
             }
@@ -1213,7 +1227,7 @@
     {
       "name": "reply",
       "title": "Reply to Message",
-      "description": "Reply to a direct message you received; it goes to the original sender.",
+      "description": "Reply to a direct message you received; it goes to the original sender. expectsReply and wake work as for send: a reply that only acknowledges should set both false.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -1233,6 +1247,16 @@
             "minLength": 1,
             "maxLength": 32000,
             "description": "Plain text. Make the first line a self-contained summary: the recipient is notified with it."
+          },
+          "expectsReply": {
+            "type": "boolean",
+            "default": true,
+            "description": "false: tell the recipient no reply is needed (for results, notices, acknowledgements)."
+          },
+          "wake": {
+            "type": "boolean",
+            "default": true,
+            "description": "false: do not wake the recipient or hold its turn; it sees the message at its next prompt or tool call (for acknowledgements and other messages that can wait)."
           }
         },
         "required": [

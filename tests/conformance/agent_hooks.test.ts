@@ -126,8 +126,10 @@ describe("POST /api/hook: notifications", () => {
 
         // Every unread message was marked notified, so a tool call adds nothing.
         expect(await hook("claude", "PostToolUse", s("rcv"))).toBeNull();
-        // The next prompt still lists them while they are unread.
-        expect(context(await hook("claude", "UserPromptSubmit", s("rcv")))).toContain("7 unread direct messages");
+        // The next prompt only counts them while they are unread: each was announced in full once.
+        const again = context(await hook("claude", "UserPromptSubmit", s("rcv")));
+        expect(again).toContain("7 earlier direct message(s) still unread");
+        expect(again).not.toContain("message 1");
     });
 
     it("lists notices alone without the message note", async () => {
@@ -170,11 +172,11 @@ describe("POST /api/hook: notifications", () => {
         expect(await status(`claude:${s("r")}`)).toBe("idle");
 
         await send(s("s"), `claude:${s("r")}`, "please look");
-        await hook("claude", "UserPromptSubmit", s("r"));                       // already notified: Stop still blocks
+        await hook("claude", "UserPromptSubmit", s("r"));                       // already announced: Stop still blocks, counting it
         const blocked = await hook("claude", "Stop", s("r"), { stop_hook_active: false });
         expect(blocked?.decision).toBe("block");
-        expect(blocked?.reason?.startsWith(`${NOTICE_PREFIX} 1 unread direct message:`)).toBe(true);
-        expect(blocked?.reason).toContain("please look");
+        expect(blocked?.reason?.startsWith(`${NOTICE_PREFIX} 1 earlier direct message(s) still unread`)).toBe(true);
+        expect(blocked?.reason).not.toContain("please look");
         // Continuing a turn that was about to end asks for read and reply, not just a look.
         expect(blocked?.reason).toContain(`${MESSAGE_TRUST_NOTE} ${STOP_CLOSING}`);
         expect(blocked?.reason).not.toContain("Automatic turn");                // no limit by default, so no count

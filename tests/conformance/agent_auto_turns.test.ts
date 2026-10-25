@@ -32,11 +32,12 @@ describe("POST /api/hook: automatic turn limit", () => {
             await wokenTurn("claude", s("r"));
         }
 
-        // The limit is reached: the wait ends at once and the message only waits, unread and not announced.
+        // The limit is reached: the wait still holds (meeting news would wake it), but the message only waits, unread and not announced.
         const third = openHook("claude", BACKGROUND_WAIT_EVENT, s("r"));
-        expect((await third.response).payload.output).toBeNull();
-        expect(await status(r)).toBe("idle");
+        await until(async () => (await status(r)) === "listening");
         await send(s("s"), r, "ping 3");
+        expect((await third.response).payload.output).toEqual({ timeout: true });
+        expect(await status(r)).toBe("idle");
 
         // A real prompt (no wake just before it) starts counting again and announces the message.
         expect(context(await hook("claude", "UserPromptSubmit", s("r")))).toContain("ping 3");

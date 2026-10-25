@@ -125,16 +125,21 @@ func (a *Agents) hook(client string, input map[string]any) (map[string]any, *wai
 
 func (a *Agents) stop(id string, input map[string]any) (map[string]any, *waiter, error) {
 	now := a.o.Clock.Now()
-	if active, _ := input["stop_hook_active"].(bool); !active && a.autoTurnAllowed(id) {
-		text, err := a.notifyAll(id, a.o.Contract.Hook.Texts.StopClosing)
+	if active, _ := input["stop_hook_active"].(bool); !active {
+		// Past the automatic-turn limit, direct messages wait for the user; meeting news still holds the Stop.
+		b, err := a.gather(id, true, !a.autoTurnAllowed(id))
 		if err != nil {
 			return nil, nil, err
 		}
-		if text != "" {
+		if b.wakes() {
+			text, _, err := a.continueWith(id, b, "unread", a.o.Contract.Hook.Texts.StopClosing)
+			if err != nil {
+				return nil, nil, err
+			}
 			if err := a.setStatus(id, "working"); err != nil {
 				return nil, nil, err
 			}
-			return blockOutput(a.autoTurn(id, text)), nil, nil
+			return blockOutput(text), nil, nil
 		}
 	}
 	s, err := getSession(a.db(), id)

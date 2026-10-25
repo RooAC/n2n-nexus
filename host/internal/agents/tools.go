@@ -78,12 +78,18 @@ func (a *Agents) resolve(c api.Call) (*session, error) {
 	return getSession(a.db(), id)
 }
 
-func (a *Agents) deliver(from, to *session, text string, replyTo *string, notifyWhenIdle bool) (any, error) {
+// kind is what a message asks of its recipient: an answer, and a wake.
+type kind struct {
+	ExpectsReply bool `json:"expectsReply"`
+	Wake         bool `json:"wake"`
+}
+
+func (a *Agents) deliver(from, to *session, text string, replyTo *string, notifyWhenIdle bool, k kind) (any, error) {
 	if to.ID == from.ID {
 		return nil, api.Errorf("You cannot send a message to yourself.")
 	}
 	now := a.o.Clock.Now()
-	id, err := a.addMessage(from.ID, to.ID, text, replyTo, now)
+	id, err := a.addMessage(from.ID, to.ID, text, replyTo, k.ExpectsReply, k.Wake, now)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +98,9 @@ func (a *Agents) deliver(from, to *session, text string, replyTo *string, notify
 			return nil, err
 		}
 	}
-	a.wake(to.ID)
+	if k.Wake {
+		a.wake(to.ID)
+	}
 	return sent{MessageID: id, To: recipient{ID: to.ID, Name: to.Name, Status: to.Status}}, nil
 }
 
@@ -121,11 +129,12 @@ func (a *Agents) toolPeers(c api.Call) (any, error) {
 }
 
 func (a *Agents) toolSend(c api.Call) (any, error) {
-	var args struct {
+	args := struct {
 		To             string `json:"to"`
 		Text           string `json:"text"`
 		NotifyWhenIdle bool   `json:"notifyWhenIdle"`
-	}
+		kind
+	}{kind: kind{ExpectsReply: true, Wake: true}}
 	if err := decode(c, &args); err != nil {
 		return nil, err
 	}
@@ -140,14 +149,15 @@ func (a *Agents) toolSend(c api.Call) (any, error) {
 	if to == nil {
 		return nil, api.Errorf("Unknown recipient '%s'. Call peers for session ids and names.", args.To)
 	}
-	return a.deliver(self, to, args.Text, nil, args.NotifyWhenIdle)
+	return a.deliver(self, to, args.Text, nil, args.NotifyWhenIdle, args.kind)
 }
 
 func (a *Agents) toolReply(c api.Call) (any, error) {
-	var args struct {
+	args := struct {
 		MessageID string `json:"messageId"`
 		Text      string `json:"text"`
-	}
+		kind
+	}{kind: kind{ExpectsReply: true, Wake: true}}
 	if err := decode(c, &args); err != nil {
 		return nil, err
 	}
@@ -166,7 +176,7 @@ func (a *Agents) toolReply(c api.Call) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return a.deliver(self, sender, args.Text, &original.ID, false)
+	return a.deliver(self, sender, args.Text, &original.ID, false, args.kind)
 }
 
 func (a *Agents) toolRead(c api.Call) (any, error) {
@@ -189,15 +199,16 @@ func (a *Agents) toolRead(c api.Call) (any, error) {
 		Name string `json:"name"`
 	}
 	type item struct {
-		MessageID string  `json:"messageId"`
-		From      from    `json:"from"`
-		ReplyTo   *string `json:"replyTo"`
-		Text      string  `json:"text"`
-		CreatedAt string  `json:"createdAt"`
+		MessageID    string  `json:"messageId"`
+		From         from    `json:"from"`
+		ReplyTo      *string `json:"replyTo"`
+		Text         string  `json:"text"`
+		CreatedAt    string  `json:"createdAt"`
+		ExpectsReply bool    `json:"expectsReply"`
 	}
 	items := []item{}
 	for _, m := range messages {
-		items = append(items, item{MessageID: m.ID, From: from{m.FromID, m.FromName}, ReplyTo: m.ReplyTo, Text: m.Text, CreatedAt: m.CreatedAt})
+		items = append(items, item{MessageID: m.ID, From: from{m.FromID, m.FromName}, ReplyTo: m.ReplyTo, Text: m.Text, CreatedAt: m.CreatedAt, ExpectsReply: m.ExpectsReply})
 	}
 	return map[string]any{"messages": items, "remaining": remaining}, nil
 }

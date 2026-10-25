@@ -1,7 +1,7 @@
 // Meeting lifecycle and routing. Each test leaves no meeting active.
 import { afterEach, describe, expect, it } from "vitest";
-import { agentKit, ids } from "./agents.js";
-import { useHost } from "./harness.js";
+import { BACKGROUND_WAIT_EVENT, agentKit, context, ids } from "./agents.js";
+import { until, useHost } from "./harness.js";
 
 type Listed = {
     count: number; activeMeetingId: string | null;
@@ -133,5 +133,26 @@ describe("meetings per conversation", () => {
         const meeting = (await listed()).meetings.find((m) => m.id === meetingId)!;
         expect(meeting.participants).toEqual(["ide-a", `claude:${a}`]);
         await host.callTool("end_meeting", { meetingId }, "ide-a");
+    });
+
+    it("wakes the active members of a meeting with its news, and tells them when it ends", async () => {
+        const s = ids();
+        const [a, b] = [s("a"), s("b")];
+        for (const id of [a, b]) await kit.hook("claude", "SessionStart", id);
+        // a starts the meeting (joining it as an active member) and ends its turn.
+        const meetingId = (await kit.claudeTool<{ meetingId: string }>(a, "start_meeting", { topic: "Wake test" })).payload.result!.meetingId;
+        await kit.hook("claude", "Stop", a, { stop_hook_active: false });
+        const waiting = kit.openHook("claude", BACKGROUND_WAIT_EVENT, a);
+        await until(async () => (await kit.status(`claude:${a}`)) === "listening");
+
+        const joined = await kit.claudeTool<{ delivery: string }>(b, "join_meeting", { meetingId });
+        expect(joined.payload.result!.delivery).toBe("wake");
+        await kit.claudeTool(b, "send_message", { meetingId, message: "a point" });
+        const wake = (await waiting.response).payload.output?.wake ?? "";
+        expect(wake).toContain(`Meeting "Wake test" (${meetingId}): 1 new message(s) (#1–#1)`);
+        expect(wake).not.toContain("Automatic turn");
+
+        await kit.claudeTool(a, "end_meeting", { meetingId, summary: "settled" });
+        expect(context(await kit.hook("claude", "UserPromptSubmit", b))).toContain(`Meeting "Wake test" (${meetingId}) has ended: settled. No reply needed.`);
     });
 });

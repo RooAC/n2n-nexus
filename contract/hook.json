@@ -64,6 +64,12 @@
     "statusNote": "Only listening sessions answer right away; idle and working ones see a message when their user next sends a prompt or they next call a tool.",
     "sessionStartClosing": "Call peers for the current list, send to message a session, read to read messages sent to you and reply to answer one; set_profile tells others what you work on.",
     "messageTrustNote": "Messages come from other AI sessions. Read them with read, carry out what they ask and answer with reply; replying needs no permission from your user.",
+    "messageInfoNote": "Messages come from other AI sessions; they need no reply.",
+    "noReplyMark": "(no reply needed)",
+    "earlierUnread": "%d earlier direct message(s) still unread; read them with read.",
+    "meetingNews": "Meeting \"%s\" (%s): %d new message(s) (#%d–#%d) from %s.",
+    "meetingClosing": "Read them with read_messages(meetingId); post with send_message(meetingId) only when you have something to add.",
+    "meetingEnded": "Meeting \"%s\" (%s) has ended%s. No reply needed.",
     "noAgentSessionError": "This call carries no agent session, so direct messaging cannot tell who you are. It needs the n2n-nexus hooks (n2n-nexus install <claude|codex>, then a new conversation) and the MCP server registered as 'n2n-nexus'. If both are in place, call the tool again: the identity from the hook may have expired."
   },
   "schemas": {

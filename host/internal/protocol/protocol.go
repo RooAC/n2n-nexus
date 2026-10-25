@@ -138,6 +138,12 @@ type Hook struct {
 		StatusNote          string `json:"statusNote"`
 		SessionStartClosing string `json:"sessionStartClosing"`
 		MessageTrustNote    string `json:"messageTrustNote"`
+		MessageInfoNote     string `json:"messageInfoNote"`
+		NoReplyMark         string `json:"noReplyMark"`
+		EarlierUnread       string `json:"earlierUnread"`
+		MeetingNews         string `json:"meetingNews"`
+		MeetingClosing      string `json:"meetingClosing"`
+		MeetingEnded        string `json:"meetingEnded"`
 		NoAgentSessionError string `json:"noAgentSessionError"`
 	} `json:"texts"`
 }

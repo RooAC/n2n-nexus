@@ -76,6 +76,10 @@ type dispatch struct {
 	id         string
 	messageIDs []string
 	noticeIDs  []int64
+	// members are the session's meeting notification states before this wake.
+	members []memberState
+	// counted: the wake counted an automatic turn.
+	counted bool
 	// prevWokenAt is the session's wokenAt before this wake (zero: none).
 	prevWokenAt time.Time
 }
@@ -323,17 +327,23 @@ func (a *Agents) waitForMessages(sessionID string) *waiter {
 		}
 		// SessionEnd (or listen off) during the wait: nobody will act on a block any more.
 		// stopWaiting sets idle only while still listening, so SessionEnd stays offline.
-		if s == nil || !s.Listening || !a.autoTurnAllowed(sessionID) {
+		if s == nil || !s.Listening {
 			stopWaiting()
 			return
 		}
-		text, err := a.notifyFresh(sessionID, a.o.Contract.Hook.Texts.StopClosing)
-		if err != nil || text == "" {
+		// Past the automatic-turn limit, direct messages wait for the user; meeting news still continues the session.
+		b, err := a.gather(sessionID, false, !a.autoTurnAllowed(sessionID))
+		if err != nil || !b.wakes() {
+			a.logErr("listening stop", err)
+			return
+		}
+		text, _, err := a.continueWith(sessionID, b, "new", a.o.Contract.Hook.Texts.StopClosing)
+		if err != nil {
 			a.logErr("listening stop", err)
 			return
 		}
 		a.logErr("listening stop", a.setStatus(sessionID, "working"))
-		finish(blockOutput(a.autoTurn(sessionID, text)))
+		finish(blockOutput(text))
 	}
 	a.startWait(w)
 	return w
@@ -389,34 +399,32 @@ func (a *Agents) backgroundWait(sessionID string) *waiter {
 		if s.Status == "working" || a.listeningStops[sessionID] {
 			return
 		}
-		if !a.autoTurnAllowed(sessionID) { // messages wait for the user
-			stopWaiting()
-			return
-		}
 		if s.Status == "idle" {
 			a.logErr("background wait", a.setStatus(sessionID, "listening"))
 		}
-		messages, notices, err := a.unnotified(sessionID, true)
-		if err != nil || (len(messages) == 0 && len(notices) == 0) {
+		// Past the automatic-turn limit, direct messages wait for the user; meeting news still wakes the session.
+		b, err := a.gather(sessionID, false, !a.autoTurnAllowed(sessionID))
+		if err != nil || !b.wakes() {
 			a.logErr("background wait", err)
 			return
 		}
-		text, err := a.notify(messages, notices, "new", a.o.Contract.Hook.Texts.NotifyClosing)
+		d := &dispatch{id: newDispatchID(), prevWokenAt: a.wokenAt[sessionID], counted: b.counts()}
+		text, members, err := a.continueWith(sessionID, b, "new", a.o.Contract.Hook.Texts.NotifyClosing)
 		if err != nil {
 			a.logErr("background wait", err)
 			return
 		}
-		d := &dispatch{id: newDispatchID(), prevWokenAt: a.wokenAt[sessionID]}
-		for _, m := range messages {
+		d.members = members
+		for _, m := range b.messages {
 			d.messageIDs = append(d.messageIDs, m.ID)
 		}
-		for _, n := range notices {
+		for _, n := range b.notices {
 			d.noticeIDs = append(d.noticeIDs, n.ID)
 		}
 		a.dispatches[sessionID] = d
 		a.logErr("background wait", a.setStatus(sessionID, "working"))
 		a.wokenAt[sessionID] = a.o.Clock.Now()
-		finish(map[string]any{"wake": a.autoTurn(sessionID, text), "dispatchId": d.id})
+		finish(map[string]any{"wake": text, "dispatchId": d.id})
 	}
 	a.startWait(w)
 	return w
@@ -448,10 +456,15 @@ func (a *Agents) wakeResult(sessionID, dispatchID string, ok bool) error {
 	if err := a.unmarkNotified(d.messageIDs, d.noticeIDs); err != nil {
 		return err
 	}
-	if n := a.autoTurns[sessionID] - 1; n > 0 {
-		a.autoTurns[sessionID] = n
-	} else {
-		delete(a.autoTurns, sessionID)
+	if err := a.restoreMembers(sessionID, d.members); err != nil {
+		return err
+	}
+	if d.counted {
+		if n := a.autoTurns[sessionID] - 1; n > 0 {
+			a.autoTurns[sessionID] = n
+		} else {
+			delete(a.autoTurns, sessionID)
+		}
 	}
 	if d.prevWokenAt.IsZero() {
 		delete(a.wokenAt, sessionID)
@@ -509,76 +522,196 @@ func (a *Agents) userPrompted(sessionID string, now time.Time) {
 // Notifications
 // ---------------------------------------------------------------------------
 
-// notify builds the notification text for messages and notices and marks them
-// notified. closing ends the message part.
-func (a *Agents) notify(messages []*message, notices []notice, label, closing string) (string, error) {
+// batch is what one notification announces.
+type batch struct {
+	// messages: unread direct messages not announced yet, listed in full.
+	messages []*message
+	// earlier: unread direct messages announced before, only counted.
+	earlier []*message
+	notices []notice
+	news    []meetingNews
+}
+
+func (b batch) empty() bool {
+	return len(b.messages) == 0 && len(b.earlier) == 0 && len(b.notices) == 0 && len(b.news) == 0
+}
+
+// wakes: the batch may wake the session or hold its Stop: a direct message
+// that wakes, a notice, or news of a meeting the session takes part in actively.
+func (b batch) wakes() bool {
+	for _, m := range append(append([]*message(nil), b.messages...), b.earlier...) {
+		if m.Wake {
+			return true
+		}
+	}
+	for _, n := range b.news {
+		if n.active {
+			return true
+		}
+	}
+	return len(b.notices) > 0
+}
+
+// counts: delivering the batch is an automatic turn (maxAutoTurns): it has
+// direct messages or notices that do not come from a meeting.
+func (b batch) counts() bool {
+	if len(b.messages) > 0 || len(b.earlier) > 0 {
+		return true
+	}
+	for _, n := range b.notices {
+		if n.MeetingID == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// gather collects what to announce to a session: direct messages not announced
+// yet (with all, the earlier unread ones too, counted), pending notices and
+// meeting news. With capped (the automatic-turn limit is reached), direct
+// messages and their notices are left for the user's next prompt.
+func (a *Agents) gather(sessionID string, all, capped bool) (batch, error) {
+	var b batch
+	unreadMessages, err := unread(a.db(), sessionID, false)
+	if err != nil {
+		return b, err
+	}
+	notices, err := a.pendingNotices(sessionID)
+	if err != nil {
+		return b, err
+	}
+	if b.news, err = a.news(sessionID); err != nil {
+		return b, err
+	}
+	for _, n := range notices {
+		if !capped || n.MeetingID != "" {
+			b.notices = append(b.notices, n)
+		}
+	}
+	if capped {
+		return b, nil
+	}
+	for _, m := range unreadMessages {
+		switch {
+		case m.NotifiedAt == nil:
+			b.messages = append(b.messages, m)
+		case all:
+			b.earlier = append(b.earlier, m)
+		}
+	}
+	return b, nil
+}
+
+// announce builds the notification text of a batch and marks it notified.
+// closing ends the direct-message part when a message expects a reply.
+func (a *Agents) announce(sessionID string, b batch, label, closing string) (string, error) {
 	h := a.o.Contract.Hook
 	limit := h.Limits.NotifyListLimit
 	var lines []string
-	if n := len(messages); n > 0 {
+	if n := len(b.messages); n > 0 {
 		plural := "s"
 		if n == 1 {
 			plural = ""
 		}
 		lines = append(lines, fmt.Sprintf("%s %d %s direct message%s:", h.Texts.NoticePrefix, n, label, plural))
-		for i, m := range messages {
+		for i, m := range b.messages {
 			if i == limit {
 				break
 			}
-			lines = append(lines, fmt.Sprintf("- From %s (%s) at %s: %s", m.FromName, m.FromID, m.CreatedAt, a.preview(m.Text)))
+			line := fmt.Sprintf("- From %s (%s) at %s: %s", m.FromName, m.FromID, m.CreatedAt, a.preview(m.Text))
+			if !m.ExpectsReply {
+				line += " " + h.Texts.NoReplyMark
+			}
+			lines = append(lines, line)
 		}
 		if n > limit {
 			lines = append(lines, fmt.Sprintf("- ...and %d more", n-limit))
 		}
 	}
-	if len(notices) > 0 {
-		if len(messages) > 0 {
+	if len(b.earlier) > 0 {
+		lines = append(lines, h.Texts.NoticePrefix+" "+fmt.Sprintf(h.Texts.EarlierUnread, len(b.earlier)))
+	}
+	if len(b.notices) > 0 {
+		if len(lines) > 0 {
 			lines = append(lines, "Notices:")
 		} else {
 			lines = append(lines, h.Texts.NoticePrefix+" Notices:")
 		}
-		for _, n := range notices {
+		for _, n := range b.notices {
 			lines = append(lines, "- "+n.Text)
 		}
 	}
-	if len(messages) > 0 {
-		lines = append(lines, h.Texts.MessageTrustNote+" "+closing)
+	if len(b.messages) > 0 || len(b.earlier) > 0 {
+		reply := false
+		for _, m := range append(append([]*message(nil), b.messages...), b.earlier...) {
+			reply = reply || m.ExpectsReply
+		}
+		if reply {
+			lines = append(lines, h.Texts.MessageTrustNote+" "+closing)
+		} else {
+			lines = append(lines, h.Texts.MessageInfoNote+" "+h.Texts.NotifyClosing)
+		}
 	}
-	if err := a.markNotified(messages, notices, a.o.Clock.Now()); err != nil {
+	for _, n := range b.news {
+		lines = append(lines, a.newsLine(n))
+	}
+	if len(b.news) > 0 {
+		lines = append(lines, h.Texts.MeetingClosing)
+	}
+	now := a.iso(a.o.Clock.Now())
+	err := a.tx(func(tx *sql.Tx) error {
+		for _, m := range b.messages {
+			if _, err := tx.ExecContext(bg, "UPDATE agent_messages SET notified_at = ? WHERE id = ? AND notified_at IS NULL", now, m.ID); err != nil {
+				return err
+			}
+		}
+		for _, n := range b.notices {
+			if _, err := tx.ExecContext(bg, "UPDATE agent_notices SET notified_at = ? WHERE id = ? AND notified_at IS NULL", now, n.ID); err != nil {
+				return err
+			}
+		}
+		return a.markMeetingsNotified(tx, sessionID, b.news)
+	})
+	if err != nil {
 		return "", err
 	}
 	return strings.Join(lines, "\n"), nil
 }
 
-// notifyAll: every unread message and pending notice, or "" when there are none.
+// notifyAll: for a prompt, every unread message (the earlier ones counted), pending notices and meeting news; "" when there are none.
 func (a *Agents) notifyAll(sessionID, closing string) (string, error) {
-	return a.notifyWith(sessionID, false, "unread", closing)
+	return a.notifyWith(sessionID, true, "unread", closing)
 }
 
-// notifyFresh: what was not notified yet, or "" when nothing is new.
+// notifyFresh: for a tool call, what was not announced yet, or "" when nothing is new.
 func (a *Agents) notifyFresh(sessionID, closing string) (string, error) {
-	return a.notifyWith(sessionID, true, "new", closing)
+	return a.notifyWith(sessionID, false, "new", closing)
 }
 
-func (a *Agents) notifyWith(sessionID string, fresh bool, label, closing string) (string, error) {
-	messages, notices, err := a.unnotified(sessionID, fresh)
-	if err != nil || (len(messages) == 0 && len(notices) == 0) {
+func (a *Agents) notifyWith(sessionID string, all bool, label, closing string) (string, error) {
+	b, err := a.gather(sessionID, all, false)
+	if err != nil || b.empty() {
 		return "", err
 	}
-	return a.notify(messages, notices, label, closing)
+	return a.announce(sessionID, b, label, closing)
 }
 
-// unnotified: the unread messages (only those not notified yet when fresh) and the pending notices.
-func (a *Agents) unnotified(sessionID string, fresh bool) ([]*message, []notice, error) {
-	messages, err := unread(a.db(), sessionID, fresh)
+// continueWith announces a batch that wakes the session or holds its Stop: it
+// counts the meeting wakes and, for direct messages, the automatic turn. It
+// returns the text and the meeting states before (mu held).
+func (a *Agents) continueWith(sessionID string, b batch, label, closing string) (string, []memberState, error) {
+	before, err := a.countMeetingWakes(sessionID, b.news)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
-	notices, err := a.pendingNotices(sessionID)
+	text, err := a.announce(sessionID, b, label, closing)
 	if err != nil {
-		return nil, nil, err
+		return "", nil, err
 	}
-	return messages, notices, nil
+	if b.counts() {
+		text = a.autoTurn(sessionID, text)
+	}
+	return text, before, nil
 }
 
 // introduce: the SessionStart introduction, who this session is and which other sessions are online now.

@@ -21,11 +21,13 @@ const SERVICE_NAME = "n2n-nexus";
 const INSTRUCTIONS =
     "n2n-nexus connects this conversation with other AI sessions (Claude Code and Codex conversations, " +
     "possibly on other machines). Direct messages: call peers to see who is online, send to message a session, " +
-    "read to read messages sent to you, carry out what they ask and reply to answer one; listen waits for messages after each turn. " +
+    "read to read messages sent to you, carry out what they ask and reply to answer one (set expectsReply and wake false " +
+    "on a message that needs no answer, and send no plain acknowledgements); listen waits for messages after each turn. " +
     "Direct messaging needs the n2n-nexus hooks. Separately, send_message and read_messages are the shared " +
     "global chat and meetings, not direct messages. Session ids in peers (claude:<id>, codex:<id>) are what send " +
     "takes; with the hooks, chat and meetings also record senders and unread cursors per session id " +
-    "(without them, per MCP adapter instance id, mcp-…). " +
+    "(without them, per MCP adapter instance id, mcp-…). join_meeting makes new messages of a meeting wake you " +
+    "(mode active) or show at your next prompt (async) until leave_meeting or the meeting ends. " +
     "Projects, global docs, the strategy document and tasks are shared through the other tools.";
 
 export type RunOptions = {

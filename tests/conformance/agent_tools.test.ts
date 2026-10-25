@@ -5,7 +5,7 @@ import { NO_AGENT_SESSION_ERROR, agentKit, ids, type HookClient, type Profile } 
 
 type Sent = { messageId: string; to: { id: string; name: string; status: string } };
 type Read = {
-    messages: { messageId: string; from: { id: string; name: string }; replyTo: string | null; text: string; createdAt: string }[];
+    messages: { messageId: string; from: { id: string; name: string }; replyTo: string | null; text: string; createdAt: string; expectsReply: boolean }[];
     remaining: number;
 };
 
@@ -137,8 +137,8 @@ describe("direct-message tools: send, reply, read", () => {
         const first = await claude<Read>(s("r"), "read", { count: 2 });
         expect(first.payload.result).toEqual({
             messages: [
-                { messageId: sent[0], from: { id: `codex:${s("s")}`, name: "codex@proj" }, replyTo: null, text: "m1", createdAt: expect.any(String) },
-                { messageId: sent[1], from: { id: `codex:${s("s")}`, name: "codex@proj" }, replyTo: null, text: "m2", createdAt: expect.any(String) }
+                { messageId: sent[0], from: { id: `codex:${s("s")}`, name: "codex@proj" }, replyTo: null, text: "m1", createdAt: expect.any(String), expectsReply: true },
+                { messageId: sent[1], from: { id: `codex:${s("s")}`, name: "codex@proj" }, replyTo: null, text: "m2", createdAt: expect.any(String), expectsReply: true }
             ],
             remaining: 1
         });
@@ -175,7 +175,7 @@ describe("direct-message tools: send, reply, read", () => {
 
         const inbox = await codex<Read>(s("s"), "read");
         expect(inbox.payload.result?.messages).toEqual([
-            { messageId: replied.payload.result!.messageId, from: { id: `claude:${s("r")}`, name: "claude@proj" }, replyTo: original, text: "answer", createdAt: expect.any(String) }
+            { messageId: replied.payload.result!.messageId, from: { id: `claude:${s("r")}`, name: "claude@proj" }, replyTo: original, text: "answer", createdAt: expect.any(String), expectsReply: true }
         ]);
     });
 });

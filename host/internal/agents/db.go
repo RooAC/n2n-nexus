@@ -41,12 +41,16 @@ type message struct {
 	ReplyTo                          *string
 	Status, CreatedAt, ExpiresAt     string
 	NotifiedAt, ReadAt               *string
+	// ExpectsReply: the sender wants an answer; Wake: the message may wake the recipient.
+	ExpectsReply, Wake bool
 }
 
 type notice struct {
 	ID        int64
 	SessionID string
 	Text      string
+	// MeetingID is the meeting the notice comes from, "" for none.
+	MeetingID string
 }
 
 const sessionColumns = "id, client, name, note, cwd, status, listening, created_at, last_active_at"
@@ -287,17 +291,17 @@ func (a *Agents) listPeers(selfID string, now time.Time) ([]*session, error) {
 	return querySessions(a.db(), "SELECT "+sessionColumns+" FROM agent_sessions WHERE id != ? AND (status != 'offline' OR last_active_at > ?) ORDER BY last_active_at DESC", selfID, a.iso(since))
 }
 
-func (a *Agents) addMessage(fromID, toID, text string, replyTo *string, now time.Time) (string, error) {
+func (a *Agents) addMessage(fromID, toID, text string, replyTo *string, expectsReply, wake bool, now time.Time) (string, error) {
 	id := uuid.NewString()
 	_, err := a.db().ExecContext(bg,
-		"INSERT INTO agent_messages (id, from_id, to_id, text, reply_to, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, 'unread', ?, ?)",
-		id, fromID, toID, text, replyTo, a.iso(now), a.iso(now.Add(ms(a.o.Contract.Hook.Timing.MessageTtlMs))))
+		"INSERT INTO agent_messages (id, from_id, to_id, text, reply_to, status, created_at, expires_at, expects_reply, wake) VALUES (?, ?, ?, ?, ?, 'unread', ?, ?, ?, ?)",
+		id, fromID, toID, text, replyTo, a.iso(now), a.iso(now.Add(ms(a.o.Contract.Hook.Timing.MessageTtlMs))), expectsReply, wake)
 	return id, err
 }
 
 const messageSelect = `
     SELECT m.id, m.from_id, s.name AS from_name, m.to_id, m.text, m.reply_to, m.status,
-           m.created_at, m.expires_at, m.notified_at, m.read_at
+           m.created_at, m.expires_at, m.notified_at, m.read_at, m.expects_reply, m.wake
     FROM agent_messages m JOIN agent_sessions s ON s.id = m.from_id`
 
 func queryMessages(q querier, query string, args ...any) ([]*message, error) {
@@ -309,7 +313,7 @@ func queryMessages(q querier, query string, args ...any) ([]*message, error) {
 	var out []*message
 	for rows.Next() {
 		var m message
-		if err := rows.Scan(&m.ID, &m.FromID, &m.FromName, &m.ToID, &m.Text, &m.ReplyTo, &m.Status, &m.CreatedAt, &m.ExpiresAt, &m.NotifiedAt, &m.ReadAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.FromID, &m.FromName, &m.ToID, &m.Text, &m.ReplyTo, &m.Status, &m.CreatedAt, &m.ExpiresAt, &m.NotifiedAt, &m.ReadAt, &m.ExpectsReply, &m.Wake); err != nil {
 			return nil, err
 		}
 		out = append(out, &m)
@@ -336,7 +340,7 @@ func unread(q querier, toID string, freshOnly bool) ([]*message, error) {
 
 // pendingNotices: notices not delivered by a hook yet, oldest first.
 func (a *Agents) pendingNotices(sessionID string) ([]notice, error) {
-	rows, err := a.db().QueryContext(bg, "SELECT id, session_id, text FROM agent_notices WHERE session_id = ? AND notified_at IS NULL ORDER BY id", sessionID)
+	rows, err := a.db().QueryContext(bg, "SELECT id, session_id, text, COALESCE(meeting_id, '') FROM agent_notices WHERE session_id = ? AND notified_at IS NULL ORDER BY id", sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +348,7 @@ func (a *Agents) pendingNotices(sessionID string) ([]notice, error) {
 	var out []notice
 	for rows.Next() {
 		var n notice
-		if err := rows.Scan(&n.ID, &n.SessionID, &n.Text); err != nil {
+		if err := rows.Scan(&n.ID, &n.SessionID, &n.Text, &n.MeetingID); err != nil {
 			return nil, err
 		}
 		out = append(out, n)
@@ -352,27 +356,11 @@ func (a *Agents) pendingNotices(sessionID string) ([]notice, error) {
 	return out, rows.Err()
 }
 
-func (a *Agents) addNotice(q querier, sessionID, text string, now time.Time) error {
-	_, err := q.ExecContext(bg, "INSERT INTO agent_notices (session_id, text, created_at) VALUES (?, ?, ?)", sessionID, text, a.iso(now))
+// addNotice adds a notice for a session; meetingID is the meeting it comes from, "" for none.
+func (a *Agents) addNotice(q querier, sessionID, text, meetingID string, now time.Time) error {
+	_, err := q.ExecContext(bg, "INSERT INTO agent_notices (session_id, text, created_at, meeting_id) VALUES (?, ?, ?, ?)",
+		sessionID, text, a.iso(now), sql.NullString{String: meetingID, Valid: meetingID != ""})
 	return err
-}
-
-// markNotified marks messages (those not notified yet) and notices as notified.
-func (a *Agents) markNotified(messages []*message, notices []notice, now time.Time) error {
-	at := a.iso(now)
-	return a.tx(func(tx *sql.Tx) error {
-		for _, m := range messages {
-			if _, err := tx.ExecContext(bg, "UPDATE agent_messages SET notified_at = ? WHERE id = ? AND notified_at IS NULL", at, m.ID); err != nil {
-				return err
-			}
-		}
-		for _, n := range notices {
-			if _, err := tx.ExecContext(bg, "UPDATE agent_notices SET notified_at = ? WHERE id = ? AND notified_at IS NULL", at, n.ID); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 // unmarkNotified marks messages and notices as not notified again (a wake whose delivery failed).
@@ -454,7 +442,7 @@ func (a *Agents) fireIdle(targetID, event string, now time.Time) ([]string, erro
 			text = fmt.Sprintf("%s (%s) went offline.", target.Name, target.ID)
 		}
 		for _, s := range subscribers {
-			if err := a.addNotice(tx, s, text, now); err != nil {
+			if err := a.addNotice(tx, s, text, "", now); err != nil {
 				return err
 			}
 		}
@@ -497,7 +485,7 @@ func (a *Agents) expireMessages(now time.Time) ([]string, int, error) {
 				return err
 			}
 			text := fmt.Sprintf("Your message to %s (%s) expired unread: \"%s\"", r.toName, r.to, a.preview(r.text))
-			if err := a.addNotice(tx, r.from, text, now); err != nil {
+			if err := a.addNotice(tx, r.from, text, "", now); err != nil {
 				return err
 			}
 			if !seen[r.from] {

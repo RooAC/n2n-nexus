@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -193,8 +194,10 @@ func TestUserPromptSubmitNotification(t *testing.T) {
 	if out := h.hook("claude", "PostToolUse", "rcv"); out != nil {
 		t.Fatalf("PostToolUse repeated %v", out)
 	}
-	// The next prompt still lists them while they are unread.
-	contains(t, h.hook("claude", "UserPromptSubmit", "rcv").context(), "7 unread direct messages")
+	// The next prompt only counts them while they are unread: each was announced in full once.
+	again := h.hook("claude", "UserPromptSubmit", "rcv").context()
+	contains(t, again, fmt.Sprintf(texts.EarlierUnread, 7))
+	notContains(t, again, "message 1")
 }
 
 func TestPreviewCountsUTF16Units(t *testing.T) {
@@ -248,13 +251,13 @@ func TestStopBlocksOnce(t *testing.T) {
 	eq(t, h.status("claude:r"), "idle")
 
 	h.send("s", "claude:r", "please look", false)
-	h.hook("claude", "UserPromptSubmit", "r") // already notified: Stop still blocks
+	h.hook("claude", "UserPromptSubmit", "r") // already announced: Stop still blocks, counting it
 	blocked := h.hook("claude", "Stop", "r", stopInactive)
 	eq(t, blocked.str("decision"), "block")
-	if !strings.HasPrefix(blocked.str("reason"), prefix+" 1 unread direct message:") {
+	if !strings.HasPrefix(blocked.str("reason"), prefix+" "+fmt.Sprintf(texts.EarlierUnread, 1)) {
 		t.Fatal(blocked)
 	}
-	contains(t, blocked.str("reason"), "please look")
+	notContains(t, blocked.str("reason"), "please look")
 	contains(t, blocked.str("reason"), texts.MessageTrustNote+" "+texts.StopClosing)
 	if strings.Contains(blocked.str("reason"), "Automatic turn") { // no limit by default, so no count
 		t.Fatal(blocked)
@@ -421,12 +424,14 @@ func TestAutoTurnLimitWakes(t *testing.T) {
 		h.hook("claude", "Stop", "r", stopInactive)
 	}
 
-	// The limit is reached: the wait ends at once and the message only waits, unread and not announced.
-	if out := h.openHook("claude", texts0BackgroundWait(), "r").wait(t); out != nil {
+	// The limit is reached: the wait still holds (meeting news would wake it), but the message only waits, unread and not announced.
+	capped := h.openHook("claude", texts0BackgroundWait(), "r")
+	h.untilStatus("claude:r", "listening")
+	h.send("s", "claude:r", "ping 3", false)
+	if out := capped.wait(t); out.str("timeout") != "" || out["timeout"] != true {
 		t.Fatal(out)
 	}
 	eq(t, h.status("claude:r"), "idle")
-	h.send("s", "claude:r", "ping 3", false)
 	eq(t, h.count("SELECT COUNT(*) FROM agent_messages WHERE to_id = 'claude:r' AND status = 'unread' AND notified_at IS NULL"), 1)
 
 	// A real prompt (no wake just before it) starts counting again and announces the message.
