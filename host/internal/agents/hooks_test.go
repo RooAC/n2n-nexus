@@ -847,10 +847,12 @@ func TestSessionTitles(t *testing.T) {
 	h.hook("codex", "UserPromptSubmit", "a")
 	same("codex:a", "Release 2.1", "client")
 
-	// The host cuts a long title to maxTitleChars UTF-16 units, never inside a surrogate pair.
+	// The host cuts a long title to maxTitleChars characters (code points), as the client and set_profile count.
 	limit := testContract.Hook.Limits.MaxTitleChars
 	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": strings.Repeat("t", limit-1) + "\U0001F600" + "rest"})
-	same("codex:a", strings.Repeat("t", limit-1), "client")
+	same("codex:a", strings.Repeat("t", limit-1)+"\U0001F600", "client")
+	h.hook("codex", "UserPromptSubmit", "a", map[string]any{"title": strings.Repeat("\U0001F600", limit/2+10)})
+	same("codex:a", strings.Repeat("\U0001F600", limit/2+10), "client")
 
 	// A title set with set_profile is the session's own until it clears it.
 	eq(t, h.codex("a", "set_profile", map[string]any{"title": strings.Repeat("x", limit+1)}).status, 400)

@@ -243,10 +243,14 @@ func (a *Agents) setListening(id string, on bool) error {
 	return err
 }
 
-// setClientTitle stores the title the client's hook reported, unless the
-// session set its own with set_profile; an unchanged title is not written.
+// setClientTitle stores the title the client's hook reported, cut to
+// maxTitleChars characters (code points, as the client and set_profile's
+// schema count), unless the session set its own with set_profile; an
+// unchanged title is not written.
 func (a *Agents) setClientTitle(id, title string) error {
-	title = cutUnits(title, a.o.Contract.Hook.Limits.MaxTitleChars)
+	if r := []rune(title); len(r) > a.o.Contract.Hook.Limits.MaxTitleChars {
+		title = string(r[:a.o.Contract.Hook.Limits.MaxTitleChars])
+	}
 	if title == "" {
 		return nil
 	}

@@ -42,13 +42,14 @@ export const CLAUDE_TOOL_USE_META_KEY: string = contract.meta.claudeToolUseKey;
 export const CODEX_SESSION_META_KEY: string = contract.meta.codexSessionKey;
 
 /**
- * Hook stdin fields the host uses. The hook command forwards only these:
+ * Hook stdin fields the host uses. The hook command forwards only these (plus
+ * `title` on SessionStart, UserPromptSubmit and Stop, see cli/title.ts):
  * PostToolUse stdin also carries the whole tool input and response, which can
  * be large and runs on every tool call.
  */
 export const HOOK_INPUT_FIELDS: readonly string[] = contract.hookInputFields;
 
-/** POST /api/hook request: the HOOK_INPUT_FIELDS present in the hook's stdin JSON. */
+/** POST /api/hook request: the HOOK_INPUT_FIELDS present in the hook's stdin JSON, and the conversation's title on some events. */
 export type HookRequest = { client: HookClient; input: Record<string, unknown> };
 /** POST /api/hook response: `output` is printed to stdout as JSON; null prints nothing. */
 export type HookResponse = { output: Record<string, unknown> | null };
