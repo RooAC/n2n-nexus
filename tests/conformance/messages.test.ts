@@ -1,10 +1,10 @@
-// send_message / read_messages: per-instance unread cursors for meetings and global chat,
+// send_message / read_messages: unread cursors per instance (no hooks) for meetings and global chat,
 // and host_maintenance on global chat. Meetings started here are ended again, so
 // send_message without meetingId goes to global chat in the other tests.
 import { describe, expect, it } from "vitest";
 import { useHost } from "./harness.js";
 
-type Read = { source: string; messages: { text: string; from: string; category?: string | null }[]; count: number };
+type Read = { source: string; mode: string; messages: { text: string; from: string; senderName: string | null; category: string | null }[]; count: number };
 
 const host = useHost();
 const read = async (instanceId: string, count: number, meetingId?: string) => {
@@ -22,7 +22,7 @@ describe("meeting messages", () => {
     it("keeps an unread cursor per instance and meeting", async () => {
         const meetingId = (await host.callTool<{ meetingId: string }>("start_meeting", { topic: "Daemon Cursor" }, "IDE-A")).payload.result!.meetingId;
 
-        const firstSend = await host.callTool<{ ok: boolean; sentTo: string; meetingId?: string }>("send_message", { message: "first", meetingId }, "IDE-B");
+        const firstSend = await host.callTool<{ ok: boolean; sentTo: string; meetingId?: string }>("send_message", { message: "first", meetingId }, "IDE-C");
         expect(firstSend.status).toBe(200);
         expect(firstSend.payload.result).toMatchObject({ ok: true, sentTo: "meeting", meetingId });
 
@@ -33,6 +33,12 @@ describe("meeting messages", () => {
         expect((await host.callTool("send_message", { message: "second", meetingId }, "IDE-C")).status).toBe(200);
         expect(await texts("IDE-B", 10, meetingId)).toEqual(["second"]);
         expect(await texts("IDE-B", 10, meetingId)).toEqual([]);
+
+        // A reader's own messages are not unread for it; history includes them.
+        await host.callTool("send_message", { message: "own", meetingId }, "IDE-B");
+        expect(await texts("IDE-B", 10, meetingId)).toEqual([]);
+        const history = await host.callTool<Read>("read_messages", { meetingId, latest: true, count: 1 }, "IDE-B");
+        expect(history.payload.result).toMatchObject({ mode: "history", messages: [{ text: "own", from: "IDE-B", senderName: null }] });
 
         await host.callTool("end_meeting", { meetingId }, "IDE-A");
     });

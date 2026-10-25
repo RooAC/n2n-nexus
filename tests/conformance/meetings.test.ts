@@ -1,5 +1,6 @@
 // Meeting lifecycle and routing. Each test leaves no meeting active.
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { agentKit, ids } from "./agents.js";
 import { useHost } from "./harness.js";
 
 type Listed = {
@@ -75,5 +76,37 @@ describe("meeting tools", () => {
 
         await host.callTool("end_meeting", { meetingId: b }, "ide-b");
         expect((await listed()).activeMeetingId).toBeNull();
+    });
+});
+
+describe("meetings per conversation", () => {
+    const kit = agentKit(host);
+    afterEach(() => kit.endSessions());
+    type Read = { identity: string; messages: { text: string; from: string; senderName: string | null }[] };
+
+    it("gives two Claude conversations on one adapter instance their own cursors and names them as senders", async () => {
+        const s = ids();
+        const [a, b] = [s("a"), s("b")];
+        for (const id of [a, b]) await kit.hook("claude", "SessionStart", id);
+        const meetingId = await start("Per session", "ide-a");
+        for (const message of ["one", "two"]) expect((await host.callTool("send_message", { message, meetingId }, "ide-a")).status).toBe(200);
+
+        // Both conversations share the claudeTool instance and each read every message.
+        for (const id of [a, b]) {
+            const res = await kit.claudeTool<Read>(id, "read_messages", { meetingId });
+            expect(res.status, res.body).toBe(200);
+            expect(res.payload.result!.identity).toBe("session");
+            expect(res.payload.result!.messages.map((m) => m.text)).toEqual(["one", "two"]);
+        }
+
+        const sent = await kit.claudeTool<{ sentTo: string; identity: string; messageId: number }>(a, "send_message", { message: "from a", meetingId });
+        expect(sent.payload.result).toMatchObject({ sentTo: "meeting", identity: "session", messageId: expect.any(Number) });
+        const forB = (await kit.claudeTool<Read>(b, "read_messages", { meetingId })).payload.result!;
+        expect(forB.messages).toEqual([expect.objectContaining({ text: "from a", from: `claude:${a}`, senderName: expect.any(String) })]);
+        expect((await kit.claudeTool<Read>(a, "read_messages", { meetingId })).payload.result!.messages).toEqual([]);
+
+        const meeting = (await listed()).meetings.find((m) => m.id === meetingId)!;
+        expect(meeting.participants).toEqual(["ide-a", `claude:${a}`]);
+        await host.callTool("end_meeting", { meetingId }, "ide-a");
     });
 });

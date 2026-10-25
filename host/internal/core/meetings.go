@@ -94,18 +94,22 @@ type startMeetingArgs struct {
 func (c *Core) startMeeting(call api.Call, a startMeetingArgs) (any, error) {
 	now := c.d.Clock.Now()
 	id := meetingID(a.Topic, now)
-	participants, _ := json.Marshal([]string{call.Actor()})
-	err := c.tx(call, func(tx *sql.Tx) error {
+	who, err := c.identity(call)
+	if err != nil {
+		return nil, err
+	}
+	participants, _ := json.Marshal([]string{who.ID})
+	err = c.tx(call, func(tx *sql.Tx) error {
 		if err := makeDefault(tx, ""); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`
 			INSERT INTO meetings (id, topic, status, is_default, active_order, initiator, participants, created_at)
 			VALUES (?, ?, 'active', 1, (SELECT COALESCE(MAX(active_order), 0) + 1 FROM meetings), ?, ?, ?)`,
-			id, a.Topic, call.Actor(), string(participants), c.now()); err != nil {
+			id, a.Topic, who.ID, string(participants), c.now()); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, call.Actor(), "meeting.start", id, map[string]any{"topic": a.Topic})
+		return c.recordEvent(tx, who.ID, "meeting.start", id, map[string]any{"topic": a.Topic})
 	})
 	if err != nil {
 		return nil, err
@@ -127,7 +131,11 @@ func (c *Core) endMeeting(call api.Call, a endMeetingArgs) (any, error) {
 	if a.Summary != nil {
 		summary = *a.Summary
 	}
-	err := c.tx(call, func(tx *sql.Tx) error {
+	who, err := c.identity(call)
+	if err != nil {
+		return nil, err
+	}
+	err = c.tx(call, func(tx *sql.Tx) error {
 		if id == "" {
 			var err error
 			if id, err = defaultMeetingID(tx); err != nil {
@@ -161,7 +169,7 @@ func (c *Core) endMeeting(call api.Call, a endMeetingArgs) (any, error) {
 		if a.Summary != nil {
 			detail["summary"] = *a.Summary
 		}
-		return c.recordEvent(tx, call.Actor(), "meeting.end", id, detail)
+		return c.recordEvent(tx, who.ID, "meeting.end", id, detail)
 	})
 	if err != nil {
 		return nil, err
@@ -181,7 +189,11 @@ type meetingIDArgs struct {
 }
 
 func (c *Core) archiveMeeting(call api.Call, a meetingIDArgs) (any, error) {
-	err := c.tx(call, func(tx *sql.Tx) error {
+	who, err := c.identity(call)
+	if err != nil {
+		return nil, err
+	}
+	err = c.tx(call, func(tx *sql.Tx) error {
 		m, err := loadMeeting(tx, a.MeetingID)
 		if err != nil {
 			return err
@@ -192,7 +204,7 @@ func (c *Core) archiveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if _, err := tx.Exec(`UPDATE meetings SET status = 'archived' WHERE id = ?`, a.MeetingID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, call.Actor(), "meeting.archive", a.MeetingID, nil)
+		return c.recordEvent(tx, who.ID, "meeting.archive", a.MeetingID, nil)
 	})
 	if err != nil {
 		return nil, err
@@ -201,7 +213,11 @@ func (c *Core) archiveMeeting(call api.Call, a meetingIDArgs) (any, error) {
 }
 
 func (c *Core) reopenMeeting(call api.Call, a meetingIDArgs) (any, error) {
-	err := c.tx(call, func(tx *sql.Tx) error {
+	who, err := c.identity(call)
+	if err != nil {
+		return nil, err
+	}
+	err = c.tx(call, func(tx *sql.Tx) error {
 		m, err := loadMeeting(tx, a.MeetingID)
 		if err != nil {
 			return err
@@ -216,7 +232,7 @@ func (c *Core) reopenMeeting(call api.Call, a meetingIDArgs) (any, error) {
 		if err := makeDefault(tx, a.MeetingID); err != nil {
 			return err
 		}
-		return c.recordEvent(tx, call.Actor(), "meeting.reopen", a.MeetingID, nil)
+		return c.recordEvent(tx, who.ID, "meeting.reopen", a.MeetingID, nil)
 	})
 	if err != nil {
 		return nil, err
@@ -268,9 +284,6 @@ func (c *Core) listMeetings(call api.Call, a listMeetingsArgs) (any, error) {
 				&m.MessageCount, &m.DecisionCount); err != nil {
 				rows.Close()
 				return err
-			}
-			if m.Initiator == "" {
-				m.Initiator = "Unknown"
 			}
 			m.Participants = json.RawMessage(participants)
 			m.EndTime, m.Summary = closed.String, summary.String

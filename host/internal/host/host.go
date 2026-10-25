@@ -100,7 +100,7 @@ func start(o Options, lock *Lock) (*Host, error) {
 		AllowedHosts: o.Settings.AllowedHosts, RateLimit: o.Settings.RateLimit, RateBurst: o.Settings.RateBurst,
 		Logger: o.Logger, Health: ag.Health,
 	})
-	c := core.New(core.Deps{Store: st, Clock: clk, Contract: contract, Logger: o.Logger})
+	c := core.New(core.Deps{Store: st, Clock: clk, Contract: contract, Logger: o.Logger, Identities: ag})
 	c.Register(srv)
 	ag.Register(srv)
 	if missing := srv.Missing(); len(missing) > 0 {
