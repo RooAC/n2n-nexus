@@ -40,7 +40,7 @@ The single source of the protocol: `tools.json` (every tool's name, title, descr
 ### Host (`host/`, Go module `github.com/n2ns/n2n-nexus` at the repository root)
 `n2n-nexus-host`: tray by default, `serve` in the foreground, `service install|uninstall|status`, `autostart on|off`, `version` (`host/cmd/n2n-nexus-host/main.go`).
 
-- `internal/config` — data and log directories per OS, `settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`). The only environment variable the host reads is `NEXUS_ROOT`.
+- `internal/config` — data and log directories per OS, `settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`, `stanceReminderMinutes`). The only environment variable the host reads is `NEXUS_ROOT`.
 - `internal/protocol` — loads the embedded contract, compiles the schemas, strips undeclared argument keys, validates arguments and results.
 - `internal/store` — opens `<data dir>/nexus.db` (WAL, foreign keys, one connection), runs `migrations/NNNN_*.sql` in order (version in `PRAGMA user_version`), `Tx` for one transaction per write.
 - `internal/core` — project, doc, meeting, chat, event and task tools and their tables (`0001_core.sql`), hourly task / event cleanup.

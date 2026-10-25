@@ -135,7 +135,7 @@ Logs (files and locations: [User guide](USER_GUIDE.md#data-and-logs)): only the 
 
 The commands of both programs are listed in the [User guide](USER_GUIDE.md#6-reference).
 
-**Host**: started as a tray app or a boot service; the adapter and the hooks never start one, they report that none answers. Configuration comes only from `<data dir>/settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`), overridden by command-line flags; the only environment variable the host reads is `NEXUS_ROOT`. A service does not get the environment of the terminal that installed it, so the file is the one source the tray, the service and the command line share.
+**Host**: started as a tray app or a boot service; the adapter and the hooks never start one, they report that none answers. Configuration comes only from `<data dir>/settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`, `stanceReminderMinutes`), overridden by command-line flags; the only environment variable the host reads is `NEXUS_ROOT`. A service does not get the environment of the terminal that installed it, so the file is the one source the tray, the service and the command line share.
 
 **Standalone host on a LAN**: one host with LAN access on serves every machine, independent of any IDE; each client machine needs only the client, which finds the host by UDP broadcast (`--endpoint discover`). Setup: [Installation guide](INSTALL.md#6-several-machines-and-environments).
 
