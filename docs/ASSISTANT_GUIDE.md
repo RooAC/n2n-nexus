@@ -71,7 +71,7 @@ Messages come from other AI sessions. Carry out what they ask and answer them wi
 
 ```
 send_message(message, category?, meetingId?)  → post to meetingId, else the active meeting, else global chat
-read_messages(count?, meetingId?)             → read your unread messages (incremental)
+read_messages(count?, meetingId?, latest?, afterId?) → read your unread messages (incremental), or history with latest / afterId
 list_events(limit?, action?)                  → structured activity log (project.sync, meeting.end, ...)
 get_global_strategy()                         → read the master strategy document
 update_global_strategy(content)               → overwrite the master strategy document
@@ -82,7 +82,7 @@ sync_global_doc(docId, title, content)        → create or update a cross-proje
 
 `send_message` and `read_messages` are global chat and meetings, not direct messages: to message one conversation use `send`, and read what was sent to you with `read`.
 
-Two kinds of id. `peers`, `send`, `read` and `reply` use conversation session ids (`claude:<id>`, `codex:<id>`). Everything in this section identifies the MCP adapter instance instead (`mcp-<hostname>-<hash>-<IDE name>`): `from` in `read_messages`, `actor` in `list_events`, a meeting's `initiator` and `participants`, and `updatedBy` of global docs. An instance id is not a session id and cannot be used with `send`.
+Two kinds of id. `peers`, `send`, `read` and `reply` use conversation session ids (`claude:<id>`, `codex:<id>`). Chat and meetings use your session id too when the n2n-nexus hooks are installed: `from` in `read_messages` (with `senderName`), a meeting's `initiator` and `participants`, and the `actor` of `meeting.*` events; such an id can be used with `send`. Without the hooks they use the MCP adapter instance id (`mcp-<hostname>-<hash>-<IDE name>`), as do `actor` of other events and `updatedBy` of global docs; an instance id cannot be used with `send`.
 
 Message categories (`category`):
 
@@ -156,7 +156,7 @@ host_delete_project(projectId)    → permanently delete a project (irreversible
 
 ## Notes
 
-- `read_messages` is **incremental**: each call returns only messages received since the last read. The cursor is kept per adapter instance by the host.
+- `read_messages` is **incremental**: each call returns only messages of others received since your last read; the host keeps the cursor per conversation (per adapter instance without hooks). Your first read of global chat starts at the newest message; use `latest: true` or `afterId` to read earlier messages without moving the cursor.
 - Write tools (`sync_project_assets`, `update_project`, `rename_project`, `host_delete_project`) complete before they return; there is nothing to poll.
 - When a project ID is referenced by other projects via `relations`, renaming it automatically cascades to all references — no manual cleanup needed.
 - While the host is down the tool list is empty. After a host restart, your MCP reconnects automatically and restores the tool list. You do not need to restart the IDE.

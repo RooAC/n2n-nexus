@@ -96,7 +96,7 @@ Client (`n2n-nexus`):
 | --- | --- | --- |
 | `NEXUS_ENDPOINT` | Host URL for the MCP adapter, the hooks and `doctor`, or `discover` to find one on the LAN | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | UDP port the client queries with `discover` | `5688` |
-| `NEXUS_INSTANCE_ID` | Override the MCP instance ID (read cursors are keyed on it) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
+| `NEXUS_INSTANCE_ID` | Override the MCP instance ID (identifies chat and meeting calls from clients without hooks) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
 | `NEXUS_CODEX_COMMAND` | Command the Codex background wait runs as `<command> queue ...` | `codex` |
 
 Host (`n2n-nexus-host`): only `NEXUS_ROOT`, the data directory (`--root` overrides it). Every other host setting is in `settings.json`, which the tray, the service and the command line share.

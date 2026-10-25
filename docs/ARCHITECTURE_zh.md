@@ -63,7 +63,7 @@ n2n-nexus（npm）：无状态适配器，每条 MCP 连接一个
   └─ stdin 关闭 → 停止重试、关闭、退出
 ```
 
-适配器的实例 ID（未读游标以它为键）取自该连接上第一次见到的客户端名，来源是请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代），`NEXUS_INSTANCE_ID` / `--id` 可固定。每次工具调用都以 `instanceId` 带上它；没有 `instanceId` 的调用 `read_messages` 会拒绝，因为未读游标按实例保存。
+适配器的实例 ID（没装 hooks 的客户端调用聊天和会议工具时的身份）取自该连接上第一次见到的客户端名，来源是请求 `_meta` 中的 `io.modelcontextprotocol/clientInfo`（2026-07-28）或 `initialize`（2025 代），`NEXUS_INSTANCE_ID` / `--id` 可固定。每次工具调用都以 `instanceId` 带上它。装了 hooks 时，聊天和会议调用改为按对话识别（`caller`，经 hook 的 toolUseId 绑定或 Codex 会话 ID 解析），所以共用一个实例的多个对话各有自己的未读游标。
 
 ### 对话与 hooks
 

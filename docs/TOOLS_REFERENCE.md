@@ -12,8 +12,8 @@ Parameter tables below are derived from `contract/tools.json`, the JSON Schema t
 - Calls are rate limited per instance (default 20 per second, burst 60; `rateLimit` and `rateBurst` in the host's `settings.json`). Over the limit a call fails with "Rate limit exceeded ... retry after Ns"; retry after that delay.
 - Every tool has a display `title` (for example "Delete Project") for client UIs.
 - Every tool carries MCP annotations: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint: false` (all tools act only on the host). Per the MCP definition a tool is non-destructive only when its updates are purely additive. Read tools are marked read-only. `start_meeting`, `create_task`, `send_message`, `send` and `reply` only add data and are non-destructive; `update_task` is marked non-destructive and idempotent too. `listen`, `set_profile`, `sync_project_assets`, `update_project`, `upload_project_asset`, `rename_project`, `sync_global_doc`, `update_global_strategy`, `end_meeting`, `archive_meeting`, `reopen_meeting`, `cancel_task`, `host_maintenance` and `host_delete_project` rewrite or remove existing state and are marked destructive, so clients can ask for confirmation. `read_messages` and `read` are not read-only because they advance the caller's own unread state, but they are non-destructive since no shared data changes.
-- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). Read cursors are keyed on it, so it stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call; `read_messages` fails without one.
-- Two kinds of id appear in results. The direct-message tools (`peers`, `send`, `read`, `reply`) use conversation session ids, `claude:<id>` or `codex:<id>`. `from` in `read_messages`, `actor` in `list_events`, a meeting's `initiator` and `participants`, and `updatedBy` of global docs are adapter instance ids (`mcp-…`); they are not sessions and cannot be used with `send`.
+- Every adapter has an instance ID (`NEXUS_INSTANCE_ID`, `--id`, or `mcp-<hostname>-<hash of the working directory>-<IDE name>` by default, where the IDE name is the MCP client name from the request's `io.modelcontextprotocol/clientInfo` or, for 2025-era clients, from `initialize`). It stays the same across restarts of the same IDE in the same workspace while two IDEs on one workspace stay distinct. The adapter sends it as `instanceId` with every call. Several conversations of one IDE in one workspace share it, so chat and meeting tools identify the conversation instead when the n2n-nexus hooks are installed (see the next item); a client without the hooks is identified by its instance, and `read_messages` then fails without `instanceId`.
+- Two kinds of id appear in results: conversation session ids, `claude:<id>` or `codex:<id>`, and adapter instance ids (`mcp-…`). The direct-message tools (`peers`, `send`, `read`, `reply`) use session ids. Chat and meetings use the calling conversation's session id when the hooks are installed, else its instance id: the sender and `from` of `send_message` / `read_messages`, the unread cursor, a meeting's `initiator` and `participants` and the `actor` of `meeting.*` events; results say which with `identity` (`session` or `instance`). A session id there can be used with `send`; an instance id cannot. If an instance has had a conversation identified before and one of its calls cannot be identified, the call fails with a retry message instead of using the instance's shared cursor. Other events and `updatedBy` of global docs keep the instance id.
 - Project IDs follow `[prefix]_[name]`; the prefixes are listed in the [Assistant guide](ASSISTANT_GUIDE.md#2-project-ids).
 - All project write tools run synchronously and return their result directly. The task tools (`create_task`, `get_task`, `list_tasks`, `update_task`, `cancel_task`) track work that assistants manage themselves.
 - Project tools take `projectId` explicitly.
@@ -190,23 +190,27 @@ Behavior:
 - Otherwise, if a meeting is active, the message goes to it.
 - Otherwise it is written to global chat.
 - A `DECISION` message in a meeting is also recorded in that meeting's decisions (`decisionCount` in `list_meetings`).
-- The sender stored with the message is the calling adapter instance ID.
-- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId?, message }`; global chat message IDs are numbers.
+- The sender stored with the message is the calling conversation's session ID, or the adapter instance ID without hooks.
+- Result: `{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`; `messageId` is a number, shared by meeting and global ids (use it with `afterId`).
 
 ### `read_messages`
 
-Read unread global chat or meeting messages. Direct messages sent to your conversation are read with `read`.
+Read global chat or meeting messages: the unread ones (default) or history. Direct messages sent to your conversation are read with `read`.
 
 | Parameter | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `count` | integer | no | `10` | Number of messages to read (1–500). |
-| `meetingId` | string | no |  | When provided, reads from that meeting. Otherwise reads from global logs. |
+| `meetingId` | string | no |  | When provided, reads from that meeting. Otherwise reads from global chat. |
+| `latest` | boolean | no |  | History mode: the newest `count` messages, oldest first. Not with `afterId`. |
+| `afterId` | integer | no |  | History mode: the first `count` messages with an id above `afterId`. Not with `latest`. |
 
 Behavior:
 
-- Both global and meeting reads are incremental per adapter instance: each call returns only messages not yet returned to that instance, oldest first, and advances the cursor.
-- Each message's `from` is the sending adapter instance ID, not a session ID: you cannot `send` to it.
-- Needs the calling instance: a call without `instanceId` fails with `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` The MCP adapter always sends one.
+- Unread mode is incremental per conversation (per adapter instance without hooks): each call returns messages of others not yet returned to it, oldest first, and moves its cursor past them and past its own messages.
+- A conversation's first unread read of global chat starts at the newest message: it returns nothing and a `note`; read earlier messages with `latest` or `afterId`. Its first read of a meeting starts at the meeting's first message.
+- History mode moves no cursor, includes your own messages and needs no identity.
+- Result: `{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`. `from` is the sender's session ID (`senderName` is its name, usable with `send`) or instance ID (`senderName` null); `category` is null for a message without one.
+- Unread mode without hooks needs the calling instance: a call without `instanceId` fails with `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` The MCP adapter always sends one.
 
 ### `list_events`
 
@@ -299,7 +303,7 @@ Open a new meeting session.
 
 Behavior:
 
-- The calling adapter instance becomes the meeting's `initiator`.
+- The calling conversation (its adapter instance without hooks) becomes the meeting's `initiator`.
 - The new meeting becomes the default meeting for everyone: `send_message` and `end_meeting` without `meetingId` use it until it ends (then the most recently activated meeting still active, if any). `reopen_meeting` makes the reopened meeting the default the same way.
 
 ### `end_meeting`

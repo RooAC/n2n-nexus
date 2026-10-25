@@ -71,7 +71,7 @@ upload_project_asset(projectId, fileName, base64Content) → 上传二进制文�
 
 ```
 send_message(message, category?, meetingId?)  → 发到指定会议，否则活跃会议，否则全局聊天
-read_messages(count?, meetingId?)             → 读取你的未读消息（增量）
+read_messages(count?, meetingId?, latest?, afterId?) → 读取你的未读消息（增量），或用 latest / afterId 读历史
 list_events(limit?, action?)                  → 结构化活动日志（project.sync、meeting.end 等）
 get_global_strategy()                         → 读取主战略文档
 update_global_strategy(content)               → 覆盖写入主战略文档
@@ -82,7 +82,7 @@ sync_global_doc(docId, title, content)        → 创建/更新跨项目共享�
 
 `send_message`、`read_messages` 是全局聊天和会议，不是定向消息：要给某个对话发消息用 `send`，读别人发给你的消息用 `read`。
 
-两种 ID。`peers`、`send`、`read`、`reply` 用对话的会话 ID（`claude:<id>`、`codex:<id>`）。本节的工具标识的是 MCP 适配器实例（`mcp-<hostname>-<hash>-<IDE 名>`）：`read_messages` 的 `from`、`list_events` 的 `actor`、会议的 `initiator` 和 `participants`、全局文档的 `updatedBy`。实例 ID 不是会话 ID，不能用于 `send`。
+两种 ID。`peers`、`send`、`read`、`reply` 用对话的会话 ID（`claude:<id>`、`codex:<id>`）。装了 n2n-nexus hooks 时，聊天和会议也用你的会话 ID：`read_messages` 的 `from`（附 `senderName`）、会议的 `initiator` 和 `participants`、`meeting.*` 事件的 `actor`；这样的 ID 可以用于 `send`。没装 hooks 时它们用 MCP 适配器实例 ID（`mcp-<hostname>-<hash>-<IDE 名>`），其他事件的 `actor` 和全局文档的 `updatedBy` 也是实例 ID；实例 ID 不能用于 `send`。
 
 消息分类（`category`）：
 - 不传 — 没有分类
@@ -152,7 +152,7 @@ host_delete_project(projectId)    → 永久删除项目（不可逆）
 
 ## ⚠️ 注意事项
 
-- `read_messages` 是**增量的**：每次调用只返回自上次读取后的新消息，游标由 host 按适配器实例自动管理。
+- `read_messages` 是**增量的**：每次调用只返回自你上次读取后他人发的新消息；游标由 host 按对话保存（没装 hooks 时按适配器实例）。第一次读全局聊天从最新消息开始；要看更早的消息，用 `latest: true` 或 `afterId`，不会移动游标。
 - 写入工具（`sync_project_assets`、`update_project`、`rename_project`、`host_delete_project`）在返回前已执行完成，无需轮询。
 - 项目 ID 一旦被其他项目引用（`relations`），重命名会自动级联更新所有引用，不需要手动处理。
 - host 停止期间工具列表为空。host 重启后，你的 MCP 会自动重连并恢复工具列表，无需重启 IDE。

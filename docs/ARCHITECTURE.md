@@ -63,7 +63,7 @@ Read NEXUS_ENDPOINT (default: http://127.0.0.1:5688)
   └─ stdin closes → stop retrying, close, exit
 ```
 
-The adapter's instance ID (read cursors) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it. Every tool call carries it as `instanceId`; `read_messages` refuses a call without one, since unread cursors are kept per instance.
+The adapter's instance ID (the identity of chat and meeting calls from clients without hooks) uses the first client name seen on the connection, from the request's `io.modelcontextprotocol/clientInfo` (2026-07-28) or from `initialize` (2025 era), unless `NEXUS_INSTANCE_ID` / `--id` pins it. Every tool call carries it as `instanceId`. With the hooks installed, chat and meeting calls are identified by the conversation instead (`caller`, resolved through the hook's toolUseId binding or the Codex session id), so conversations sharing an instance keep their own unread cursors.
 
 ### Conversations and hooks
 

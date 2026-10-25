@@ -96,7 +96,7 @@ n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
 | --- | --- | --- |
 | `NEXUS_ENDPOINT` | MCP 适配器、hooks 和 `doctor` 连接的 host 地址，设为 `discover` 时在局域网里查找 | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | 客户端用 `discover` 查询时使用的 UDP 端口 | `5688` |
-| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（未读游标以它为键） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
+| `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（没装 hooks 的客户端调用聊天和会议工具时的身份） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
 | `NEXUS_CODEX_COMMAND` | Codex 后台等待以 `<命令> queue ...` 方式运行的命令 | `codex` |
 
 host（`n2n-nexus-host`）：只读取 `NEXUS_ROOT`，即数据目录（`--root` 优先）。其余 host 设置都在 `settings.json` 里，托盘、服务和命令行共用。

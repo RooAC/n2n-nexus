@@ -12,8 +12,8 @@
 - 调用按实例限流（默认每秒 20 次，突发 60 次；对应 host `settings.json` 中的 `rateLimit` 和 `rateBurst`）。超出限制的调用会失败并返回 "Rate limit exceeded ... retry after Ns"；等待该时长后重试。
 - 每个工具都有供客户端界面显示的 `title`（例如 "Delete Project"）。
 - 每个工具都带有 MCP annotations：`readOnlyHint`、`destructiveHint`、`idempotentHint` 和 `openWorldHint: false`（所有工具都只作用于 host）。按照 MCP 的定义，只有更新完全是追加时，工具才算非破坏性。读取类工具标为只读。`start_meeting`、`create_task`、`send_message`、`send` 和 `reply` 只追加数据，是非破坏性的；`update_task` 也标为非破坏性且幂等。`listen`、`set_profile`、`sync_project_assets`、`update_project`、`upload_project_asset`、`rename_project`、`sync_global_doc`、`update_global_strategy`、`end_meeting`、`archive_meeting`、`reopen_meeting`、`cancel_task`、`host_maintenance` 和 `host_delete_project` 会改写或删除已有状态，标为破坏性，以便客户端请求确认。`read_messages` 和 `read` 不是只读的，因为它们会推进调用方自己的未读状态；但它们是非破坏性的，因为不改变任何共享数据。
-- 每个适配器都有一个实例 ID（`NEXUS_INSTANCE_ID`、`--id`，默认是 `mcp-<hostname>-<工作目录的哈希>-<IDE 名>`，其中 IDE 名是 MCP 客户端名，取自请求的 `io.modelcontextprotocol/clientInfo`，2025 代的客户端则取自 `initialize`）。读取游标以它为键，所以同一个 IDE 在同一个工作区里重启后它保持不变，而同一个工作区里的两个 IDE 仍然互相区分。适配器在每次调用中都以 `instanceId` 带上它；没有它时 `read_messages` 会失败。
-- 结果里会出现两种 ID。直接消息工具（`peers`、`send`、`read`、`reply`）使用对话的会话 ID，即 `claude:<id>` 或 `codex:<id>`。`read_messages` 中的 `from`、`list_events` 中的 `actor`、会议的 `initiator` 和 `participants`，以及全局文档的 `updatedBy` 都是适配器实例 ID（`mcp-…`）；它们不是会话，不能用于 `send`。
+- 每个适配器都有一个实例 ID（`NEXUS_INSTANCE_ID`、`--id`，默认是 `mcp-<hostname>-<工作目录的哈希>-<IDE 名>`，其中 IDE 名是 MCP 客户端名，取自请求的 `io.modelcontextprotocol/clientInfo`，2025 代的客户端则取自 `initialize`）。同一个 IDE 在同一个工作区里重启后它保持不变，而同一个工作区里的两个 IDE 仍然互相区分。适配器在每次调用中都以 `instanceId` 带上它。同一个 IDE 在同一个工作区里的多个对话共用它，所以装了 n2n-nexus hooks 时，聊天和会议工具改为识别对话本身（见下一条）；没装 hooks 的客户端按实例识别，这时没有 `instanceId` 的 `read_messages` 会失败。
+- 结果里会出现两种 ID：对话的会话 ID（`claude:<id>` 或 `codex:<id>`）和适配器实例 ID（`mcp-…`）。直接消息工具（`peers`、`send`、`read`、`reply`）使用会话 ID。聊天和会议在装了 hooks 时使用调用方对话的会话 ID，否则使用实例 ID：`send_message` / `read_messages` 的发送方和 `from`、未读游标、会议的 `initiator` 和 `participants`、`meeting.*` 事件的 `actor`；结果里的 `identity`（`session` 或 `instance`）说明是哪一种。这里的会话 ID 可以用于 `send`，实例 ID 不能。某个实例之前识别出过对话、而这次调用识别不出时，调用会失败并提示重试，而不会改用该实例共用的游标。其他事件和全局文档的 `updatedBy` 仍是实例 ID。
 - 项目 ID 采用 `[prefix]_[name]` 格式；前缀列在[助手指南](ASSISTANT_GUIDE_zh.md#2-项目-id)中。
 - 所有项目写入工具都同步执行并直接返回结果。任务工具（`create_task`、`get_task`、`list_tasks`、`update_task`、`cancel_task`）用于跟踪由助手自己管理的工作。
 - 项目工具显式接收 `projectId`。
@@ -190,23 +190,27 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 - 否则，如果有活跃会议，消息发到该会议。
 - 否则写入全局聊天。
 - 会议中的 `DECISION` 消息还会记入该会议的决策（`list_meetings` 中的 `decisionCount`）。
-- 随消息保存的发送方是调用方的适配器实例 ID。
-- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId?, message }`；全局聊天的消息 ID 是数字。
+- 随消息保存的发送方是调用方对话的会话 ID，没装 hooks 时是适配器实例 ID。
+- 结果：`{ ok: true, sentTo: "meeting" | "global", meetingId?, messageId, identity, message }`；`messageId` 是数字，会议和全局聊天共用一个序列（可用于 `afterId`）。
 
 ### `read_messages`
 
-读取全局聊天或会议中的未读消息。发给你的对话的直接消息用 `read` 读取。
+读取全局聊天或会议中的消息：未读消息（默认）或历史。发给你的对话的直接消息用 `read` 读取。
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `count` | integer | 否 | `10` | 要读取的消息数（1–500）。 |
-| `meetingId` | string | 否 |  | 提供时从该会议读取。否则从全局日志读取。 |
+| `meetingId` | string | 否 |  | 提供时从该会议读取。否则从全局聊天读取。 |
+| `latest` | boolean | 否 |  | 历史模式：最新的 `count` 条，最早的在前。不能与 `afterId` 同时使用。 |
+| `afterId` | integer | 否 |  | 历史模式：ID 大于 `afterId` 的前 `count` 条。不能与 `latest` 同时使用。 |
 
 行为：
 
-- 全局和会议的读取都按适配器实例增量进行：每次调用只返回尚未返回给该实例的消息，最早的在前，并推进游标。
-- 每条消息的 `from` 是发送方的适配器实例 ID，不是会话 ID：不能对它使用 `send`。
-- 需要调用方实例：没有 `instanceId` 的调用会失败，并返回 `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` MCP 适配器总会带上它。
+- 未读模式按对话增量进行（没装 hooks 时按适配器实例）：每次调用返回尚未返回给它的他人消息，最早的在前，游标越过这些消息和它自己发的消息。
+- 对话第一次以未读模式读全局聊天时从最新消息开始：本次不返回消息，带一条 `note`；更早的消息用 `latest` 或 `afterId` 读。第一次读某个会议时从该会议的第一条开始。
+- 历史模式不动游标，包含自己的消息，也不需要识别身份。
+- 结果：`{ source: "global" | "meeting", mode: "unread" | "history", identity?, meetingId?, messages: [{ id, from, senderName, text, category, timestamp }], count, note? }`。`from` 是发送方的会话 ID（`senderName` 是它的名字，可用于 `send`）或实例 ID（`senderName` 为 null）；没有类别的消息 `category` 为 null。
+- 没装 hooks 时未读模式需要调用方实例：没有 `instanceId` 的调用会失败，并返回 `read_messages needs the instanceId field of the POST /api/tools/call body (the n2n-nexus MCP adapter sends it automatically); unread cursors are kept per instance.` MCP 适配器总会带上它。
 
 ### `list_events`
 
@@ -299,7 +303,7 @@ HTTP 客户端：hooks 调用 `POST /api/hook`，请求体为 `{ client: "claude
 
 行为：
 
-- 调用方的适配器实例成为会议的 `initiator`。
+- 调用方对话（没装 hooks 时是它的适配器实例）成为会议的 `initiator`。
 - 新会议成为所有人的默认会议：不传 `meetingId` 的 `send_message` 和 `end_meeting` 都作用于它，直到它结束（之后是仍处于活跃状态、最近被激活的会议，如果有的话）。`reopen_meeting` 以同样的方式让重新开启的会议成为默认会议。
 
 ### `end_meeting`
