@@ -92,7 +92,7 @@ n2n-nexus 为 AI 助手提供共享协作空间。一个长期运行的本地 ho
 
 1. 安装并启动 host `n2n-nexus-host`：用 Scoop、Homebrew 或 [Releases](https://github.com/n2ns/n2n-nexus/releases) 里的压缩包，见[安装手册第 1–2 步](INSTALL_zh.md#1-安装-host)。
 2. 安装客户端，接入 Claude Code 或 Codex（`npm i -g n2n-nexus@latest`，再执行 `n2n-nexus install claude` 或 `n2n-nexus install codex`），见[第 3 步](INSTALL_zh.md#3-为-claude-code-和-codex-安装客户端)。
-3. 仅 Codex：用 `/hooks` 信任一次 n2n-nexus 的 hooks，见[第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)。
+3. 仅 Codex：`install codex` 会在 Codex 里信任 n2n-nexus 的 hooks；提示没能自动信任时再手动信任，见[第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)。
 
 其他 MCP 客户端和多台机器，见[安装手册](INSTALL_zh.md)；使用方法、常见问题和配置，见[使用手册](USER_GUIDE_zh.md)。
 

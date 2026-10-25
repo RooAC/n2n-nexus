@@ -55,7 +55,7 @@ async function main() {
 
     if (command === "install" || command === "uninstall") {
         const { runInstallCommand } = await import("./cli/install.js");
-        process.exit(runInstallCommand(command, process.argv.slice(3)));
+        process.exit(await runInstallCommand(command, process.argv.slice(3)));
     }
 
     if (command === "doctor") {

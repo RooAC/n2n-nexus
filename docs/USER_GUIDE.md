@@ -37,7 +37,7 @@ Each conversation appears in `peers`. A new direct message is announced to the r
 | Symptom | Cause and fix |
 |---|---|
 | Tool calls say n2n-nexus-host is not available | The host is not running or not reachable: start it ([Installation guide, step 2](INSTALL.md#2-start-the-host)), or for another machine turn LAN access on ([step 6](INSTALL.md#6-several-machines-and-environments)). |
-| Codex sessions never appear in `peers` | The Codex hooks are not trusted yet ([Installation guide, step 4](INSTALL.md#4-turn-on-the-codex-hooks-one-time-required)). |
+| Codex sessions never appear in `peers` | The Codex hooks are not trusted (yet, or again after a Codex update): `n2n-nexus doctor codex` says so; run `n2n-nexus install codex` again ([Installation guide, step 4](INSTALL.md#4-turn-on-the-codex-hooks-one-time-required)). |
 | A conversation gets message notices but has no `read` / `reply` tools | The hooks are installed but the MCP server is not registered for this configuration. Common with several Claude config directories (`CLAUDE_CONFIG_DIR`, account switchers): run `CLAUDE_CONFIG_DIR=<that dir> n2n-nexus install claude`, then start a new conversation. |
 | "This call carries no agent session" | The conversation started before the hooks were installed (start a new one), the MCP server is not named `n2n-nexus`, or an identity expired (call the tool again). In a Claude desktop chat this is expected, and in a Code tab it means the desktop app bridges n2n-nexus from `claude_desktop_config.json`: remove it there (section 2). |
 | `claude -p` scripts | They are not held open by the background wait; nothing to do. |
@@ -97,7 +97,7 @@ Client (`n2n-nexus`):
 | `NEXUS_ENDPOINT` | Host URL for the MCP adapter, the hooks and `doctor`, or `discover` to find one on the LAN | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | UDP port the client queries with `discover` | `5688` |
 | `NEXUS_INSTANCE_ID` | Override the MCP instance ID (identifies chat and meeting calls from clients without hooks) | `mcp-<hostname>-<hash of working directory>-<IDE name>` |
-| `NEXUS_CODEX_COMMAND` | Command the Codex background wait runs as `<command> queue ...` | `codex` |
+| `NEXUS_CODEX_COMMAND` | Codex command that the background wait runs as `<command> queue ...`, and that `install codex` and `doctor` ask about hook trust | `codex` (for trust on Windows: the Codex app's own copy) |
 
 Host (`n2n-nexus-host`): only `NEXUS_ROOT`, the data directory (`--root` overrides it). Every other host setting is in `settings.json`, which the tray, the service and the command line share.
 

@@ -66,19 +66,22 @@ The MCP server updates itself: it runs `n2n-nexus@latest` through npm's npx, so 
 
 ## 4. Turn on the Codex hooks (one-time, required)
 
-Codex does not run hooks that someone else wrote until you have reviewed and trusted them. Without this step Codex conversations still get the shared tools, but they cannot send or receive direct messages, and the host never sees them come online.
+Codex does not run hooks that someone else wrote until they are trusted. Without trust, Codex conversations still get the shared tools, but they cannot send or receive direct messages, and the host never sees them come online.
 
-1. Open the Codex CLI in a terminal: `codex`.
-2. Type `/hooks`.
-3. Review the n2n-nexus entries (SessionStart, SessionEnd, UserPromptSubmit, PostToolUse and two Stop hooks; their commands run `n2n-nexus … hook codex`) and trust them.
-4. Start a new Codex conversation.
+`n2n-nexus install codex` trusts the n2n-nexus hooks for you: it asks Codex itself for each hook's trust hash (`codex app-server`) and stores it, as Codex's own settings do. On Windows it uses the copy of Codex that the Codex app runs (`%LOCALAPPDATA%\OpenAI\Codex\bin\<build>\codex.exe`), elsewhere `codex` on `PATH` (`NEXUS_CODEX_COMMAND` overrides both). It prints `Trusted the 6 n2n-nexus hooks in Codex (...)`; then start a new Codex conversation.
+
+If it prints `Could not trust the hooks automatically`, trust them by hand:
+
+- Codex app: open its settings, find the hooks, and trust the n2n-nexus entries.
+- Codex CLI: run `codex`, type `/hooks`, and trust the n2n-nexus entries.
+
+The entries are SessionStart, SessionEnd, UserPromptSubmit, PostToolUse and two Stop hooks; their commands run `n2n-nexus … hook codex`.
 
 Good to know:
 
-- Codex stores the trust per hook, with a hash of its command, in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). The CLI and the Codex app share it, so trusting once in the CLI is enough for the app too. The Codex app has no `/hooks` screen of its own: use the CLI as above.
-- A changed command needs trusting again. That happens when you run `n2n-nexus install codex` again with a different `--endpoint` or `--node`, or after your Node.js moved to another path. Upgrading the npm package alone does not change the commands.
+- Codex stores the trust per hook in `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`), as a hash Codex computes from the hook's whole configuration. The CLI and the Codex app share the file, but the hash depends on the Codex version: when the CLI on `PATH` is older or newer than the app's own copy, one of them may see the hooks as modified. The app's copy decides, which is why `install` prefers it.
+- Trust has to be given again when a hook changes (another `--endpoint` or `--node`, a Node.js that moved) or when a Codex update computes the hash differently. `n2n-nexus doctor codex` checks the trust with Codex and reports `FAIL hook trust` then; run `n2n-nexus install codex` again. Upgrading the npm package alone does not change the hooks.
 - Hooks are on by default in current Codex versions. If a policy or your own `config.toml` sets `[features] hooks = false`, they do not run at all.
-- When hooks need review, Codex warns at startup and points you to `/hooks`.
 
 Official documentation: [Codex hooks](https://learn.chatgpt.com/docs/hooks).
 
@@ -127,7 +130,7 @@ On macOS the first connection may trigger a **Local Network** permission prompt 
 
 ## 7. Check the installation
 
-`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook commands, and the Node path and npx in the MCP command, still exist and run, and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails.
+`n2n-nexus doctor [claude|codex]` checks that the Node path and the entry script in the installed hook commands, and the Node path and npx in the MCP command, still exist and run, that Codex trusts the Codex hooks (asking Codex itself), and that the host they talk to answers with the client's contract version; it exits with code 1 when a check fails.
 
 ## 8. Upgrading
 

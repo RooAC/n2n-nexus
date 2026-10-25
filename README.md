@@ -92,7 +92,7 @@ n2n-nexus gives AI assistants a shared coordination workspace. A long-running lo
 
 1. Install and start the host, `n2n-nexus-host`, with Scoop, Homebrew or an archive from [Releases](https://github.com/n2ns/n2n-nexus/releases): [Installation guide, steps 1–2](docs/INSTALL.md#1-install-the-host).
 2. Install the client and connect Claude Code or Codex (`npm i -g n2n-nexus@latest`, then `n2n-nexus install claude` or `n2n-nexus install codex`): [step 3](docs/INSTALL.md#3-install-the-client-for-claude-code-and-codex).
-3. Codex only: trust the n2n-nexus hooks once with `/hooks`: [step 4](docs/INSTALL.md#4-turn-on-the-codex-hooks-one-time-required).
+3. Codex only: `install codex` trusts the n2n-nexus hooks in Codex; if it says it could not, trust them by hand: [step 4](docs/INSTALL.md#4-turn-on-the-codex-hooks-one-time-required).
 
 Other MCP clients and several machines: see the [Installation guide](docs/INSTALL.md). Using it, troubleshooting and configuration: see the [User guide](docs/USER_GUIDE.md).
 

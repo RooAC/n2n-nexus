@@ -4,6 +4,12 @@
 
 本项目的所有重大变更都将记录在此文件中。
 
+## [Unreleased]
+
+### 变更
+
+- `n2n-nexus install codex` 直接在 Codex 里信任 n2n-nexus 的 hooks：它向 Codex 自己（`codex app-server`；Windows 上用 Codex 桌面应用运行的那份，否则用 `PATH` 上的 `codex`）取得每条 hook 的信任哈希并存下，不再需要 `/hooks` 这一步。失败时会说明怎么手动信任（Codex 桌面应用的设置，或命令行里的 `/hooks`）。`n2n-nexus doctor codex` 会向 Codex 核对 hooks 是否被信任，Codex 升级可能会让信任失效。
+
 ## [0.9.4] - 2026-10-26
 
 ### 变更

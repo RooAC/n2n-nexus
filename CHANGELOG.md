@@ -4,6 +4,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- `n2n-nexus install codex` trusts the n2n-nexus hooks in Codex itself: it asks Codex (`codex app-server`, the copy the Codex app runs on Windows, else `codex` on `PATH`) for each hook's trust hash and stores it, so no `/hooks` step is needed. If that fails, it says how to trust them by hand (the Codex app's settings, or `/hooks` in the CLI). `n2n-nexus doctor codex` checks with Codex that the hooks are trusted, which a Codex update can undo.
+
 ## [0.9.4] - 2026-10-26
 
 ### Changed

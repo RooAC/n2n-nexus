@@ -383,9 +383,6 @@ export function runInstall(options: InstallOptions): number {
             if (VERSIONED_NODE_DIR.test(node) || VERSIONED_NODE_DIR.test(npm.npx)) {
                 process.stdout.write(`Note: this Node or npx path contains a version directory that an upgrade may remove. After upgrading Node, run "n2n-nexus install ${client}" again, or install with --node <path> pointing at a stable entry such as /usr/local/bin/node.\n`);
             }
-            if (client === "codex") {
-                process.stdout.write("Next: open Codex and run /hooks to trust the n2n-nexus hooks; until then they do not run.\n");
-            }
         }
         return 0;
     } catch (error) {
@@ -395,7 +392,7 @@ export function runInstall(options: InstallOptions): number {
 }
 
 /** Parse `<claude|codex> [--endpoint <url>] [--node <path>]` and run. */
-export function runInstallCommand(action: "install" | "uninstall", argv: string[]): number {
+export async function runInstallCommand(action: "install" | "uninstall", argv: string[]): Promise<number> {
     const client = argv[0];
     if (!isHookClient(client)) {
         process.stderr.write(`Usage: n2n-nexus ${action} <claude|codex>${action === "install" ? " [--endpoint <url>] [--node <path>]" : ""}\n`);
@@ -415,5 +412,25 @@ export function runInstallCommand(action: "install" | "uninstall", argv: string[
     if (endpoint === null) return 1;
     const node = option("--node", "a path");
     if (node === null) return 1;
-    return runInstall({ action, client, endpoint, node });
+    const code = runInstall({ action, client, endpoint, node });
+    if (code === 0 && action === "install" && client === "codex") await trustCodex();
+    return code;
+}
+
+/**
+ * Codex runs the hooks just written only once they are trusted: trust them
+ * through Codex itself, or say how to do it by hand. Never fails the install.
+ */
+async function trustCodex(): Promise<void> {
+    const { MANUAL_TRUST, codexHookTrust, codexProgram } = await import("./codex-trust.js");
+    const program = codexProgram();
+    try {
+        if (!program) throw new Error(`the "codex" command could not be run`);
+        const state = await codexHookTrust(program, configFile("codex"), true);
+        if (state.ours === 0) throw new Error(`Codex (${program.label}) does not list the n2n-nexus hooks`);
+        if (state.untrusted.length > 0) throw new Error(`Codex (${program.label}) still does not trust ${state.untrusted.join(", ")}`);
+        process.stdout.write(`Trusted the ${state.ours} n2n-nexus hooks in Codex (${program.label}); start a new Codex conversation to use them.\n`);
+    } catch (error) {
+        process.stdout.write(`Could not trust the hooks automatically (${(error as Error).message}). Codex does not run them until you ${MANUAL_TRUST}.\n`);
+    }
 }

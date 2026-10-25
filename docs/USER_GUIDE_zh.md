@@ -37,7 +37,7 @@ Claude 桌面版里有两种对话：
 | 现象 | 原因和解决办法 |
 |---|---|
 | 工具调用提示 n2n-nexus-host 不可用 | host 没运行或连不上：启动它（[安装手册第 2 步](INSTALL_zh.md#2-启动-host)）；如果在另一台机器上，打开局域网访问（[第 6 步](INSTALL_zh.md#6-多台机器和多个环境)）。 |
-| `peers` 里一直看不到 Codex 会话 | Codex 的 hooks 还没被信任（[安装手册第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)）。 |
+| `peers` 里一直看不到 Codex 会话 | Codex 的 hooks 没有被信任（还没信任，或者 Codex 升级后需要重新信任）：`n2n-nexus doctor codex` 会报告；重新运行 `n2n-nexus install codex`（[安装手册第 4 步](INSTALL_zh.md#4-启用-codex-的-hooks只需一次必须做)）。 |
 | 对话能收到消息通知，却没有 `read` / `reply` 工具 | hooks 装了，但这个配置下没注册 MCP 服务器。多个 Claude 配置目录（`CLAUDE_CONFIG_DIR`、账号切换工具）时常见：运行 `CLAUDE_CONFIG_DIR=<那个目录> n2n-nexus install claude`，再新开对话。 |
 | 提示"This call carries no agent session" | 对话是在安装 hooks 之前开的（新开一个）、MCP 服务器名不是 `n2n-nexus`，或者身份过期（再调用一次）。在 Claude 桌面版的聊天里这是正常的；在 Code 标签页里出现，说明桌面版把 `claude_desktop_config.json` 里的 n2n-nexus 桥接了过来：把它从那里删掉（第 2 节）。 |
 | `claude -p` 脚本 | 不会被后台等待拖住，无需处理。 |
@@ -97,7 +97,7 @@ n2n-nexus hook <claude|codex> [--endpoint <url>] [--wait]
 | `NEXUS_ENDPOINT` | MCP 适配器、hooks 和 `doctor` 连接的 host 地址，设为 `discover` 时在局域网里查找 | `http://127.0.0.1:5688` |
 | `NEXUS_DISCOVERY_PORT` | 客户端用 `discover` 查询时使用的 UDP 端口 | `5688` |
 | `NEXUS_INSTANCE_ID` | 覆盖 MCP 实例 ID（没装 hooks 的客户端调用聊天和会议工具时的身份） | `mcp-<主机名>-<工作目录哈希>-<IDE 名>` |
-| `NEXUS_CODEX_COMMAND` | Codex 后台等待以 `<命令> queue ...` 方式运行的命令 | `codex` |
+| `NEXUS_CODEX_COMMAND` | Codex 后台等待以 `<命令> queue ...` 方式运行的命令，`install codex` 和 `doctor` 也用它查询 hook 信任 | `codex`（Windows 上查询信任时默认用 Codex 桌面应用自带的那份） |
 
 host（`n2n-nexus-host`）：只读取 `NEXUS_ROOT`，即数据目录（`--root` 优先）。其余 host 设置都在 `settings.json` 里，托盘、服务和命令行共用。
 

@@ -6,6 +6,7 @@ import path from "node:path";
 import { cleanupExecutables, executablePath, writeExecutable } from "./helpers/executable.js";
 
 import { npxFor, runInstall, satisfiesEngines } from "../src/cli/install.js";
+import { isOurCodexHook } from "../src/cli/codex-trust.js";
 
 // Runs the built CLI: beforeAll runs `npm run build` so build/ matches the sources.
 const REPO = path.resolve(__dirname, "..");
@@ -27,15 +28,54 @@ let claudeDir: string;
 let codexHome: string;
 let callsLog: string;
 
-/** A fake claude / codex that records its arguments (tab separated, one call per line). */
+/**
+ * A fake claude / codex that records its arguments (tab separated, one call per
+ * line). `codex app-server` answers initialize, hooks/list (every command hook
+ * in $CODEX_HOME/hooks.json; its hash is the command's) and config/value/write
+ * (into $CODEX_HOME/trust.json) like Codex; FAKE_APP_SERVER=exit makes it exit at once.
+ */
 function fakeCli(name: string): void {
     writeExecutable(path.join(bin, name), `
 const fs = require("node:fs");
+const path = require("node:path");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CALLS_LOG, [${JSON.stringify(name)}, ...args].join("\\t") + "\\n");
 if (args[1] === "remove" && process.env.FAIL_REMOVE) {
     process.stderr.write("cannot write config: EACCES\\n");
     process.exit(1);
+}
+if (args[0] === "app-server") {
+    if (process.env.FAKE_APP_SERVER === "exit") process.exit(1);
+    const home = process.env.CODEX_HOME;
+    const hooksFile = path.join(home, "hooks.json");
+    const trustFile = path.join(home, "trust.json");
+    const trust = () => fs.existsSync(trustFile) ? JSON.parse(fs.readFileSync(trustFile, "utf8")) : {};
+    const list = () => {
+        const hooks = fs.existsSync(hooksFile) ? JSON.parse(fs.readFileSync(hooksFile, "utf8")).hooks || {} : {};
+        const state = trust();
+        const out = [];
+        for (const [event, groups] of Object.entries(hooks)) groups.forEach((group, g) => (group.hooks || []).forEach((hook, h) => {
+            const key = hooksFile + ":" + event + ":" + g + ":" + h;
+            const hash = "sha256:" + hook.command;
+            out.push({ key, command: hook.command, sourcePath: hooksFile, currentHash: hash,
+                trustStatus: state[key] === undefined ? "untrusted" : state[key].trusted_hash === hash ? "trusted" : "modified" });
+        }));
+        return out;
+    };
+    let buffer = "";
+    process.stdin.on("data", (chunk) => {
+        buffer += chunk;
+        let end;
+        while ((end = buffer.indexOf("\\n")) >= 0) {
+            const message = JSON.parse(buffer.slice(0, end));
+            buffer = buffer.slice(end + 1);
+            if (message.id === undefined) continue;
+            let result = {};
+            if (message.method === "hooks/list") result = { data: [{ cwd: home, hooks: list() }] };
+            if (message.method === "config/value/write") fs.writeFileSync(trustFile, JSON.stringify({ ...trust(), ...message.params.value }));
+            process.stdout.write(JSON.stringify({ id: message.id, result }) + "\\n");
+        }
+    });
 }
 `);
 }
@@ -298,7 +338,7 @@ describe("install claude", () => {
 });
 
 describe("install codex", () => {
-    it("writes hooks.json without PreToolUse, registers the MCP server and asks to trust the hooks", () => {
+    it("writes hooks.json without PreToolUse, registers the MCP server and trusts the hooks in Codex", () => {
         const result = run(["install", "codex", "--endpoint", "http://127.0.0.1:5799"]);
         expect(result.code).toBe(0);
 
@@ -315,10 +355,43 @@ describe("install codex", () => {
         expect(calls()).toEqual([
             ["codex", "--version"],
             ["codex", "mcp", "remove", "n2n-nexus"],
-            mcpAdd("codex", NODE, "http://127.0.0.1:5799")
+            mcpAdd("codex", NODE, "http://127.0.0.1:5799"),
+            ["codex", "app-server"]
         ]);
         expect(result.stdout).toContain(codexHooks());
-        expect(result.stdout).toContain("/hooks");
+        expect(result.stdout).toContain("Trusted the 6 n2n-nexus hooks in Codex (codex)");
+        const trusted = readJson(path.join(codexHome, "trust.json"));
+        expect(Object.keys(trusted)).toHaveLength(6);
+    });
+
+    it("trusts only its own hooks, again after they change", () => {
+        fs.mkdirSync(codexHome, { recursive: true });
+        fs.writeFileSync(codexHooks(), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } }));
+        expect(run(["install", "codex"]).code).toBe(0);
+        const first = readJson(path.join(codexHome, "trust.json"));
+        expect(Object.keys(first).some((key) => key.endsWith(":Stop:0:0"))).toBe(false); // "say done" is not ours
+        expect(Object.keys(first)).toHaveLength(6);
+        // A new endpoint changes our commands: Codex sees them as modified, and install trusts them again.
+        const again = run(["install", "codex", "--endpoint", "http://127.0.0.1:5799"]);
+        expect(again.stdout).toContain("Trusted the 6 n2n-nexus hooks");
+        const hashes = Object.values(readJson(path.join(codexHome, "trust.json")) as Record<string, { trusted_hash: string }>).map((v) => v.trusted_hash);
+        expect(hashes.filter((h) => h.includes("http://127.0.0.1:5799"))).toHaveLength(6);
+    });
+
+    it("recognizes its hooks as Codex lists them, in both command forms", () => {
+        expect(isOurCodexHook(command("codex"))).toBe(true);
+        expect(isOurCodexHook(codexWindowsCommand())).toBe(true);
+        expect(isOurCodexHook(`${codexWindowsCommand()} '--wait'`)).toBe(true);
+        expect(isOurCodexHook(command("claude"))).toBe(false);
+        expect(isOurCodexHook("say done")).toBe(false);
+    });
+
+    it("says how to trust the hooks by hand when Codex cannot do it, and still succeeds", () => {
+        const result = run(["install", "codex"], { FAKE_APP_SERVER: "exit" });
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain("Could not trust the hooks automatically (codex app-server exited (1))");
+        expect(result.stdout).toContain("in the Codex app's settings (hooks), or with /hooks in the Codex CLI");
+        expect(readJson(codexHooks()).hooks).toBeDefined();
     });
 
     it("keeps other hooks, is stable on reinstall and uninstalls cleanly", () => {
@@ -399,7 +472,7 @@ describe("node path", () => {
         const result = run(["install", "codex"], { PATH: [bin, other, path.dirname(link)].join(path.delimiter) });
         expect(result.code).toBe(0);
         expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
-        expect(calls().at(-1)).toEqual(mcpAdd("codex", link));
+        expect(calls().filter((call) => call[1] !== "app-server").at(-1)).toEqual(mcpAdd("codex", link));
     });
 
     it("skips relative PATH entries and fnm's per-shell directory", () => {
@@ -437,7 +510,7 @@ describe("node path", () => {
 
         expect(run(["install", "codex", "--node", link]).code).toBe(0);
         expect(ourCommands(codexHooks(), "codex")).toEqual(Array(6).fill(command("codex", undefined, link)));
-        expect(calls().at(-1)).toEqual(mcpAdd("codex", link));
+        expect(calls().filter((call) => call[1] !== "app-server").at(-1)).toEqual(mcpAdd("codex", link));
     });
 
     it("--node rejects a missing path, a directory, a non-node program and an old Node, writing nothing", () => {

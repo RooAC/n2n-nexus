@@ -66,19 +66,22 @@ MCP 服务器会自己更新：它通过 npm 的 npx 运行 `n2n-nexus@latest`�
 
 ## 4. 启用 Codex 的 hooks（只需一次，必须做）
 
-Codex 不会运行别人写的 hooks，除非你审阅并信任了它们。不做这一步，Codex 对话仍能用共享工具，但收发不了直接消息，host 也看不到它们上线。
+Codex 不会运行别人写的 hooks，除非它们被信任。没有信任，Codex 对话仍能用共享工具，但收发不了直接消息，host 也看不到它们上线。
 
-1. 在终端里打开 Codex 命令行：`codex`。
-2. 输入 `/hooks`。
-3. 审阅 n2n-nexus 的几条 hook（SessionStart、SessionEnd、UserPromptSubmit、PostToolUse 和两条 Stop，命令都是 `n2n-nexus … hook codex`），然后信任它们。
-4. 新开一个 Codex 对话。
+`n2n-nexus install codex` 会替你信任 n2n-nexus 的 hooks：它通过 Codex 自己（`codex app-server`）取得每条 hook 的信任哈希并存下，和 Codex 自己的设置做的一样。Windows 上用 Codex 桌面应用实际运行的那份 Codex（`%LOCALAPPDATA%\OpenAI\Codex\bin\<build>\codex.exe`），其他系统用 `PATH` 上的 `codex`（`NEXUS_CODEX_COMMAND` 可替换两者）。成功时输出 `Trusted the 6 n2n-nexus hooks in Codex (...)`，之后新开一个 Codex 对话即可。
+
+如果输出 `Could not trust the hooks automatically`，就手动信任：
+
+- Codex 桌面应用：打开设置，找到 hooks，信任 n2n-nexus 的几条。
+- Codex 命令行：运行 `codex`，输入 `/hooks`，信任 n2n-nexus 的几条。
+
+这几条是 SessionStart、SessionEnd、UserPromptSubmit、PostToolUse 和两条 Stop，命令都是 `n2n-nexus … hook codex`。
 
 需要知道的：
 
-- Codex 按每条 hook 记录信任，连同它命令的哈希，存在 `~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`）里。命令行和 Codex 桌面应用共用这份记录，所以在命令行里信任一次，桌面应用也生效。Codex 桌面应用没有自己的 `/hooks` 界面，请按上面的步骤用命令行。
-- 命令变了就要重新信任。比如用不同的 `--endpoint` 或 `--node` 重新运行 `n2n-nexus install codex`，或者 Node.js 换了路径之后。只升级 npm 包不会改变命令。
+- Codex 按每条 hook 记录信任，存在 `~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`）里，值是 Codex 根据这条 hook 的完整配置算出的哈希。命令行和桌面应用共用这个文件，但哈希的算法随 Codex 版本变化：`PATH` 上的命令行版本和桌面应用自带的那份不一致时，其中一方可能认为 hooks 已被修改。以桌面应用自带的那份为准，所以 `install` 优先用它。
+- hook 变了（换了 `--endpoint` 或 `--node`、Node.js 换了路径），或者 Codex 升级后哈希算法变了，都要重新信任。这时 `n2n-nexus doctor codex` 会向 Codex 核对并报告 `FAIL hook trust`，重新运行 `n2n-nexus install codex` 即可。只升级 npm 包不会改变 hooks。
 - 当前版本的 Codex 默认开启 hooks。如果管理策略或你自己的 `config.toml` 里设置了 `[features] hooks = false`，hooks 就完全不会运行。
-- 有 hooks 需要审阅时，Codex 启动时会给出提示，指向 `/hooks`。
 
 官方文档：[Codex hooks](https://learn.chatgpt.com/docs/hooks)。
 
@@ -127,7 +130,7 @@ macOS 上第一次连接时，系统可能会为运行客户端的应用（Claud
 
 ## 7. 检查安装
 
-`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令里的 Node 路径与入口脚本、MCP 命令里的 Node 路径与 npx 是否仍然存在、能否运行，以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
+`n2n-nexus doctor [claude|codex]` 检查已安装的 hook 命令里的 Node 路径与入口脚本、MCP 命令里的 Node 路径与 npx 是否仍然存在、能否运行，Codex 是否信任 Codex 的 hooks（直接问 Codex），以及它们连接的 host 是否应答、协议版本是否与客户端一致，有检查失败时以退出码 1 退出。
 
 ## 8. 升级
 

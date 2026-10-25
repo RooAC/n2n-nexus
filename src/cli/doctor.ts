@@ -3,7 +3,8 @@
  * script in the hook commands, and the Node path and npm's npx script in the
  * MCP server command (`"<node>" "<npx>" -y n2n-nexus@latest mcp`), that
  * `install` wrote still exist and run, that the host those commands talk to answers
- * GET /health as n2n-nexus-host with this client's contract version, and say
+ * GET /health as n2n-nexus-host with this client's contract version, that
+ * Codex trusts the Codex hooks (asked through codex-trust.ts), and say
  * how to fix what does not. Without a client both are checked; a client with
  * nothing installed is only reported when it was named. Exit code 1 when a
  * check failed.
@@ -142,6 +143,38 @@ function doctorClient(client: HookClient, endpoints: Set<string>, defaultEndpoin
     return !failed;
 }
 
+/**
+ * Whether Codex trusts our hooks (it runs untrusted or modified ones not at
+ * all); prints the result. A Codex that cannot be asked is only noted.
+ */
+async function doctorCodexTrust(): Promise<boolean> {
+    const { MANUAL_TRUST, codexHookTrust, codexProgram } = await import("./codex-trust.js");
+    const program = codexProgram();
+    if (!program) {
+        process.stdout.write(`  note: hook trust not checked: the "codex" command could not be run.\n`);
+        return true;
+    }
+    let state;
+    try {
+        state = await codexHookTrust(program, configFile("codex"), false);
+    } catch (error) {
+        process.stdout.write(`  note: hook trust not checked with ${program.label}: ${(error as Error).message}\n`);
+        return true;
+    }
+    if (state.ours === 0) {
+        process.stdout.write(`  FAIL hook trust (${program.label}): Codex does not list the n2n-nexus hooks\n`
+            + `  fix: run "n2n-nexus install codex" again.\n`);
+        return false;
+    }
+    if (state.untrusted.length === 0) {
+        process.stdout.write(`  ok   hook trust (${program.label}): ${state.ours} hooks trusted\n`);
+        return true;
+    }
+    process.stdout.write(`  FAIL hook trust (${program.label}): not trusted: ${state.untrusted.join(", ")}\n`
+        + `  fix: run "n2n-nexus install codex" again, or ${MANUAL_TRUST}.\n`);
+    return false;
+}
+
 /** Parse `[claude|codex]`, run the checks and return the exit code. */
 export async function runDoctor(argv: string[]): Promise<number> {
     const client = argv[0];
@@ -165,6 +198,7 @@ export async function runDoctor(argv: string[]): Promise<number> {
             } else if (!result) {
                 failed = true;
             }
+            if (c === "codex" && result !== undefined && !await doctorCodexTrust()) failed = true;
         }
         if (endpoints.size === 0) endpoints.add(defaultEndpoint);
         if (!await doctorHosts(endpoints)) failed = true;

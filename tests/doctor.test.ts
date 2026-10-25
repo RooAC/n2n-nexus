@@ -27,11 +27,13 @@ let codexHome: string;
 const host = new Host();
 let hostEndpoint: string;
 let hostVersion: string;
+/** The Codex doctor asks about hook trust: none by default (it cannot be run), so the checks never ask a real Codex. */
+let codexCommand: string;
 
 function run(args: string[], endpoint = hostEndpoint): Promise<{ code: number | null; stdout: string; stderr: string }> {
     return new Promise((resolve, reject) => {
         const child = spawn(NODE, [ENTRY, "doctor", ...args], {
-            env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome, NEXUS_ENDPOINT: endpoint },
+            env: { SystemRoot: process.env.SystemRoot, PATH: process.env.PATH, HOME: dir, CLAUDE_CONFIG_DIR: claudeDir, CODEX_HOME: codexHome, NEXUS_ENDPOINT: endpoint, NEXUS_CODEX_COMMAND: codexCommand },
             stdio: ["ignore", "pipe", "pipe"]
         });
         let stdout = "";
@@ -108,6 +110,7 @@ beforeEach(() => {
     dir = TMP;
     claudeDir = path.join(dir, "claude");
     codexHome = path.join(dir, "codex");
+    codexCommand = path.join(dir, "no-codex");
     fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -117,7 +120,51 @@ afterAll(async () => {
     cleanupExecutables();
 });
 
+/** A fake `codex app-server` that lists every hook in $CODEX_HOME/hooks.json with the trust status FAKE_TRUST. */
+function fakeCodex(status: string): string {
+    return writeExecutable(path.join(dir, "fake-codex"), `
+const fs = require("node:fs");
+const path = require("node:path");
+const file = path.join(process.env.CODEX_HOME, "hooks.json");
+let buffer = "";
+process.stdin.on("data", (chunk) => {
+    buffer += chunk;
+    let end;
+    while ((end = buffer.indexOf("\\n")) >= 0) {
+        const message = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        if (message.id === undefined) continue;
+        let result = {};
+        if (message.method === "hooks/list") {
+            const hooks = [];
+            for (const [event, groups] of Object.entries(JSON.parse(fs.readFileSync(file, "utf8")).hooks)) groups.forEach((group, g) => group.hooks.forEach((hook, h) =>
+                hooks.push({ key: event + ":" + g + ":" + h, command: hook.command, sourcePath: file, currentHash: "sha256:x", trustStatus: ${JSON.stringify(status)} })));
+            result = { data: [{ hooks }] };
+        }
+        process.stdout.write(JSON.stringify({ id: message.id, result }) + "\\n");
+    }
+});
+`);
+}
+
 describe("doctor", () => {
+    it("checks with Codex that it trusts the hooks", async () => {
+        writeCodex(hookCommand("codex"), { command: NODE, args: MCP_ARGS });
+        codexCommand = fakeCodex("trusted");
+        let result = await run(["codex"]);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain(`ok   hook trust (${codexCommand}): 1 hooks trusted`);
+        codexCommand = fakeCodex("modified");
+        result = await run(["codex"]);
+        expect(result.code).toBe(1);
+        expect(result.stdout).toContain(`FAIL hook trust (${codexCommand}): not trusted: Stop:0:0`);
+        expect(result.stdout).toContain('fix: run "n2n-nexus install codex" again, or trust the n2n-nexus hooks by hand');
+        // A Codex that cannot be run is only noted.
+        codexCommand = path.join(dir, "no-codex");
+        result = await run(["codex"]);
+        expect(result.stdout).toContain("note: hook trust not checked");
+    });
+
     it("passes when the hook and MCP commands use a Node that exists and runs", async () => {
         writeClaude(hookCommand("claude"), { command: NODE, args: MCP_ARGS });
         writeCodex(hookCommand("codex"), { command: NODE, args: MCP_ARGS });
@@ -172,7 +219,7 @@ describe("doctor", () => {
         expect(result.code).toBe(1);
         expect(result.stdout).toContain(`FAIL hook Node ${path.join(bin, "noexec")}: ${process.platform === "win32" ? "does not run" : "not executable"}`);
         expect(result.stdout).toContain(`ok   MCP Node ${versioned}: v${process.versions.node}, in a version directory that an upgrade may remove`);
-        expect(result.stdout).not.toContain("note:");
+        expect(result.stdout).not.toContain("note: after upgrading Node");
 
         writeCodex(hookCommand("codex", versioned), { command: versioned, args: MCP_ARGS });
         result = await run(["codex"]);
