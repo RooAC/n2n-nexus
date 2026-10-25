@@ -108,6 +108,19 @@ func TestWindowsFirewallScript(t *testing.T) {
 	)
 }
 
+func TestWindowsInstallScripts(t *testing.T) {
+	mustContain(t, WindowsTaskExeScript(), "Get-ScheduledTask -TaskName 'n2n-nexus-host'", "$task.Actions[0].Execute")
+	s := WindowsElevatedScript(`C:\Program's\n2n-nexus-host.exe`, []string{"service", "install"}, `C:\Temp\out.log`)
+	mustContain(t, s, "Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru", "exit $p.ExitCode")
+	i := strings.Index(s, "'-EncodedCommand','")
+	if i < 0 {
+		t.Fatal(s)
+	}
+	b64 := s[i+len("'-EncodedCommand','"):]
+	inner := decodePS(t, b64[:strings.Index(b64, "'")])
+	mustContain(t, inner, `& 'C:\Program''s\n2n-nexus-host.exe' 'service' 'install' *>&1 | Out-File -Encoding utf8 'C:\Temp\out.log'`, "exit $LASTEXITCODE")
+}
+
 // plistStrings parses a plist and returns its <string> values in order.
 func plistStrings(t *testing.T, s string) []string {
 	t.Helper()

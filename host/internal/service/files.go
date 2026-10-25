@@ -75,6 +75,30 @@ var psStopTask = fmt.Sprintf(`if (Get-ScheduledTask -TaskName %[1]s -ErrorAction
 }
 `, psQuote(TaskName), psQuote(`Stopped scheduled task "`+TaskName+`".`))
 
+// WindowsTaskExeScript prints the program the scheduled task runs, nothing when it is not registered.
+func WindowsTaskExeScript() string {
+	return psPreamble + fmt.Sprintf(`$task = Get-ScheduledTask -TaskName %s -ErrorAction SilentlyContinue
+if ($task) { Write-Output $task.Actions[0].Execute }
+`, psQuote(TaskName))
+}
+
+// WindowsElevatedScript runs exe with args as administrator (Windows asks
+// with a UAC prompt), waits for it, writes its output to outFile and exits
+// with its exit code; declining the prompt is an error.
+func WindowsElevatedScript(exe string, args []string, outFile string) string {
+	quote := func(list []string, sep string) string {
+		quoted := make([]string, len(list))
+		for i, a := range list {
+			quoted[i] = psQuote(a)
+		}
+		return strings.Join(quoted, sep)
+	}
+	inner := fmt.Sprintf("& %s %s *>&1 | Out-File -Encoding utf8 %s\nexit $LASTEXITCODE\n", psQuote(exe), quote(args, " "), psQuote(outFile))
+	return psPreamble + fmt.Sprintf(`$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList %s
+exit $p.ExitCode
+`, quote(PowerShellArgs(inner), ","))
+}
+
 // WindowsStopTaskScript stops a registered task and waits until its instance has ended.
 func WindowsStopTaskScript() string { return psPreamble + psRequireAdmin + psStopTask }
 

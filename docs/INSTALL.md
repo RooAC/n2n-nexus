@@ -16,6 +16,7 @@ This guide installs n2n-nexus so that your AI coding sessions (Claude Code and C
 | Platform | Install |
 |---|---|
 | Windows (Scoop) | `scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`, then `scoop install n2ns/n2n-nexus-host` |
+| Windows (release zip) | download `n2n-nexus-host_<version>_windows_<amd64\|arm64>.zip` from [Releases](https://github.com/n2ns/n2n-nexus/releases), extract it and run `n2n-nexus-host.exe install` in that folder |
 | Windows (winget) | coming soon |
 | macOS (Homebrew) | `brew install n2ns/tap/n2n-nexus-host` |
 | Linux | download `n2n-nexus-host_<version>_linux_<amd64\|arm64>.tar.gz` from [Releases](https://github.com/n2ns/n2n-nexus/releases), extract it and put `n2n-nexus-host` on your `PATH` |
@@ -30,6 +31,7 @@ gh attestation verify n2n-nexus-host_<version>_<os>_<arch>.tar.gz --repo n2ns/n2
 Good to know:
 
 - The binaries are not code-signed yet. On Windows, the first start of `n2n-nexus-host.exe` or `n2n-nexus-host-tray.exe` may show a SmartScreen warning: click **More info → Run anyway**. Homebrew builds the host from source on your Mac, so there is no Gatekeeper prompt.
+- `n2n-nexus-host.exe install` (Windows) copies both programs to `%LOCALAPPDATA%\Programs\n2n-nexus-host` (`--dir` for another folder), turns **Start at login** on the first time, starts the tray and says what it did. It is also how you upgrade: run it again from a newer release; it ends the tray it installed, replaces the programs (the running ones are moved aside as `.old` and removed by the next install) and, when the background service runs the installed program, restarts the service on the new one after an administrator prompt. Scoop and Homebrew installs upgrade with their package manager instead.
 - On Windows the package has two programs: `n2n-nexus-host.exe` for commands, and `n2n-nexus-host-tray.exe`, the tray, which opens no console window. `n2n-nexus-host` without arguments starts the tray program and returns.
 
 ## 2. Start the host
@@ -135,7 +137,7 @@ On macOS the first connection may trigger a **Local Network** permission prompt 
 ## 8. Upgrading
 
 - Client: the MCP server needs nothing: each new conversation starts the latest version (a running conversation keeps the one it started with). For the hooks, run `npm i -g n2n-nexus@latest`; they use the new version at once.
-- Host: upgrade with the package manager you installed it with (`scoop update n2n-nexus-host`, `brew upgrade n2n-nexus-host`), or replace the program, then restart it (tray: **Restart**; service: run `n2n-nexus-host service install` again from an administrator terminal).
+- Host: upgrade with the package manager you installed it with (`scoop update n2n-nexus-host`, `brew upgrade n2n-nexus-host`). A Windows install from the release zip upgrades with `n2n-nexus-host.exe install` from the newer release, which restarts the tray and the background service itself. Otherwise replace the program, then restart it (tray: **Restart**; service: run `n2n-nexus-host service install` again from an administrator terminal).
 
 ## 9. Uninstalling
 

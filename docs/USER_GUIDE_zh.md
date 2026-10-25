@@ -65,6 +65,9 @@ n2n-nexus-host service status [--host <addr>] [--port <port>] [--root <dir>]
 # 托盘登录后自启 / 取消
 n2n-nexus-host autostart on|off
 
+# Windows：在解压后的发布包目录里安装或升级（默认装到 %LOCALAPPDATA%\Programs\n2n-nexus-host）
+n2n-nexus-host install [--dir <dir>]
+
 n2n-nexus-host version
 ```
 

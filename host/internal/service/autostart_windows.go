@@ -26,6 +26,17 @@ func setRunValue(exe string, on bool) (string, error) {
 	return runKeyPath, nil
 }
 
+// runValue is the command HKCU\...\Run "n2n-nexus-host" starts, "" when it is not set.
+func runValue() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, RunKey, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	v, _, _ := k.GetStringValue(RunValue)
+	return v
+}
+
 func runValueSet() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, RunKey, registry.QUERY_VALUE)
 	if err != nil {

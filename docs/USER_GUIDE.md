@@ -65,6 +65,9 @@ n2n-nexus-host service status [--host <addr>] [--port <port>] [--root <dir>]
 # Start the tray at login, or stop doing so
 n2n-nexus-host autostart on|off
 
+# Windows: install or upgrade from the folder of an extracted release (default %LOCALAPPDATA%\Programs\n2n-nexus-host)
+n2n-nexus-host install [--dir <dir>]
+
 n2n-nexus-host version
 ```
 

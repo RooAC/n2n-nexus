@@ -16,6 +16,7 @@
 | 平台 | 安装 |
 |---|---|
 | Windows（Scoop） | `scoop bucket add n2ns https://github.com/n2ns/scoop-bucket`，然后 `scoop install n2ns/n2n-nexus-host` |
+| Windows（发布的 zip） | 从 [Releases](https://github.com/n2ns/n2n-nexus/releases) 下载 `n2n-nexus-host_<版本>_windows_<amd64\|arm64>.zip`，解压后在该目录里运行 `n2n-nexus-host.exe install` |
 | Windows（winget） | 即将提供 |
 | macOS（Homebrew） | `brew install n2ns/tap/n2n-nexus-host` |
 | Linux | 从 [Releases](https://github.com/n2ns/n2n-nexus/releases) 下载 `n2n-nexus-host_<版本>_linux_<amd64\|arm64>.tar.gz`，解压后把 `n2n-nexus-host` 放到 `PATH` 里 |
@@ -30,6 +31,7 @@ gh attestation verify n2n-nexus-host_<版本>_<os>_<arch>.tar.gz --repo n2ns/n2n
 需要知道的：
 
 - 程序暂未做代码签名。Windows 上第一次运行 `n2n-nexus-host.exe` 或 `n2n-nexus-host-tray.exe` 可能弹出 SmartScreen 提示：点 **更多信息 → 仍要运行**。Homebrew 在你的 Mac 上从源码编译 host，所以不会有 Gatekeeper 提示。
+- `n2n-nexus-host.exe install`（Windows）把两个程序复制到 `%LOCALAPPDATA%\Programs\n2n-nexus-host`（`--dir` 指定别的目录），第一次安装时打开 **登录后自启**，启动托盘，并说明做了什么。升级也用它：从新版本的发布包里再运行一次；它会结束自己安装的托盘、替换程序（正在运行的程序先改名为 `.old`，下次安装时删除），后台服务运行的是已安装的程序时，经管理员确认后让服务改用新版本重启。用 Scoop、Homebrew 安装的，用包管理器升级。
 - Windows 安装包里有两个程序：`n2n-nexus-host.exe` 用于命令，`n2n-nexus-host-tray.exe` 是托盘程序，不会打开控制台窗口。不带参数运行 `n2n-nexus-host` 会启动托盘程序后立即返回。
 
 ## 2. 启动 host
@@ -135,7 +137,7 @@ macOS 上第一次连接时，系统可能会为运行客户端的应用（Claud
 ## 8. 升级
 
 - 客户端：MCP 服务器不用管，每次新开对话都会启动最新版本（正在进行的对话保持它启动时的版本）。hooks 需要运行 `npm i -g n2n-nexus@latest`，之后立即用上新版本。
-- host：用当初安装它的包管理器升级（`scoop update n2n-nexus-host`、`brew upgrade n2n-nexus-host`），或直接替换程序，然后重启（托盘：**重启**；服务：在管理员终端里再运行一次 `n2n-nexus-host service install`）。
+- host：用当初安装它的包管理器升级（`scoop update n2n-nexus-host`、`brew upgrade n2n-nexus-host`）。Windows 上用发布的 zip 安装的，在新版本的发布包里运行 `n2n-nexus-host.exe install` 即可，它会自己重启托盘和后台服务。其他情况直接替换程序后重启（托盘：**重启**；服务：在管理员终端里再运行一次 `n2n-nexus-host service install`）。
 
 ## 9. 卸载
 

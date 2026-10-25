@@ -28,6 +28,7 @@ const usage = `usage:
   n2n-nexus-host serve [--host <addr>] [--port <port>] [--root <dir>] [--supervise [--log-dir <dir>]]
   n2n-nexus-host service install|uninstall|status [--host <addr>] [--port <port>] [--root <dir>]
   n2n-nexus-host autostart on|off
+  n2n-nexus-host install [--dir <dir>]             Windows: install or upgrade from this release folder
   n2n-nexus-host version
 `
 
@@ -52,6 +53,8 @@ func main() {
 		os.Exit(serviceCmd(args))
 	case "autostart":
 		os.Exit(autostart(args))
+	case "install":
+		os.Exit(install(args))
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -219,6 +222,20 @@ func serviceCmd(args []string) int {
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "service %s failed: %v\n", action, err)
+		return 1
+	}
+	return 0
+}
+
+// install installs or upgrades the programs next to this one (Windows).
+func install(args []string) int {
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	dir := fs.String("dir", "", `where to install (default: %LOCALAPPDATA%\Programs\n2n-nexus-host)`)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := service.SelfInstall(service.SelfInstallOptions{Exe: executable(), Dir: *dir, Out: os.Stdout}); err != nil {
+		fmt.Fprintf(os.Stderr, "install: %v\n", err)
 		return 1
 	}
 	return 0

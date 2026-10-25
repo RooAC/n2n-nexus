@@ -38,7 +38,7 @@ Two programs share one protocol. See `docs/ARCHITECTURE.md` for the full design.
 The single source of the protocol: `tools.json` (every tool's name, title, description, annotations, input and output JSON Schema), `hook.json` (hook clients, request fields, `_meta` keys, timings, limits, notification texts), `errors.json` (endpoints, error body, status codes). The Go host embeds them (`contract/contract.go`), the TypeScript client reads `hook.json` at run time (`src/contract.ts`), and the conformance tests read all three. Bump `contractVersion` in all three files when a change breaks an older client or host. See `contract/README.md`.
 
 ### Host (`host/`, Go module `github.com/n2ns/n2n-nexus` at the repository root)
-`n2n-nexus-host`: tray by default, `serve` in the foreground, `service install|uninstall|status`, `autostart on|off`, `version` (`host/cmd/n2n-nexus-host/main.go`).
+`n2n-nexus-host`: tray by default, `serve` in the foreground, `service install|uninstall|status`, `autostart on|off`, `install` (Windows: install or upgrade from a release folder), `version` (`host/cmd/n2n-nexus-host/main.go`).
 
 - `internal/config` — data and log directories per OS, `settings.json` (`host`, `port`, `discoveryPort`, `allowedHosts`, `rateLimit`, `rateBurst`, `maxAutoTurns`, `stanceReminderMinutes`). The only environment variable the host reads is `NEXUS_ROOT`.
 - `internal/protocol` — loads the embedded contract, compiles the schemas, strips undeclared argument keys, validates arguments and results.
